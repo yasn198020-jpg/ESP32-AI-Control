@@ -8,12 +8,12 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import org.json.JSONObject
 
 data class Device(val id: String, val name: String, val online: Boolean, val widgets: List<WidgetState>)
 data class WidgetState(val id: String, val title: String, val type: Type, val value: String) {
@@ -27,109 +27,126 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun App() {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("settings", Context.MODE_PRIVATE) }
     var mqttUrl by remember { mutableStateOf(prefs.getString("mqtt_url", "") ?: "") }
+    var mqttPrefix by remember { mutableStateOf(prefs.getString("mqtt_prefix", "IoTManager") ?: "IoTManager") }
+    var username by remember { mutableStateOf(prefs.getString("mqtt_user", "") ?: "") }
+    var password by remember { mutableStateOf(prefs.getString("mqtt_pass", "") ?: "") }
     var address by remember { mutableStateOf(prefs.getString("address", "") ?: "") }
     var tab by remember { mutableIntStateOf(0) }
     var connected by remember { mutableStateOf(false) }
     var log by remember { mutableStateOf(listOf("MQTT diagnostic log ready")) }
     var devices by remember {
-        mutableStateOf(listOf(
-            Device("esp32-1", "ESP32 Controller", false, listOf(
-                WidgetState("relay", "Relay", WidgetState.Type.TOGGLE, "0"),
-                WidgetState("value", "Value", WidgetState.Type.INPUT, ""),
-                WidgetState("status", "Status", WidgetState.Type.STATUS, "offline")
-            ))
-        ))
+        mutableStateOf(listOf(Device("esp32-1", "ESP32 Controller", false, listOf(
+            WidgetState("relay", "Relay", WidgetState.Type.TOGGLE, "0"),
+            WidgetState("value", "Value", WidgetState.Type.INPUT, ""),
+            WidgetState("status", "Status", WidgetState.Type.STATUS, "offline")
+        ))))
     }
 
+    fun addLog(message: String) { log = (log + message).takeLast(300) }
+    val mqtt = remember {
+        MqttManager(
+            onLog = ::addLog,
+            onConnected = { value -> connected = value },
+            onStatus = { widgetId, payload ->
+                val value = try {
+                    val json = JSONObject(payload)
+                    if (json.has("status")) json.optString("status") else payload
+                } catch (_: Exception) { payload }
+                devices = devices.map { device ->
+                    device.copy(
+                        online = true,
+                        widgets = device.widgets.map { widget ->
+                            if (widget.id == widgetId) widget.copy(value = value) else widget
+                        }
+                    )
+                }
+            }
+        )
+    }
+
+    DisposableEffect(mqtt) { onDispose { mqtt.disconnect() } }
+
     fun saveSettings() {
-        prefs.edit().putString("mqtt_url", mqttUrl).putString("address", address).apply()
-        log = log + "Settings saved"
+        prefs.edit()
+            .putString("mqtt_url", mqttUrl)
+            .putString("mqtt_prefix", mqttPrefix)
+            .putString("mqtt_user", username)
+            .putString("mqtt_pass", password)
+            .putString("address", address)
+            .apply()
+        addLog("Settings saved")
+    }
+
+    fun connect() {
+        saveSettings()
+        mqtt.connect(mqttUrl, mqttPrefix, address, username, password)
     }
 
     fun toggle(deviceId: String, widgetId: String, enabled: Boolean) {
         val value = if (enabled) "1" else "0"
-        devices = devices.map { device ->
-            if (device.id != deviceId) device else device.copy(
-                widgets = device.widgets.map { widget ->
+        val sent = mqtt.publishControl(widgetId, value)
+        if (sent) {
+            devices = devices.map { device ->
+                if (device.id != deviceId) device else device.copy(widgets = device.widgets.map { widget ->
                     if (widget.id == widgetId) widget.copy(value = value) else widget
-                }
-            )
+                })
+            }
         }
-        log = log + "OUT toggle $deviceId/$widgetId=$value"
+    }
+
+    fun input(deviceId: String, widgetId: String, value: String) {
+        if (mqtt.publishControl(widgetId, value)) {
+            devices = devices.map { device ->
+                if (device.id != deviceId) device else device.copy(widgets = device.widgets.map { widget ->
+                    if (widget.id == widgetId) widget.copy(value = value) else widget
+                })
+            }
+        }
     }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("ESP32 AI Control") }) },
         bottomBar = {
-            TabRow(selectedTabIndex = tab) {
+            NavigationBar {
                 listOf("Devices", "MQTT", "Log").forEachIndexed { index, title ->
-                    Tab(tab == index, onClick = { tab = index }, text = { Text(title) })
+                    NavigationBarItem(selected = tab == index, onClick = { tab = index }, icon = { Text((index + 1).toString()) }, label = { Text(title) })
                 }
             }
         }
     ) { padding ->
         when (tab) {
-            0 -> DevicesScreen(Modifier.padding(padding), devices, ::toggle)
-            1 -> MqttScreen(
-                Modifier.padding(padding), mqttUrl, address, connected,
-                { mqttUrl = it }, { address = it }, ::saveSettings,
-                {
-                    connected = !connected
-                    log = log + if (connected) "MQTT connect requested: $mqttUrl"
-                    else "MQTT disconnect requested"
-                },
-                { log = log + "OUT HELLO requested" }
-            )
+            0 -> DevicesScreen(Modifier.padding(padding), devices, ::toggle, ::input)
+            1 -> MqttScreen(Modifier.padding(padding), mqttUrl, mqttPrefix, username, password, address, connected,
+                { mqttUrl = it }, { mqttPrefix = it }, { username = it }, { password = it }, { address = it },
+                ::saveSettings, { if (connected) mqtt.disconnect() else connect() }, { mqtt.publishHello() })
             else -> LogScreen(Modifier.padding(padding), log)
         }
     }
 }
 
 @Composable
-private fun DevicesScreen(
-    modifier: Modifier,
-    devices: List<Device>,
-    onToggle: (String, String, Boolean) -> Unit
-) {
+private fun DevicesScreen(modifier: Modifier, devices: List<Device>, onToggle: (String, String, Boolean) -> Unit, onInput: (String, String, String) -> Unit) {
     LazyColumn(modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         items(devices, key = { it.id }) { device ->
             Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp)) {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text(device.name, style = MaterialTheme.typography.titleLarge)
-                            Text(device.id, style = MaterialTheme.typography.bodySmall)
-                        }
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Column { Text(device.name, style = MaterialTheme.typography.titleLarge); Text(device.id, style = MaterialTheme.typography.bodySmall) }
                         Text(if (device.online) "ONLINE" else "OFFLINE")
                     }
-                    Spacer(Modifier.height(12.dp))
                     device.widgets.forEach { widget ->
                         when (widget.type) {
-                            WidgetState.Type.TOGGLE -> Row(
-                                Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(widget.title)
-                                Switch(widget.value == "1", { onToggle(device.id, widget.id, it) })
+                            WidgetState.Type.TOGGLE -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Text(widget.title); Switch(checked = widget.value == "1", onCheckedChange = { onToggle(device.id, widget.id, it) })
                             }
-                            WidgetState.Type.INPUT -> OutlinedTextField(
-                                widget.value, {}, label = { Text(widget.title) },
-                                modifier = Modifier.fillMaxWidth(), enabled = false
-                            )
-                            WidgetState.Type.STATUS -> Text("${widget.title}: ${widget.value}")
+                            WidgetState.Type.INPUT -> InputWidget(widget, onSend = { onInput(device.id, widget.id, it) })
+                            WidgetState.Type.STATUS -> Text(widget.title + ": " + widget.value)
                         }
-                        Spacer(Modifier.height(8.dp))
                     }
                 }
             }
@@ -138,33 +155,36 @@ private fun DevicesScreen(
 }
 
 @Composable
-private fun MqttScreen(
-    modifier: Modifier,
-    mqttUrl: String,
-    address: String,
-    connected: Boolean,
-    onMqttUrlChange: (String) -> Unit,
-    onAddressChange: (String) -> Unit,
-    onSave: () -> Unit,
-    onConnect: () -> Unit,
-    onHello: () -> Unit
-) {
-    Column(modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        OutlinedTextField(mqttUrl, onMqttUrlChange, label = { Text("MQTT URL") }, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(address, onAddressChange, label = { Text("Device address") }, modifier = Modifier.fillMaxWidth())
+private fun InputWidget(widget: WidgetState, onSend: (String) -> Unit) {
+    var value by remember(widget.id, widget.value) { mutableStateOf(widget.value) }
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedTextField(value, { value = it }, label = { Text(widget.title) }, modifier = Modifier.weight(1f))
+        Button(onClick = { onSend(value) }) { Text("Send") }
+    }
+}
+
+@Composable
+private fun MqttScreen(modifier: Modifier, mqttUrl: String, prefix: String, username: String, password: String, address: String, connected: Boolean,
+    onUrl: (String) -> Unit, onPrefix: (String) -> Unit, onUser: (String) -> Unit, onPass: (String) -> Unit, onAddress: (String) -> Unit,
+    onSave: () -> Unit, onConnect: () -> Unit, onHello: () -> Unit) {
+    Column(modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        OutlinedTextField(mqttUrl, onUrl, label = { Text("MQTT URL") }, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(prefix, onPrefix, label = { Text("MQTT prefix") }, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(address, onAddress, label = { Text("ESP32 chip ID / address") }, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(username, onUser, label = { Text("Username") }, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(password, onPass, label = { Text("Password") }, modifier = Modifier.fillMaxWidth())
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onSave) { Text("Save") }
             Button(onClick = onConnect) { Text(if (connected) "Disconnect" else "Connect") }
-            OutlinedButton(onClick = onHello) { Text("HELLO") }
+            OutlinedButton(onClick = onHello, enabled = connected) { Text("HELLO") }
         }
         HorizontalDivider()
-        Text(if (connected) "MQTT: connected/requested" else "MQTT: disconnected")
+        Text(if (connected) "MQTT: connected" else "MQTT: disconnected")
+        Text("Protocol: <prefix>/<chipId>/<widgetId>/control")
     }
 }
 
 @Composable
 private fun LogScreen(modifier: Modifier, log: List<String>) {
-    LazyColumn(modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        items(log) { Text(it) }
-    }
+    LazyColumn(modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { items(log) { Text(it) } }
 }
