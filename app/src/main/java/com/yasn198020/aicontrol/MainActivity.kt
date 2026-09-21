@@ -33,12 +33,12 @@ class MainActivity : ComponentActivity() {
 private fun App() {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("settings", Context.MODE_PRIVATE) }
-    var mqttUrl by remember { mutableStateOf(prefs.getString("mqtt_url", "") ?: "") }
+    var mqttHost by remember { mutableStateOf(prefs.getString("mqtt_host", "") ?: "") }
+    var mqttPort by remember { mutableStateOf(prefs.getString("mqtt_port", "1883") ?: "1883") }
     var mqttPrefix by remember { mutableStateOf(prefs.getString("mqtt_prefix", "IoTManager") ?: "IoTManager") }
     var username by remember { mutableStateOf(prefs.getString("mqtt_user", "") ?: "") }
     var password by remember { mutableStateOf(prefs.getString("mqtt_pass", "") ?: "") }
-    var address by remember { mutableStateOf(prefs.getString("address", "") ?: "") }
-    var tab by remember { mutableIntStateOf(0) }
+        var tab by remember { mutableIntStateOf(0) }
     var connected by remember { mutableStateOf(false) }
     var log by remember { mutableStateOf(listOf("MQTT diagnostic log ready")) }
     var devices by remember {
@@ -75,23 +75,23 @@ private fun App() {
 
     fun saveSettings() {
         prefs.edit()
-            .putString("mqtt_url", mqttUrl)
+            .putString("mqtt_host", mqttHost)
+            .putString("mqtt_port", mqttPort)
             .putString("mqtt_prefix", mqttPrefix)
             .putString("mqtt_user", username)
             .putString("mqtt_pass", password)
-            .putString("address", address)
-            .apply()
+                        .apply()
         addLog("Settings saved")
     }
 
     fun connect() {
         saveSettings()
-        mqtt.connect(mqttUrl, mqttPrefix, address, username, password)
+        mqtt.connect(mqttHost, mqttPort.toIntOrNull() ?: 1883, mqttPrefix, username, password)
     }
 
     fun toggle(deviceId: String, widgetId: String, enabled: Boolean) {
         val value = if (enabled) "1" else "0"
-        val sent = mqtt.publishControl(widgetId, value)
+        val sent = mqtt.publishControl(deviceId, widgetId, value)
         if (sent) {
             devices = devices.map { device ->
                 if (device.id != deviceId) device else device.copy(widgets = device.widgets.map { widget ->
@@ -102,7 +102,7 @@ private fun App() {
     }
 
     fun input(deviceId: String, widgetId: String, value: String) {
-        if (mqtt.publishControl(widgetId, value)) {
+        if (mqtt.publishControl(deviceId, widgetId, value)) {
             devices = devices.map { device ->
                 if (device.id != deviceId) device else device.copy(widgets = device.widgets.map { widget ->
                     if (widget.id == widgetId) widget.copy(value = value) else widget
@@ -123,8 +123,8 @@ private fun App() {
     ) { padding ->
         when (tab) {
             0 -> DevicesScreen(Modifier.padding(padding), devices, ::toggle, ::input)
-            1 -> MqttScreen(Modifier.padding(padding), mqttUrl, mqttPrefix, username, password, address, connected,
-                { mqttUrl = it }, { mqttPrefix = it }, { username = it }, { password = it }, { address = it },
+            1 -> MqttScreen(Modifier.padding(padding), mqttHost, mqttPort, mqttPrefix, username, password, connected,
+                { mqttHost = it }, { mqttPort = it }, { mqttPrefix = it }, { username = it }, { password = it },
                 ::saveSettings, { if (connected) mqtt.disconnect() else connect() }, { mqtt.publishHello() })
             else -> LogScreen(Modifier.padding(padding), log)
         }
@@ -166,13 +166,13 @@ private fun InputWidget(widget: WidgetState, onSend: (String) -> Unit) {
 }
 
 @Composable
-private fun MqttScreen(modifier: Modifier, mqttUrl: String, prefix: String, username: String, password: String, address: String, connected: Boolean,
-    onUrl: (String) -> Unit, onPrefix: (String) -> Unit, onUser: (String) -> Unit, onPass: (String) -> Unit, onAddress: (String) -> Unit,
+private fun MqttScreen(modifier: Modifier, host: String, port: String, prefix: String, username: String, password: String, connected: Boolean,
+    onHost: (String) -> Unit, onPort: (String) -> Unit, onPrefix: (String) -> Unit, onUser: (String) -> Unit, onPass: (String) -> Unit,
     onSave: () -> Unit, onConnect: () -> Unit, onHello: () -> Unit) {
     Column(modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        OutlinedTextField(mqttUrl, onUrl, label = { Text("MQTT URL") }, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(host, onHost, label = { Text("MQTT host / IP") }, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(port, onPort, label = { Text("MQTT port") }, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(prefix, onPrefix, label = { Text("MQTT prefix") }, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(address, onAddress, label = { Text("ESP32 chip ID / address") }, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(username, onUser, label = { Text("Username") }, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(password, onPass, label = { Text("Password") }, modifier = Modifier.fillMaxWidth())
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -182,7 +182,7 @@ private fun MqttScreen(modifier: Modifier, mqttUrl: String, prefix: String, user
         }
         HorizontalDivider()
         Text(if (connected) "MQTT: connected" else "MQTT: disconnected")
-        Text("Protocol: <prefix>/<chipId>/<widgetId>/control")
+        Text("MQTT: " + host + ":" + port)
     }
 }
 
