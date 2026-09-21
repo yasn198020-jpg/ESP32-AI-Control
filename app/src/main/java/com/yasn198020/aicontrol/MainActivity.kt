@@ -38,7 +38,7 @@ private fun App() {
     var mqttPrefix by remember { mutableStateOf(prefs.getString("mqtt_prefix", "IoTManager") ?: "IoTManager") }
     var username by remember { mutableStateOf(prefs.getString("mqtt_user", "") ?: "") }
     var password by remember { mutableStateOf(prefs.getString("mqtt_pass", "") ?: "") }
-        var tab by remember { mutableIntStateOf(0) }
+    var tab by remember { mutableIntStateOf(0) }
     var connected by remember { mutableStateOf(false) }
     var log by remember { mutableStateOf(listOf("MQTT diagnostic log ready")) }
     var devices by remember {
@@ -80,7 +80,7 @@ private fun App() {
             .putString("mqtt_prefix", mqttPrefix)
             .putString("mqtt_user", username)
             .putString("mqtt_pass", password)
-                        .apply()
+            .apply()
         addLog("Settings saved")
     }
 
