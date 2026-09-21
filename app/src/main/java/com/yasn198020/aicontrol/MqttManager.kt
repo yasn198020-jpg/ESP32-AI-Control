@@ -3,6 +3,7 @@ package com.yasn198020.aicontrol
 import android.os.Handler
 import android.os.Looper
 import org.eclipse.paho.client.mqttv3.*
+import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence
 import java.util.UUID
 
 class MqttManager(
@@ -38,7 +39,7 @@ class MqttManager(
 
         try {
             val id = "ESP32AI-" + UUID.randomUUID().toString().replace("-", "").take(12)
-            val c = MqttAsyncClient(normalizedUrl, id)
+            val c = MqttAsyncClient(normalizedUrl, id, MemoryPersistence())
             client = c
 
             c.setCallback(object : MqttCallbackExtended {
