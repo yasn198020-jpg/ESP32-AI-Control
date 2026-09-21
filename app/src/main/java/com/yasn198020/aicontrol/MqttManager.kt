@@ -13,21 +13,14 @@ class MqttManager(
     private val main = Handler(Looper.getMainLooper())
     private var client: MqttAsyncClient? = null
     private var prefix = ""
-    private var deviceId = ""
-
-    fun connect(url: String, mqttPrefix: String, device: String, username: String, password: String) {
+    
+    fun connect(host: String, port: Int, mqttPrefix: String, username: String, password: String) {
         disconnect()
-        val normalizedUrl = url.trim().let { value ->
-            when {
-                value.startsWith("tcp://") || value.startsWith("ssl://") -> value
-                value.startsWith("mqtt://") -> "tcp://" + value.removePrefix("mqtt://")
-                value.startsWith("mqtts://") -> "ssl://" + value.removePrefix("mqtts://")
-                else -> "tcp://" + value
-            }
-        }
+        val normalizedHost = host.trim()
+        val normalizedPort = port.coerceIn(1, 65535)
         prefix = mqttPrefix.trim().trim('/')
-        deviceId = device.trim()
-        if (prefix.isEmpty() || deviceId.isEmpty()) { emitLog("MQTT: prefix/device is empty"); return }
+        if (normalizedHost.isEmpty() || prefix.isEmpty()) { emitLog("MQTT: host/prefix is empty"); return }
+        val normalizedUrl = if (normalizedHost.startsWith("ssl://")) "ssl://" + normalizedHost.removePrefix("ssl://") + ":" + normalizedPort else "tcp://" + normalizedHost.removePrefix("tcp://").removePrefix("mqtt://") + ":" + normalizedPort
         try {
             val id = "ESP32AI-" + UUID.randomUUID().toString().replace("-", "").take(12)
             val c = MqttAsyncClient(normalizedUrl, id)
@@ -46,7 +39,7 @@ class MqttManager(
                     if (topic == null || message == null) return
                     val payload = String(message.payload, Charsets.UTF_8)
                     emitLog("IN " + topic + " = " + payload)
-                    val root = prefix + "/" + deviceId + "/"
+                    val root = prefix + "/"
                     if (topic.startsWith(root) && topic.endsWith("/status")) {
                         val id = topic.removePrefix(root).removeSuffix("/status").trim('/')
                         emitStatus(id, payload)
@@ -77,8 +70,8 @@ class MqttManager(
 
     private fun subscribeDevice() {
         val c = client ?: return
-        val root = prefix + "/" + deviceId
-        val topics = arrayOf(root + "/+/status", root + "/config", root + "/+/event")
+        val root = prefix
+        val topics = arrayOf(root + "/+/+/status", root + "/+/config", root + "/+/+/event")
         try {
             c.subscribe(topics, intArrayOf(0, 0, 0), null, object : IMqttActionListener {
                 override fun onSuccess(asyncActionToken: IMqttToken?) { emitLog("MQTT subscribed: " + root) }
@@ -89,9 +82,9 @@ class MqttManager(
         } catch (e: Exception) { emitLog("MQTT subscribe error: " + (e.message ?: "unknown")) }
     }
 
-    fun publishHello() { publish(prefix, "HELLO") }
+    fun publishHello() { publish(prefix + "/HELLO", "HELLO") }
 
-    fun publishControl(widgetId: String, value: String): Boolean {
+    fun publishControl(deviceId: String, widgetId: String, value: String): Boolean {
         if (prefix.isBlank() || deviceId.isBlank() || widgetId.isBlank()) return false
         return publish(prefix + "/" + deviceId + "/" + widgetId + "/control", value)
     }
