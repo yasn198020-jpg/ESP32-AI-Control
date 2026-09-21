@@ -4,6 +4,7 @@ import android.os.Handler
 import android.os.Looper
 import org.eclipse.paho.client.mqttv3.*
 import java.util.UUID
+import javax.net.ssl.SSLSocketFactory
 
 class MqttManager(
     private val onLog: (String) -> Unit,
@@ -22,6 +23,7 @@ class MqttManager(
         if (normalizedHost.isEmpty() || prefix.isEmpty()) { emitLog("MQTT: host/prefix is empty"); return }
         val cleanHost = normalizedHost.removePrefix("ssl://").removePrefix("tcp://").removePrefix("mqtt://").removePrefix("mqtts://")
         val normalizedUrl = (if (tls) "ssl://" else "tcp://") + cleanHost + ":" + normalizedPort
+        emitLog("MQTT target: " + normalizedUrl)
         try {
             val id = "ESP32AI-" + UUID.randomUUID().toString().replace("-", "").take(12)
             val c = MqttAsyncClient(normalizedUrl, id)
@@ -53,13 +55,15 @@ class MqttManager(
                 isCleanSession = true
                 connectionTimeout = 10
                 keepAliveInterval = 30
-                if (username.isNotBlank()) { userName = username; this.password = password.toCharArray() }
+                userName = username
+                this.password = password.toCharArray()
             }
             emitLog("MQTT connecting: " + normalizedUrl)
             c.connect(options, null, object : IMqttActionListener {
                 override fun onSuccess(asyncActionToken: IMqttToken?) { emitLog("MQTT connection accepted") }
                 override fun onFailure(asyncActionToken: IMqttToken?, exception: Throwable?) {
                     emitLog("MQTT connect failed: " + (exception?.javaClass?.simpleName ?: "unknown") + ": " + (exception?.message ?: "unknown"))
+                    emitLog("MQTT credentials supplied: " + username.isNotBlank())
                     emitConnected(false)
                 }
             })
