@@ -14,13 +14,14 @@ class MqttManager(
     private var client: MqttAsyncClient? = null
     private var prefix = ""
     
-    fun connect(host: String, port: Int, mqttPrefix: String, username: String, password: String) {
+    fun connect(host: String, port: Int, mqttPrefix: String, username: String, password: String, tls: Boolean) {
         disconnect()
         val normalizedHost = host.trim()
         val normalizedPort = port.coerceIn(1, 65535)
         prefix = mqttPrefix.trim().trim('/')
         if (normalizedHost.isEmpty() || prefix.isEmpty()) { emitLog("MQTT: host/prefix is empty"); return }
-        val normalizedUrl = if (normalizedHost.startsWith("ssl://")) "ssl://" + normalizedHost.removePrefix("ssl://") + ":" + normalizedPort else "tcp://" + normalizedHost.removePrefix("tcp://").removePrefix("mqtt://") + ":" + normalizedPort
+        val cleanHost = normalizedHost.removePrefix("ssl://").removePrefix("tcp://").removePrefix("mqtt://").removePrefix("mqtts://")
+        val normalizedUrl = (if (tls) "ssl://" else "tcp://") + cleanHost + ":" + normalizedPort
         try {
             val id = "ESP32AI-" + UUID.randomUUID().toString().replace("-", "").take(12)
             val c = MqttAsyncClient(normalizedUrl, id)
@@ -58,7 +59,7 @@ class MqttManager(
             c.connect(options, null, object : IMqttActionListener {
                 override fun onSuccess(asyncActionToken: IMqttToken?) { emitLog("MQTT connection accepted") }
                 override fun onFailure(asyncActionToken: IMqttToken?, exception: Throwable?) {
-                    emitLog("MQTT connect failed: " + (exception?.message ?: "unknown"))
+                    emitLog("MQTT connect failed: " + (exception?.javaClass?.simpleName ?: "unknown") + ": " + (exception?.message ?: "unknown"))
                     emitConnected(false)
                 }
             })
