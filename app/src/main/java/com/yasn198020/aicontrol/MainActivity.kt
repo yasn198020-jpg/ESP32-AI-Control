@@ -33,8 +33,9 @@ class MainActivity : ComponentActivity() {
 private fun App() {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("settings", Context.MODE_PRIVATE) }
-    var mqttHost by remember { mutableStateOf(prefs.getString("mqtt_host", "") ?: "") }
+    var mqttHost by remember { mutableStateOf(prefs.getString("mqtt_host", "m4.wqtt.ru") ?: "m4.wqtt.ru") }
     var mqttPort by remember { mutableStateOf(prefs.getString("mqtt_port", "1883") ?: "1883") }
+    var mqttTls by remember { mutableStateOf(prefs.getBoolean("mqtt_tls", false)) }
     var mqttPrefix by remember { mutableStateOf(prefs.getString("mqtt_prefix", "IoTManager") ?: "IoTManager") }
     var username by remember { mutableStateOf(prefs.getString("mqtt_user", "") ?: "") }
     var password by remember { mutableStateOf(prefs.getString("mqtt_pass", "") ?: "") }
@@ -77,6 +78,7 @@ private fun App() {
         prefs.edit()
             .putString("mqtt_host", mqttHost)
             .putString("mqtt_port", mqttPort)
+            .putBoolean("mqtt_tls", mqttTls)
             .putString("mqtt_prefix", mqttPrefix)
             .putString("mqtt_user", username)
             .putString("mqtt_pass", password)
@@ -86,7 +88,7 @@ private fun App() {
 
     fun connect() {
         saveSettings()
-        mqtt.connect(mqttHost, mqttPort.toIntOrNull() ?: 1883, mqttPrefix, username, password)
+        mqtt.connect(mqttHost, mqttPort.toIntOrNull() ?: 1883, mqttPrefix, username, password, mqttTls)
     }
 
     fun toggle(deviceId: String, widgetId: String, enabled: Boolean) {
@@ -123,8 +125,8 @@ private fun App() {
     ) { padding ->
         when (tab) {
             0 -> DevicesScreen(Modifier.padding(padding), devices, ::toggle, ::input)
-            1 -> MqttScreen(Modifier.padding(padding), mqttHost, mqttPort, mqttPrefix, username, password, connected,
-                { mqttHost = it }, { mqttPort = it }, { mqttPrefix = it }, { username = it }, { password = it },
+            1 -> MqttScreen(Modifier.padding(padding), mqttHost, mqttPort, mqttPrefix, username, password, mqttTls, connected,
+                { mqttHost = it }, { mqttPort = it }, { mqttPrefix = it }, { username = it }, { password = it }, { mqttTls = it },
                 ::saveSettings, { if (connected) mqtt.disconnect() else connect() }, { mqtt.publishHello() })
             else -> LogScreen(Modifier.padding(padding), log)
         }
@@ -166,8 +168,8 @@ private fun InputWidget(widget: WidgetState, onSend: (String) -> Unit) {
 }
 
 @Composable
-private fun MqttScreen(modifier: Modifier, host: String, port: String, prefix: String, username: String, password: String, connected: Boolean,
-    onHost: (String) -> Unit, onPort: (String) -> Unit, onPrefix: (String) -> Unit, onUser: (String) -> Unit, onPass: (String) -> Unit,
+private fun MqttScreen(modifier: Modifier, host: String, port: String, prefix: String, username: String, password: String, tls: Boolean, connected: Boolean,
+    onHost: (String) -> Unit, onPort: (String) -> Unit, onPrefix: (String) -> Unit, onUser: (String) -> Unit, onPass: (String) -> Unit, onTls: (Boolean) -> Unit,
     onSave: () -> Unit, onConnect: () -> Unit, onHello: () -> Unit) {
     Column(modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         OutlinedTextField(host, onHost, label = { Text("MQTT host / IP") }, modifier = Modifier.fillMaxWidth())
@@ -175,6 +177,10 @@ private fun MqttScreen(modifier: Modifier, host: String, port: String, prefix: S
         OutlinedTextField(prefix, onPrefix, label = { Text("MQTT prefix") }, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(username, onUser, label = { Text("Username") }, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(password, onPass, label = { Text("Password") }, modifier = Modifier.fillMaxWidth())
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text("TLS / SSL")
+            Switch(checked = tls, onCheckedChange = onTls)
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onSave) { Text("Save") }
             Button(onClick = onConnect) { Text(if (connected) "Disconnect" else "Connect") }
