@@ -41,8 +41,8 @@ class MqttManager(
                     emitLog("IN " + topic + " = " + payload)
                     val root = prefix + "/"
                     if (topic.startsWith(root) && topic.endsWith("/status")) {
-                        val id = topic.removePrefix(root).removeSuffix("/status").trim('/')
-                        emitStatus(id, payload)
+                        val parts = topic.removePrefix(root).trim('/').split("/")
+                        if (parts.size >= 3) emitStatus(parts[parts.size - 2], payload)
                     }
                 }
                 override fun deliveryComplete(token: IMqttDeliveryToken?) = Unit
@@ -71,7 +71,7 @@ class MqttManager(
     private fun subscribeDevice() {
         val c = client ?: return
         val root = prefix
-        val topics = arrayOf(root + "/+/+/status", root + "/+/config", root + "/+/+/event")
+        val topics = arrayOf(root + "/#")
         try {
             c.subscribe(topics, intArrayOf(0, 0, 0), null, object : IMqttActionListener {
                 override fun onSuccess(asyncActionToken: IMqttToken?) { emitLog("MQTT subscribed: " + root) }
