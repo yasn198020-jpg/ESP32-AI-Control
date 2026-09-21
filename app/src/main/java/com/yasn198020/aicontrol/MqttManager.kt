@@ -121,8 +121,6 @@ class MqttManager(
             if (mqttError != null) {
                 append(" reasonCode=")
                 append(mqttError.reasonCode)
-                append(" reason=")
-                append(mqttError.reasonMessage)
             }
 
             append(" message=")
