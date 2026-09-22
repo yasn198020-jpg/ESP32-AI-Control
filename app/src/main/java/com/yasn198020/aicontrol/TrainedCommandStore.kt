@@ -82,6 +82,10 @@ class TrainedCommandStore(private val prefs: SharedPreferences) {
         })
     }
 
+    fun clear() {
+        prefs.edit().remove(key).apply()
+    }
+
     private fun save(commands: List<TrainedVoiceCommand>) {
         val array = JSONArray()
         commands.forEach {
