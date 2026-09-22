@@ -7,6 +7,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
@@ -56,25 +57,16 @@ private fun App() {
                 } catch (_: Exception) { payload }
                 val existingDevice = devices.firstOrNull { it.id == deviceId }
                 if (existingDevice == null) {
-                    devices = devices + Device(
-                        deviceId,
-                        deviceId,
-                        true,
-                        listOf(WidgetState(widgetId, widgetId, WidgetState.Type.STATUS, value))
-                    )
+                    devices = devices + Device(deviceId, deviceId, true, listOf(WidgetState(widgetId, widgetId, WidgetState.Type.STATUS, value)))
                 } else {
                     devices = devices.map { device ->
                         if (device.id != deviceId) device else {
                             val existingWidget = device.widgets.any { it.id == widgetId }
                             device.copy(
                                 online = true,
-                                widgets = if (existingWidget) {
-                                    device.widgets.map { widget ->
-                                        if (widget.id == widgetId) widget.copy(value = value) else widget
-                                    }
-                                } else {
-                                    device.widgets + WidgetState(widgetId, widgetId, WidgetState.Type.STATUS, value)
-                                }
+                                widgets = if (existingWidget) device.widgets.map { widget ->
+                                    if (widget.id == widgetId) widget.copy(value = value) else widget
+                                } else device.widgets + WidgetState(widgetId, widgetId, WidgetState.Type.STATUS, value)
                             )
                         }
                     }
@@ -197,9 +189,7 @@ private fun DevicesScreen(
                                         onCheckedChange = { onSend(device.id, widget.id, if (it) "1" else "0") }
                                     )
                                 }
-                                WidgetState.Type.BUTTON -> Button(onClick = { onSend(device.id, widget.id, "1") }) {
-                                    Text(widget.title)
-                                }
+                                WidgetState.Type.BUTTON -> Button(onClick = { onSend(device.id, widget.id, "1") }) { Text(widget.title) }
                                 WidgetState.Type.VALUE -> Text(widget.title + ": " + widget.value + widget.unit)
                                 WidgetState.Type.STATUS -> Text(widget.title + ": " + widget.value)
                             }
@@ -250,5 +240,23 @@ private fun MqttScreen(modifier: Modifier, host: String, port: String, prefix: S
 
 @Composable
 private fun LogScreen(modifier: Modifier, log: List<String>) {
-    LazyColumn(modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { items(log) { Text(it) } }
+    val context = LocalContext.current
+    val logText = remember(log) { log.joinToString("\n") }
+
+    Column(modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text("MQTT Log (" + log.size + ")", style = MaterialTheme.typography.titleMedium)
+            OutlinedButton(onClick = {
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("MQTT Log", logText))
+            }) {
+                Text("Копировать")
+            }
+        }
+        SelectionContainer {
+            LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                items(log) { Text(it) }
+            }
+        }
+    }
 }
