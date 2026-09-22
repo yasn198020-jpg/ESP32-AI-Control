@@ -47,6 +47,9 @@ private fun App() {
     var mqttPrefix by remember { mutableStateOf(prefs.getString("mqtt_prefix", "IoTManager") ?: "IoTManager") }
     var username by remember { mutableStateOf(prefs.getString("mqtt_user", "") ?: "") }
     var password by remember { mutableStateOf(prefs.getString("mqtt_pass", "") ?: "") }
+    var aiEndpoint by remember { mutableStateOf(prefs.getString("ai_endpoint", "https://api.openai.com/v1/responses") ?: "https://api.openai.com/v1/responses") }
+    var aiApiKey by remember { mutableStateOf(prefs.getString("ai_api_key", "") ?: "") }
+    var aiModel by remember { mutableStateOf(prefs.getString("ai_model", "gpt-5.6-luna") ?: "gpt-5.6-luna") }
     var tab by remember { mutableIntStateOf(0) }
     var connected by remember { mutableStateOf(false) }
     var log by remember { mutableStateOf(listOf("MQTT diagnostic log ready")) }
@@ -54,6 +57,7 @@ private fun App() {
     var voiceText by remember { mutableStateOf("") }
     var voiceStatus by remember { mutableStateOf("Нажмите 🎤 и скажите команду") }
     val pendingValues = remember { mutableStateMapOf<String, String>() }
+    val aiManager = remember { AiCommandManager() }
 
     fun addLog(message: String) { log = (log + message).takeLast(300) }
     val voiceManager = remember {
@@ -161,6 +165,9 @@ private fun App() {
             .putString("mqtt_prefix", mqttPrefix)
             .putString("mqtt_user", username)
             .putString("mqtt_pass", password)
+            .putString("ai_endpoint", aiEndpoint)
+            .putString("ai_api_key", aiApiKey)
+            .putString("ai_model", aiModel)
             .apply()
         addLog("Settings saved")
     }
@@ -193,8 +200,38 @@ private fun App() {
     }
 
     LaunchedEffect(voiceText) {
-        if (voiceText.isNotBlank()) {
-            voiceStatus = executeVoiceScenario(voiceText, devices, ::sendWidget)
+        val command = voiceText.trim()
+        if (command.isNotBlank()) {
+            voiceStatus = "ИИ анализирует команду…"
+            val result = aiManager.interpret(
+                endpoint = aiEndpoint,
+                apiKey = aiApiKey,
+                model = aiModel,
+                command = command,
+                devices = devices
+            )
+            result.onSuccess { intent ->
+                if (intent.action == "clarify") {
+                    voiceStatus = intent.reply.ifBlank { "Уточните команду" }
+                } else {
+                    val device = devices.firstOrNull { it.id == intent.deviceId }
+                    val widget = device?.widgets?.firstOrNull { it.id == intent.widgetId }
+                    if (device == null || widget == null) {
+                        voiceStatus = "ИИ выбрал неизвестный виджет. Команда не отправлена."
+                    } else if (widget.type != WidgetState.Type.TOGGLE && widget.type != WidgetState.Type.BUTTON) {
+                        voiceStatus = "Выбранный виджет нельзя управлять этой командой."
+                    } else if (widget.topic.isBlank()) {
+                        voiceStatus = "У выбранного виджета нет MQTT topic. Команда не отправлена."
+                    } else if (intent.value != "0" && intent.value != "1") {
+                        voiceStatus = "Недопустимое значение команды. Команда не отправлена."
+                    } else {
+                        sendWidget(intent.deviceId, intent.widgetId, intent.value)
+                        voiceStatus = intent.reply.ifBlank { "Команда отправлена" }
+                    }
+                }
+            }.onFailure { error ->
+                voiceStatus = "Ошибка ИИ: " + (error.message ?: "неизвестная ошибка")
+            }
         }
     }
 
@@ -227,9 +264,14 @@ private fun App() {
                 },
                 onSend = ::sendWidget
             )
-            1 -> MqttScreen(Modifier.padding(padding), mqttHost, mqttPort, mqttPrefix, username, password, mqttTls, connected,
+            1 -> MqttScreen(
+                Modifier.padding(padding),
+                mqttHost, mqttPort, mqttPrefix, username, password, mqttTls, connected,
+                aiEndpoint, aiApiKey, aiModel,
                 { mqttHost = it }, { mqttPort = it }, { mqttPrefix = it }, { username = it }, { password = it }, { mqttTls = it },
-                ::saveSettings, { if (connected) mqtt.disconnect() else connect() }, { mqtt.publishHello() })
+                { aiEndpoint = it }, { aiApiKey = it }, { aiModel = it },
+                ::saveSettings, { if (connected) mqtt.disconnect() else connect() }, { mqtt.publishHello() }
+            )
             else -> LogScreen(Modifier.padding(padding), log) { log = emptyList() }
         }
     }
@@ -387,7 +429,9 @@ private fun InputWidget(widget: WidgetState, onSend: (String) -> Unit) {
 
 @Composable
 private fun MqttScreen(modifier: Modifier, host: String, port: String, prefix: String, username: String, password: String, tls: Boolean, connected: Boolean,
+    aiEndpoint: String, aiApiKey: String, aiModel: String,
     onHost: (String) -> Unit, onPort: (String) -> Unit, onPrefix: (String) -> Unit, onUser: (String) -> Unit, onPass: (String) -> Unit, onTls: (Boolean) -> Unit,
+    onAiEndpoint: (String) -> Unit, onAiApiKey: (String) -> Unit, onAiModel: (String) -> Unit,
     onSave: () -> Unit, onConnect: () -> Unit, onHello: () -> Unit) {
     Column(modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         OutlinedTextField(host, onHost, label = { Text("MQTT host / IP") }, modifier = Modifier.fillMaxWidth())
@@ -407,6 +451,32 @@ private fun MqttScreen(modifier: Modifier, host: String, port: String, prefix: S
         HorizontalDivider()
         Text(if (connected) "●  MQTT: connected" else "○  MQTT: disconnected", fontWeight = FontWeight.SemiBold)
         Text("MQTT: " + host + ":" + port)
+
+        HorizontalDivider()
+        Text("ИИ для голосовых команд", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        OutlinedTextField(
+            aiEndpoint,
+            onAiEndpoint,
+            label = { Text("AI endpoint") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            aiModel,
+            onAiModel,
+            label = { Text("AI model") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            aiApiKey,
+            onAiApiKey,
+            label = { Text("OpenAI API key") },
+            modifier = Modifier.fillMaxWidth(),
+            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
+        )
+        Text(
+            "Ключ хранится локально в настройках приложения. Для публичной APK-версии безопаснее использовать свой backend/proxy, а не встраивать ключ в APK.",
+            style = MaterialTheme.typography.bodySmall
+        )
     }
 }
 
