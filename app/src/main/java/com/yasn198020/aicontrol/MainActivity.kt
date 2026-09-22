@@ -510,8 +510,7 @@ private fun DashboardWidgetRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(68.dp)
-                .padding(horizontal = 22.dp)
-                .combinedClickable(onLongClick = onTrain, onClick = { }),
+                .padding(horizontal = 22.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text("🌡", fontSize = 22.sp, modifier = Modifier.width(34.dp))
@@ -542,7 +541,8 @@ private fun DashboardWidgetRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(66.dp)
-                .padding(horizontal = 22.dp),
+                .padding(horizontal = 22.dp)
+                .combinedClickable(onLongClick = onTrain, onClick = { }),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
