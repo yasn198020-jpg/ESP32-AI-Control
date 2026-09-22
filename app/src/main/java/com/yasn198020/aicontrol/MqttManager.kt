@@ -220,7 +220,7 @@ class MqttManager(
     }
 
     fun publishHello() {
-        publish(prefix + "/HELLO", "HELLO")
+        publish("/dghjko", "HELLO")
     }
 
     fun publishControl(deviceId: String, widgetId: String, value: String): Boolean {
