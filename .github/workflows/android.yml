@@ -7,6 +7,9 @@ on:
       - android-apk-build
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -75,5 +78,17 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-# Build trigger: 2026-09-22
-# Signed APK rebuild for configurable trained sensor readings
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION_CODE=$((1000 + GITHUB_RUN_NUMBER))
+          VERSION_NAME="1.0.$VERSION_CODE"
+          TAG="v$VERSION_NAME"
+          gh release create "$TAG" \
+            "dist/ESP32-AI-Control-$VERSION_CODE.apk" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "ESP32-AI-Control $VERSION_NAME" \
+            --notes "Signed APK build $VERSION_NAME. Install over the previous version using the same signing key."
