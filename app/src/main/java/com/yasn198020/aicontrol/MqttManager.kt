@@ -9,7 +9,8 @@ import java.util.UUID
 class MqttManager(
     private val onLog: (String) -> Unit,
     private val onConnected: (Boolean) -> Unit,
-    private val onStatus: (String, String) -> Unit
+    private val onStatus: (String, String) -> Unit,
+    private val onConfig: (String, String, String, String) -> Unit
 ) {
     private val main = Handler(Looper.getMainLooper())
     private var client: MqttAsyncClient? = null
@@ -61,7 +62,20 @@ class MqttManager(
                     emitLog("IN " + topic + " = " + payload)
 
                     val root = prefix + "/"
-                    if (topic.startsWith(root) && topic.endsWith("/status")) {
+                    if (topic.startsWith(root) && topic.endsWith("/config")) {
+                        val parts = topic.removePrefix(root).trim('/').split("/")
+                        if (parts.size == 2) {
+                            try {
+                                val json = org.json.JSONObject(payload)
+                                val widgetId = parts[1]
+                                val label = json.optString("label", json.optString("name", widgetId))
+                                val widgetType = json.optString("widget", "status")
+                                emitConfig(parts[0], widgetId, label, widgetType)
+                            } catch (_: Exception) {
+                                emitLog("MQTT config parse failed: " + topic)
+                            }
+                        }
+                    } else if (topic.startsWith(root) && topic.endsWith("/status")) {
                         val parts = topic.removePrefix(root).trim('/').split("/")
                         if (parts.size >= 3) {
                             emitStatus(parts[parts.size - 2], payload)
@@ -239,5 +253,9 @@ class MqttManager(
 
     private fun emitStatus(id: String, value: String) {
         main.post { onStatus(id, value) }
+    }
+
+    private fun emitConfig(deviceId: String, widgetId: String, label: String, widgetType: String) {
+        main.post { onConfig(deviceId, widgetId, label, widgetType) }
     }
 }
