@@ -8,6 +8,10 @@ import android.content.pm.PackageManager
 import android.speech.tts.TextToSpeech
 import java.util.Locale
 import android.os.Bundle
+import android.os.Build
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.core.content.ContextCompat
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
@@ -307,6 +311,45 @@ private fun App() {
         manualMqttDisconnect = false
         saveSettings()
         mqtt.connect(mqttHost, mqttPort.toIntOrNull() ?: 1883, mqttPrefix, username, password, mqttTls)
+    }
+
+    // Keep MQTT alive in a foreground service while the app is not visible.
+    // The foreground activity owns the connection while it is visible, so we
+    // never keep two MQTT clients connected at the same time.
+    DisposableEffect(context, mqtt) {
+        val lifecycle = (context as? ComponentActivity)?.lifecycle
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_STOP -> {
+                    if (!manualMqttDisconnect) {
+                        addLog("MQTT background mode: starting service")
+                        mqtt.disconnect()
+                        val intent = Intent(context, MqttBackgroundService::class.java)
+                        try {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                ContextCompat.startForegroundService(context, intent)
+                            } else {
+                                context.startService(intent)
+                            }
+                        } catch (e: Exception) {
+                            addLog("MQTT background service start failed: " + (e.message ?: e.javaClass.simpleName))
+                        }
+                    }
+                }
+                Lifecycle.Event.ON_START -> {
+                    try {
+                        context.stopService(Intent(context, MqttBackgroundService::class.java))
+                    } catch (_: Exception) {}
+                    if (!manualMqttDisconnect) {
+                        addLog("MQTT foreground mode: restoring connection")
+                        connect()
+                    }
+                }
+                else -> Unit
+            }
+        }
+        lifecycle?.addObserver(observer)
+        onDispose { lifecycle?.removeObserver(observer) }
     }
 
     // Automatically connect when the application opens and periodically
