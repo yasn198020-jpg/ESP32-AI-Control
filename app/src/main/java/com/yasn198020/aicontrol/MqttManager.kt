@@ -10,7 +10,7 @@ class MqttManager(
     private val onLog: (String) -> Unit,
     private val onConnected: (Boolean) -> Unit,
     private val onStatus: (String, String, String) -> Unit,
-    private val onConfig: (String, String, String, String) -> Unit
+    private val onConfig: (String, String, String, String, String, String, Int, String) -> Unit
 ) {
     private val main = Handler(Looper.getMainLooper())
     private var client: MqttAsyncClient? = null
@@ -74,37 +74,7 @@ class MqttManager(
                             " retained=" + message.isRetained
                     )
 
-                    val discoveryRoot = "/dghjko/"
-                    if (topic.startsWith(discoveryRoot)) {
-                        val parts = topic.removePrefix(discoveryRoot).trim('/').split("/")
-                        if (parts.size >= 3) {
-                            val deviceId = parts[0]
-                            val topicWidgetId = parts[1]
-                            val kind = parts[2]
-                            try {
-                                val json = org.json.JSONObject(payload)
-                                when (kind) {
-                                    "event" -> {
-                                        val widgetId = json.optString("id", topicWidgetId)
-                                        val value = json.optString("val", payload)
-                                        emitLog("DISCOVERY EVENT: device=" + deviceId + " widget=" + widgetId + " value=" + value)
-                                        emitConfig(deviceId, widgetId, widgetId, "status")
-                                        emitStatus(deviceId, widgetId, value)
-                                    }
-                                    "status" -> {
-                                        val value = json.optString("status", payload)
-                                        emitLog("DISCOVERY STATUS: device=" + deviceId + " widget=" + topicWidgetId + " value=" + value)
-                                        emitConfig(deviceId, topicWidgetId, topicWidgetId, "status")
-                                        emitStatus(deviceId, topicWidgetId, value)
-                                    }
-                                }
-                            } catch (_: Exception) {
-                                emitLog("MQTT discovery parse failed: " + topic)
-                            }
-                        }
-                    }
-
-                    val root = prefix + "/"
+                    val root = "/dghjko/"
                     if (topic.startsWith(root) && topic.endsWith("/config")) {
                         val parts = topic.removePrefix(root).trim('/').split("/")
                         if (parts.size == 2) {
@@ -119,7 +89,10 @@ class MqttManager(
                                         " type=" + widgetType +
                                         " label=" + label
                                 )
-                                emitConfig(parts[0], widgetId, label, widgetType)
+                                val page = json.optString("page", "Основная")
+                                val configTopic = json.optString("topic", "")
+                                val order = json.optInt("order", 0)
+                                emitConfig(parts[0], widgetId, label, widgetType, page, configTopic, order, json.toString())
                             } catch (_: Exception) {
                                 emitLog("MQTT config parse failed: " + topic)
                             }
@@ -142,7 +115,6 @@ class MqttManager(
                                 val widgetId = json.optString("id", parts[parts.size - 2])
                                 val value = json.optString("val", payload)
                                 emitLog("MQTT EVENT parsed: device=" + parts[0] + " widget=" + widgetId + " value=" + value)
-                                emitConfig(parts[0], widgetId, widgetId, "status")
                                 emitStatus(parts[0], widgetId, value)
                             } catch (_: Exception) {
                                 emitLog("MQTT event parse failed: " + topic)
@@ -323,7 +295,7 @@ class MqttManager(
         main.post { onStatus(deviceId, widgetId, value) }
     }
 
-    private fun emitConfig(deviceId: String, widgetId: String, label: String, widgetType: String) {
-        main.post { onConfig(deviceId, widgetId, label, widgetType) }
+    private fun emitConfig(deviceId: String, widgetId: String, label: String, widgetType: String, page: String, topic: String, order: Int, raw: String) {
+        main.post { onConfig(deviceId, widgetId, label, widgetType, page, topic, order, raw) }
     }
 }
