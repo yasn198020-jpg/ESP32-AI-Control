@@ -30,12 +30,13 @@ object UpdateManager {
                         if (tag.isBlank()) {
                             UpdateResult("GitHub не сообщил номер последней версии.")
                         } else {
-                            val remote = versionNumber(tag)
-                            val local = versionNumber(currentVersion)
-                            if (remote != null && local != null && remote <= local) {
-                                UpdateResult("У вас установлена актуальная версия: $currentVersion")
-                            } else {
-                                UpdateResult("Доступна новая версия: $tag\\nТекущая версия: $currentVersion", htmlUrl.ifBlank { null })
+                            val remote = parseVersion(tag)
+                            val local = parseVersion(currentVersion)
+                            when {
+                                remote == null -> UpdateResult("GitHub сообщил некорректную версию: $tag")
+                                local == null -> UpdateResult("Не удалось определить текущую версию: $currentVersion")
+                                remote <= local -> UpdateResult("У вас установлена актуальная версия: $currentVersion")
+                                else -> UpdateResult("Доступна новая версия: $tag\nТекущая версия: $currentVersion", htmlUrl.ifBlank { null })
                             }
                         }
                     }
@@ -47,5 +48,10 @@ object UpdateManager {
         }.start()
     }
 
-    private fun versionNumber(value: String): Int? = Regex("(\\d+)").find(value)?.value?.toIntOrNull()
+    private fun parseVersion(value: String): List<Int>? {
+        val cleaned = value.trim().removePrefix("v")
+        val parts = cleaned.split(".")
+        if (parts.size < 2 || parts.any { it.toIntOrNull() == null }) return null
+        return parts.map { it.toInt() }
+    }
 }
