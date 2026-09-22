@@ -21,6 +21,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -60,6 +61,7 @@ private fun App() {
     var menuOpen by remember { mutableStateOf(false) }
     var selectedPage by remember { mutableStateOf<String?>(null) }
     var connected by remember { mutableStateOf(false) }
+    var manualMqttDisconnect by remember { mutableStateOf(false) }
     var log by remember { mutableStateOf(listOf("MQTT diagnostic log ready")) }
     var devices by remember { mutableStateOf(emptyList<Device>()) }
     var voiceText by remember { mutableStateOf("") }
@@ -217,8 +219,27 @@ private fun App() {
     }
 
     fun connect() {
+        manualMqttDisconnect = false
         saveSettings()
         mqtt.connect(mqttHost, mqttPort.toIntOrNull() ?: 1883, mqttPrefix, username, password, mqttTls)
+    }
+
+    // Automatically connect when the application opens and periodically
+    // restore the connection if it was lost.
+    LaunchedEffect(Unit) {
+        delay(500)
+        if (!manualMqttDisconnect && !mqtt.isConnected()) {
+            addLog("MQTT auto-connect: starting")
+            connect()
+        }
+
+        while (true) {
+            delay(15_000)
+            if (!manualMqttDisconnect && !mqtt.isConnected()) {
+                addLog("MQTT auto-check: disconnected, reconnecting")
+                connect()
+            }
+        }
     }
 
     fun sendWidget(deviceId: String, widgetId: String, value: String): Boolean {
@@ -527,7 +548,14 @@ private fun App() {
             1 -> TrainedCommandsScreen(Modifier.padding(padding), trainedCommands, devices, onDelete = { command -> trainedStore.remove(command); trainedCommands = trainedStore.load() }, onAddVariant = { phrase -> variantPhraseTarget = phrase; variantPhraseText = "" })
             2 -> MqttScreen(Modifier.padding(padding), mqttHost, mqttPort, mqttPrefix, username, password, mqttTls, connected,
                 { mqttHost = it }, { mqttPort = it }, { mqttPrefix = it }, { username = it }, { password = it }, { mqttTls = it },
-                ::saveSettings, { if (connected) mqtt.disconnect() else connect() }, { mqtt.publishHello() })
+                ::saveSettings, {
+                    if (connected) {
+                        manualMqttDisconnect = true
+                        mqtt.disconnect()
+                    } else {
+                        connect()
+                    }
+                }, { mqtt.publishHello() })
             else -> LogScreen(Modifier.padding(padding), log) { log = emptyList() }
         }
     }
