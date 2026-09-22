@@ -927,6 +927,29 @@ private fun MqttScreen(modifier: Modifier, host: String, port: String, prefix: S
     }
 }
 
+private fun friendlyVoiceName(voice: android.speech.tts.Voice): String {
+    val raw = voice.name.lowercase()
+    val gender = when {
+        raw.contains("female") || raw.contains("woman") || raw.contains("fem") ||
+            raw.contains("жен") || raw.contains("female") -> "Женский"
+        raw.contains("male") || raw.contains("man") || raw.contains("муж") -> "Мужской"
+        else -> "Голос"
+    }
+
+    val provider = when {
+        raw.contains("google") -> "Google"
+        raw.contains("samsung") -> "Samsung"
+        raw.contains("yandex") || raw.contains("яндекс") -> "Яндекс"
+        raw.contains("microsoft") -> "Microsoft"
+        raw.contains("acapela") -> "Acapela"
+        else -> voice.name.substringBefore("-").substringBefore("_").ifBlank { "TTS" }
+    }
+
+    val locale = voice.locale
+    val language = if (locale.language == "ru") "Русский" else locale.displayName
+    return if (gender == "Голос") "$provider — $language" else "$gender — $provider"
+}
+
 @Composable
 private fun VoiceSettingsScreen(
     modifier: Modifier,
@@ -985,9 +1008,10 @@ private fun VoiceSettingsScreen(
             }
             DropdownMenu(expanded = voiceMenuOpen, onDismissRequest = { voiceMenuOpen = false }) {
                 voices.forEach { voice ->
+                    val displayName = friendlyVoiceName(voice)
                     DropdownMenuItem(
                         text = { Column {
-                            Text(voice.name)
+                            Text(displayName)
                             Text(voice.locale.displayName + "  •  качество " + voice.quality, style = MaterialTheme.typography.bodySmall)
                         } },
                         onClick = { onVoice(voice.name); voiceMenuOpen = false }
