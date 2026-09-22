@@ -2,6 +2,8 @@ package com.yasn198020.aicontrol
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -74,6 +76,9 @@ private fun App() {
     var selectedExistingPhrase by remember { mutableStateOf<String?>(null) }
     var variantPhraseTarget by remember { mutableStateOf<String?>(null) }
     var variantPhraseText by remember { mutableStateOf("") }
+    var updateStatus by remember { mutableStateOf<String?>(null) }
+    var latestReleaseUrl by remember { mutableStateOf<String?>(null) }
+    var updateDialogOpen by remember { mutableStateOf(false) }
 
     fun openTraining(deviceId: String, widget: WidgetState) {
         if (widget.type != WidgetState.Type.TOGGLE && widget.type != WidgetState.Type.BUTTON) return
@@ -302,6 +307,28 @@ private fun App() {
         }
     }
 
+
+    if (updateDialogOpen && updateStatus != null) {
+        AlertDialog(
+            onDismissRequest = { updateDialogOpen = false },
+            title = { Text("Обновление приложения") },
+            text = { Text(updateStatus.orEmpty()) },
+            confirmButton = {
+                if (latestReleaseUrl != null) {
+                    TextButton(onClick = {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(latestReleaseUrl)))
+                        updateDialogOpen = false
+                    }) { Text("Открыть загрузку") }
+                } else {
+                    TextButton(onClick = { updateDialogOpen = false }) { Text("OK") }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { updateDialogOpen = false }) { Text("Закрыть") }
+            }
+        )
+    }
+
     variantPhraseTarget?.let { phrase ->
         AlertDialog(
             onDismissRequest = {
@@ -464,6 +491,20 @@ private fun App() {
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                             DropdownMenuItem(text = { Text("MQTT подключение") }, onClick = { menuOpen = false; tab = 2 })
                             DropdownMenuItem(text = { Text("Журнал") }, onClick = { menuOpen = false; tab = 3 })
+
+                            DropdownMenuItem(
+                                text = { Text("Проверить обновление") },
+                                onClick = {
+                                    menuOpen = false
+                                    updateStatus = "Проверяю последнюю версию…"
+                                    latestReleaseUrl = null
+                                    updateDialogOpen = true
+                                    UpdateManager.checkLatest(BuildConfig.VERSION_NAME) { result ->
+                                        updateStatus = result.message
+                                        latestReleaseUrl = result.url
+                                    }
+                                }
+                            )
                         }
                     }
                     Text("?", fontSize = 22.sp, modifier = Modifier.padding(end = 18.dp))
