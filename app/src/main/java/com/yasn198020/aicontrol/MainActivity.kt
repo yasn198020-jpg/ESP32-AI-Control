@@ -71,8 +71,8 @@ private fun App() {
     val pendingValues = remember { mutableStateMapOf<String, String>() }
     val localCommandManager = remember { LocalCommandManager() }
     val speech = remember { TextToSpeech(context, null) }
-    LaunchedEffect(speech) {
-        speech.language = Locale("ru", "RU")
+    LaunchedEffect(speech, voiceRate, voicePitch) {
+        applyVoiceSettings()
     }
     val trainedStore = remember { TrainedCommandStore(prefs) }
     val trainedMatcher = remember { TrainedCommandMatcher(trainedStore) }
@@ -87,6 +87,35 @@ private fun App() {
     var updateStatus by remember { mutableStateOf<String?>(null) }
     var latestReleaseUrl by remember { mutableStateOf<String?>(null) }
     var updateDialogOpen by remember { mutableStateOf(false) }
+    var voicePreset by remember { mutableStateOf(prefs.getString("voice_preset", "friendly") ?: "friendly") }
+    var voiceRate by remember { mutableFloatStateOf(prefs.getFloat("voice_rate", 0.92f)) }
+    var voicePitch by remember { mutableFloatStateOf(prefs.getFloat("voice_pitch", 1.05f)) }
+
+    fun applyVoiceSettings() {
+        speech.language = Locale("ru", "RU")
+        speech.setSpeechRate(voiceRate)
+        speech.setPitch(voicePitch)
+    }
+
+    fun selectVoicePreset(id: String) {
+        voicePreset = id
+        when (id) {
+            "soft" -> { voiceRate = 0.88f; voicePitch = 1.12f }
+            "friendly" -> { voiceRate = 0.92f; voicePitch = 1.05f }
+            "natural" -> { voiceRate = 0.98f; voicePitch = 1.00f }
+            "assistant" -> { voiceRate = 0.94f; voicePitch = 0.96f }
+        }
+        prefs.edit().putString("voice_preset", voicePreset)
+            .putFloat("voice_rate", voiceRate).putFloat("voice_pitch", voicePitch).apply()
+        applyVoiceSettings()
+    }
+
+    fun saveVoiceSettings() {
+        prefs.edit().putString("voice_preset", voicePreset)
+            .putFloat("voice_rate", voiceRate).putFloat("voice_pitch", voicePitch).apply()
+        applyVoiceSettings()
+        voiceStatus = "Настройки голоса сохранены"
+    }
 
     fun openTraining(deviceId: String, widget: WidgetState) {
         val canTrain = widget.type == WidgetState.Type.TOGGLE ||
@@ -559,6 +588,7 @@ private fun App() {
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                             DropdownMenuItem(text = { Text("MQTT подключение") }, onClick = { menuOpen = false; tab = 2 })
                             DropdownMenuItem(text = { Text("Журнал") }, onClick = { menuOpen = false; tab = 3 })
+                            DropdownMenuItem(text = { Text("Голос") }, onClick = { menuOpen = false; tab = 4 })
 
                             DropdownMenuItem(
                                 text = { Text("Проверить обновление") },
@@ -576,7 +606,7 @@ private fun App() {
                         }
                     }
                     Text("?", fontSize = 22.sp, modifier = Modifier.padding(end = 18.dp))
-                    Text(when (tab) { 0 -> "Dashboard"; 1 -> "Обученные команды"; 2 -> "MQTT"; else -> "Log" }, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    Text(when (tab) { 0 -> "Dashboard"; 1 -> "Обученные команды"; 2 -> "MQTT"; 3 -> "Log"; else -> "Голос" }, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                     Text("ⓘ", fontSize = 22.sp, modifier = Modifier.padding(horizontal = 10.dp)); Text("☁", fontSize = 27.sp)
                 }
                 if (tab == 0) DashboardPageTabs(devices, selectedPage, onSelect = { selectedPage = it })
@@ -603,7 +633,15 @@ private fun App() {
                         connect()
                     }
                 }, { mqtt.publishHello() })
-            else -> LogScreen(Modifier.padding(padding), log) { log = emptyList() }
+            3 -> LogScreen(Modifier.padding(padding), log) { log = emptyList() }
+            else -> VoiceSettingsScreen(
+                Modifier.padding(padding), voicePreset, voiceRate, voicePitch,
+                ::selectVoicePreset,
+                { voiceRate = it; voicePreset = "custom" },
+                { voicePitch = it; voicePreset = "custom" },
+                ::saveVoiceSettings,
+                { sample -> speech.speak(sample, TextToSpeech.QUEUE_FLUSH, null, "voice-preview") }
+            )
         }
     }
 }
@@ -872,6 +910,57 @@ private fun MqttScreen(modifier: Modifier, host: String, port: String, prefix: S
             "Команда анализируется прямо в APK по реальным виджетам MQTT. OpenAI API и интернет для анализа команды не нужны.",
             style = MaterialTheme.typography.bodySmall
         )
+    }
+}
+
+@Composable
+private fun VoiceSettingsScreen(
+    modifier: Modifier,
+    preset: String,
+    rate: Float,
+    pitch: Float,
+    onPreset: (String) -> Unit,
+    onRate: (Float) -> Unit,
+    onPitch: (Float) -> Unit,
+    onSave: () -> Unit,
+    onPreview: (String) -> Unit
+) {
+    Column(modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Женский голос", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+        Text("Выберите звучание. Используется русский TTS-голос, установленный на телефоне.")
+
+        val presets = listOf(
+            Triple("soft", "🌸 Нежный", "Мягкий и спокойный"),
+            Triple("friendly", "😊 Дружелюбный", "Тёплый и естественный"),
+            Triple("natural", "🎧 Естественный", "Более нейтральный"),
+            Triple("assistant", "🤖 Ассистент", "Чёткий и спокойный")
+        )
+        presets.forEach { (id, title, description) ->
+            Card(
+                modifier = Modifier.fillMaxWidth().clickable { onPreset(id) },
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(selected = preset == id, onClick = { onPreset(id) })
+                    Column(Modifier.weight(1f)) {
+                        Text(title, fontSize = 18.sp, fontWeight = FontWeight.Medium)
+                        Text(description, style = MaterialTheme.typography.bodySmall)
+                    }
+                    TextButton(onClick = { onPreset(id); onPreview("Здравствуйте! Я готова помочь.") }) { Text("▶") }
+                }
+            }
+        }
+
+        Text("Скорость: " + String.format(Locale.US, "%.2f", rate), fontWeight = FontWeight.Medium)
+        Slider(value = rate, onValueChange = onRate, valueRange = 0.75f..1.15f)
+
+        Text("Высота голоса: " + String.format(Locale.US, "%.2f", pitch), fontWeight = FontWeight.Medium)
+        Slider(value = pitch, onValueChange = onPitch, valueRange = 0.85f..1.25f)
+
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { onPreview("Температура для помидоров: 24.5 градуса") }, modifier = Modifier.weight(1f)) { Text("▶ Проверить") }
+            Button(onClick = onSave, modifier = Modifier.weight(1f)) { Text("Сохранить") }
+        }
     }
 }
 
