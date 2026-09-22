@@ -59,7 +59,20 @@ class MqttManager(
                     if (topic == null || message == null) return
 
                     val payload = String(message.payload, Charsets.UTF_8)
-                    emitLog("IN " + topic + " = " + payload)
+                    val messageType = when {
+                        topic.endsWith("/config") -> "CONFIG"
+                        topic.endsWith("/status") -> "STATUS"
+                        topic.endsWith("/event") -> "EVENT"
+                        else -> "MESSAGE"
+                    }
+
+                    emitLog(
+                        "MQTT RX [" + messageType + "] " +
+                            "topic=" + topic +
+                            " payload=" + payload +
+                            " qos=" + message.qos +
+                            " retained=" + message.isRetained
+                    )
 
                     val root = prefix + "/"
                     if (topic.startsWith(root) && topic.endsWith("/config")) {
@@ -70,6 +83,12 @@ class MqttManager(
                                 val widgetId = parts[1]
                                 val label = json.optString("label", json.optString("name", widgetId))
                                 val widgetType = json.optString("widget", "status")
+                                emitLog(
+                                    "MQTT CONFIG parsed: device=" + parts[0] +
+                                        " widget=" + widgetId +
+                                        " type=" + widgetType +
+                                        " label=" + label
+                                )
                                 emitConfig(parts[0], widgetId, label, widgetType)
                             } catch (_: Exception) {
                                 emitLog("MQTT config parse failed: " + topic)
@@ -78,7 +97,21 @@ class MqttManager(
                     } else if (topic.startsWith(root) && topic.endsWith("/status")) {
                         val parts = topic.removePrefix(root).trim('/').split("/")
                         if (parts.size >= 3) {
+                            emitLog(
+                                "MQTT STATUS parsed: device=" + parts[0] +
+                                    " widget=" + parts[parts.size - 2] +
+                                    " value=" + payload
+                            )
                             emitStatus(parts[parts.size - 2], payload)
+                        }
+                    } else if (topic.startsWith(root) && topic.endsWith("/event")) {
+                        val parts = topic.removePrefix(root).trim('/').split("/")
+                        if (parts.size >= 3) {
+                            emitLog(
+                                "MQTT EVENT received: device=" + parts[0] +
+                                    " widget=" + parts[parts.size - 2] +
+                                    " payload=" + payload
+                            )
                         }
                     }
                 }
@@ -170,7 +203,7 @@ class MqttManager(
                 null,
                 object : IMqttActionListener {
                     override fun onSuccess(asyncActionToken: IMqttToken?) {
-                        emitLog("MQTT subscribed: " + root)
+                        emitLog("MQTT subscribed: " + root + "/#")
                     }
 
                     override fun onFailure(
@@ -218,7 +251,7 @@ class MqttManager(
             }
 
             c.publish(topic, message)
-            emitLog("OUT " + topic + " = " + payload)
+            emitLog("MQTT TX topic=" + topic + " payload=" + payload)
             true
         } catch (e: Exception) {
             emitLog(mqttExceptionText("MQTT publish failed", e))
