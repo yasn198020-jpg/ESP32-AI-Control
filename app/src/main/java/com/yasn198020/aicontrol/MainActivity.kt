@@ -87,11 +87,48 @@ private fun App() {
     var voicePreset by remember { mutableStateOf(prefs.getString("voice_preset", "friendly") ?: "friendly") }
     var voiceRate by remember { mutableFloatStateOf(prefs.getFloat("voice_rate", 0.92f)) }
     var voicePitch by remember { mutableFloatStateOf(prefs.getFloat("voice_pitch", 1.05f)) }
+    var selectedVoiceName by remember { mutableStateOf(prefs.getString("tts_voice", "") ?: "") }
+    var availableVoices by remember { mutableStateOf(emptyList<android.speech.tts.Voice>()) }
 
     fun applyVoiceSettings() {
-        speech.language = Locale("ru", "RU")
-        speech.setSpeechRate(voiceRate)
-        speech.setPitch(voicePitch)
+        try {
+            speech.language = Locale("ru", "RU")
+            if (selectedVoiceName.isNotBlank()) {
+                speech.voices.firstOrNull { it.name == selectedVoiceName }?.let { speech.voice = it }
+            }
+            speech.setSpeechRate(voiceRate)
+            speech.setPitch(voicePitch)
+        } catch (_: Exception) {
+        }
+    }
+
+    fun selectInstalledVoice(name: String) {
+        selectedVoiceName = name
+        prefs.edit().putString("tts_voice", name).apply()
+        applyVoiceSettings()
+    }
+
+    LaunchedEffect(speech) {
+        repeat(20) {
+            try {
+                val voices = speech.voices
+                if (voices.isNotEmpty()) {
+                    availableVoices = voices.sortedWith(
+                        compareBy<android.speech.tts.Voice> { it.locale.language != "ru" }
+                            .thenBy { it.locale.displayName }
+                            .thenBy { it.name }
+                    )
+                    applyVoiceSettings()
+                    return@LaunchedEffect
+                }
+            } catch (_: Exception) {
+            }
+            kotlinx.coroutines.delay(250)
+        }
+    }
+
+    LaunchedEffect(speech, voiceRate, voicePitch, selectedVoiceName) {
+        applyVoiceSettings()
     }
 
     fun selectVoicePreset(id: String) {
@@ -633,11 +670,13 @@ private fun App() {
             3 -> LogScreen(Modifier.padding(padding), log) { log = emptyList() }
             else -> VoiceSettingsScreen(
                 Modifier.padding(padding), voicePreset, voiceRate, voicePitch,
+                availableVoices, selectedVoiceName,
                 ::selectVoicePreset,
                 { voiceRate = it; voicePreset = "custom" },
                 { voicePitch = it; voicePreset = "custom" },
+                ::selectInstalledVoice,
                 ::saveVoiceSettings,
-                { sample -> speech.speak(sample, TextToSpeech.QUEUE_FLUSH, null, "voice-preview") }
+                { sample -> applyVoiceSettings(); speech.speak(sample, TextToSpeech.QUEUE_FLUSH, null, "voice-preview") }
             )
         }
     }
@@ -916,16 +955,85 @@ private fun VoiceSettingsScreen(
     preset: String,
     rate: Float,
     pitch: Float,
+    voices: List<android.speech.tts.Voice>,
+    selectedVoiceName: String,
     onPreset: (String) -> Unit,
     onRate: (Float) -> Unit,
     onPitch: (Float) -> Unit,
+    onVoice: (String) -> Unit,
     onSave: () -> Unit,
     onPreview: (String) -> Unit
 ) {
-    Column(modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Женский голос", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-        Text("Выберите звучание. Используется русский TTS-голос, установленный на телефоне.")
+    var voiceMenuOpen by remember { mutableStateOf(false) }
 
+    fun voiceLabel(voice: android.speech.tts.Voice): String {
+        val language = voice.locale.getDisplayLanguage(Locale("ru", "RU")).ifBlank { voice.locale.displayName }
+        val provider = when {
+            voice.name.contains("google", true) -> "Google"
+            voice.name.contains("samsung", true) -> "Samsung"
+            voice.name.contains("yandex", true) || voice.name.contains("яндекс", true) -> "Яндекс"
+            voice.name.contains("microsoft", true) -> "Microsoft"
+            voice.name.contains("acapela", true) -> "Acapela"
+            else -> "TTS"
+        }
+        return "${'$'}provider — ${'$'}language"
+    }
+
+    val selectedVoice = voices.firstOrNull { it.name == selectedVoiceName }
+    val russianVoices = voices.filter { it.locale.language == "ru" }
+
+    Column(
+        modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text("Голос", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+        Text("Выберите голос из установленных на телефоне.")
+
+        Text("Установленный голос", fontWeight = FontWeight.Medium)
+        Box(Modifier.fillMaxWidth()) {
+            OutlinedButton(
+                onClick = { voiceMenuOpen = true },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    if (selectedVoice != null) voiceLabel(selectedVoice)
+                    else if (voices.isEmpty()) "Загрузка голосов…"
+                    else "Выберите голос"
+                )
+            }
+            DropdownMenu(
+                expanded = voiceMenuOpen,
+                onDismissRequest = { voiceMenuOpen = false },
+                modifier = Modifier.fillMaxWidth(0.92f)
+            ) {
+                voices.forEach { voice ->
+                    DropdownMenuItem(
+                        text = {
+                            Column {
+                                Text(voiceLabel(voice), fontWeight = FontWeight.Medium)
+                                Text(
+                                    "${'$'}{voice.name} • качество ${'$'}{voice.quality}",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                        },
+                        onClick = {
+                            onVoice(voice.name)
+                            voiceMenuOpen = false
+                        }
+                    )
+                }
+            }
+        }
+
+        if (voices.isNotEmpty()) {
+            Text(
+                "Доступно: ${'$'}{voices.size}, русских: ${'$'}{russianVoices.size}",
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+
+        Text("Пресет", fontWeight = FontWeight.Medium)
         val presets = listOf(
             Triple("soft", "🌸 Нежный", "Мягкий и спокойный"),
             Triple("friendly", "😊 Дружелюбный", "Тёплый и естественный"),
@@ -955,7 +1063,9 @@ private fun VoiceSettingsScreen(
         Slider(value = pitch, onValueChange = onPitch, valueRange = 0.85f..1.25f)
 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { onPreview("Температура для помидоров: 24.5 градуса") }, modifier = Modifier.weight(1f)) { Text("▶ Проверить") }
+            OutlinedButton(onClick = { onPreview("Температура для помидоров: 24.5 градуса") }, modifier = Modifier.weight(1f)) {
+                Text("▶ Проверить")
+            }
             Button(onClick = onSave, modifier = Modifier.weight(1f)) { Text("Сохранить") }
         }
     }
