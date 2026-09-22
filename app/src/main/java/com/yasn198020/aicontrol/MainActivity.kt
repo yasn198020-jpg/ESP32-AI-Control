@@ -191,6 +191,12 @@ private fun App() {
         }
     }
 
+    LaunchedEffect(voiceText) {
+        if (voiceText.isNotBlank()) {
+            voiceStatus = executeVoiceScenario(voiceText, devices, ::sendWidget)
+        }
+    }
+
     Scaffold(
         topBar = { TopAppBar(title = { Text("ESP32 AI Control", fontWeight = FontWeight.SemiBold) }) },
         bottomBar = {
@@ -342,7 +348,7 @@ private fun executeVoiceScenario(
         else -> devices
     }
 
-    val greenhouseWords = listOf("форточ", "двер", "ворот", "заслон", "клапан")
+    val greenhouseWords = listOf("форточ", "двер", "ворот", "заслон", "клапан", "автомат", "насос", "вентилят")
     val requestedObject = greenhouseWords.firstOrNull { text.contains(it) }
 
     val candidates = pageCandidates
