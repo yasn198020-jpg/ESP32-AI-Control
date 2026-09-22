@@ -324,7 +324,7 @@ private fun App() {
                                     "${widget.title}: $raw${if (unit.isNotBlank()) " $unit" else ""}"
                                 }
                                 voiceStatus = spoken
-                                speech.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, "trained-value")
+                                speech.speak(spoken, if (sent == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD, null, "trained-value-$sent")
                                 sent++
                             } else {
                                 skipped++
