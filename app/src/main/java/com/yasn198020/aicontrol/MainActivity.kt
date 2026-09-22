@@ -951,19 +951,6 @@ private fun friendlyVoiceName(voice: android.speech.tts.Voice): String {
     return if (gender == "Голос") "$provider — Русский" else "$gender — $provider"
 }
 
-    val provider = when {
-        raw.contains("google") -> "Google"
-        raw.contains("samsung") -> "Samsung"
-        raw.contains("yandex") || raw.contains("яндекс") -> "Яндекс"
-        raw.contains("microsoft") -> "Microsoft"
-        raw.contains("acapela") -> "Acapela"
-        else -> voice.name.substringBefore("-").substringBefore("_").ifBlank { "TTS" }
-    }
-
-    val locale = voice.locale
-    val language = if (locale.language == "ru") "Русский" else locale.displayName
-    return if (gender == "Голос") "$provider — $language" else "$gender — $provider"
-}
 
 @Composable
 private fun VoiceSettingsScreen(
