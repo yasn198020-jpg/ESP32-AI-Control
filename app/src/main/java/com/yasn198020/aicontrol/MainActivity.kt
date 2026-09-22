@@ -70,9 +70,10 @@ private fun App() {
     var voiceStatus by remember { mutableStateOf("Нажмите 🎤 и скажите команду") }
     val pendingValues = remember { mutableStateMapOf<String, String>() }
     val localCommandManager = remember { LocalCommandManager() }
-    val speech = remember { TextToSpeech(context) { status ->
-        if (status == TextToSpeech.SUCCESS) it?.language = Locale("ru", "RU")
-    } }
+    val speech = remember { TextToSpeech(context, null) }
+    LaunchedEffect(speech) {
+        speech.language = Locale("ru", "RU")
+    }
     val trainedStore = remember { TrainedCommandStore(prefs) }
     val trainedMatcher = remember { TrainedCommandMatcher(trainedStore) }
     var trainedCommands by remember { mutableStateOf(trainedStore.load()) }
