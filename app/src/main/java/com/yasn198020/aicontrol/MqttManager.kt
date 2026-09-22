@@ -80,17 +80,22 @@ class MqttManager(
                         if (parts.size == 2) {
                             try {
                                 val json = org.json.JSONObject(payload)
-                                val widgetId = parts[1]
-                                val label = json.optString("descr").ifBlank { json.optString("label", json.optString("name", widgetId)) }
+                                val configTopic = json.optString("topic", "").trim()
+                                val widgetId = configTopic.trim('/').substringAfterLast('/', "")
+                                if (widgetId.isBlank()) {
+                                    emitLog("MQTT config ignored: topic is missing: " + topic)
+                                    return
+                                }
+                                val label = json.optString("descr").trim().ifBlank { json.optString("label", json.optString("name", widgetId)) }
                                 val widgetType = json.optString("widget", "status")
                                 emitLog(
                                     "MQTT CONFIG parsed: device=" + parts[0] +
                                         " widget=" + widgetId +
                                         " type=" + widgetType +
-                                        " label=" + label
+                                        " label=" + label +
+                                        " topic=" + configTopic
                                 )
                                 val page = json.optString("page", "Основная")
-                                val configTopic = json.optString("topic", "")
                                 val order = json.optInt("order", 0)
                                 emitConfig(parts[0], widgetId, label, widgetType, page, configTopic, order, json.toString())
                             } catch (_: Exception) {
@@ -100,12 +105,14 @@ class MqttManager(
                     } else if (topic.startsWith(root) && topic.endsWith("/status")) {
                         val parts = topic.removePrefix(root).trim('/').split("/")
                         if (parts.size >= 3) {
+                            val json = try { org.json.JSONObject(payload) } catch (_: Exception) { null }
+                            val value = json?.optString("status")?.takeIf { json.has("status") } ?: payload
                             emitLog(
                                 "MQTT STATUS parsed: device=" + parts[0] +
                                     " widget=" + parts[parts.size - 2] +
-                                    " value=" + payload
+                                    " value=" + value
                             )
-                            emitStatus(parts[0], parts[parts.size - 2], payload)
+                            emitStatus(parts[0], parts[parts.size - 2], value)
                         }
                     } else if (topic.startsWith(root) && topic.endsWith("/event")) {
                         val parts = topic.removePrefix(root).trim('/').split("/")
