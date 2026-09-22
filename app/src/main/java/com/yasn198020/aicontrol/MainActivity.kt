@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
@@ -377,6 +378,7 @@ private fun App() {
                 selectedPage,
                 voiceText,
                 voiceStatus,
+                onTrain = ::openTraining,
                 onVoice = {
                     if (androidx.core.content.ContextCompat.checkSelfPermission(
                             context,
@@ -441,6 +443,7 @@ private fun DevicesScreen(
     selectedPage: String?,
     voiceText: String,
     voiceStatus: String,
+    onTrain: (String, WidgetState) -> Unit,
     onVoice: () -> Unit,
     onSend: (String, String, String) -> Unit
 ) {
@@ -474,7 +477,7 @@ private fun DevicesScreen(
             items = entries,
             key = { it.first + "/" + it.second.id }
         ) { (deviceId, widget) ->
-            DashboardWidgetRow(widget, onSend = { value -> onSend(deviceId, widget.id, value) }, onTrain = { openTraining(deviceId, widget) })
+            DashboardWidgetRow(widget, onSend = { value -> onSend(deviceId, widget.id, value) }, onTrain = { onTrain(deviceId, widget) })
         }
 
         item(key = "voice-hidden-access") {
@@ -497,6 +500,7 @@ private fun DevicesScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun DashboardWidgetRow(
     widget: WidgetState,
