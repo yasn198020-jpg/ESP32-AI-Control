@@ -70,26 +70,33 @@ private fun App() {
     var trainingTarget by remember { mutableStateOf<TrainingTarget?>(null) }
     var trainingValue by remember { mutableStateOf("1") }
     var trainingPhrase by remember { mutableStateOf("") }
+    var attachToExisting by remember { mutableStateOf(false) }
+    var selectedExistingPhrase by remember { mutableStateOf<String?>(null) }
 
     fun openTraining(deviceId: String, widget: WidgetState) {
         if (widget.type != WidgetState.Type.TOGGLE && widget.type != WidgetState.Type.BUTTON) return
         trainingTarget = TrainingTarget(deviceId, widget.id, widget.title)
         trainingValue = "1"
         trainingPhrase = ""
+        attachToExisting = false
+        selectedExistingPhrase = null
     }
 
     fun saveTraining(phrase: String) {
         val target = trainingTarget ?: return
         val clean = phrase.trim()
-        if (clean.isBlank()) {
-            voiceStatus = "Фраза не распознана"
+        val finalPhrase = if (attachToExisting) selectedExistingPhrase?.trim().orEmpty() else clean
+        if (finalPhrase.isBlank()) {
+            voiceStatus = if (attachToExisting) "Выберите существующую команду" else "Фраза не распознана"
             return
         }
-        trainedStore.add(TrainedVoiceCommand(clean, target.deviceId, target.widgetId, trainingValue))
+        trainedStore.add(TrainedVoiceCommand(finalPhrase, target.deviceId, target.widgetId, trainingValue))
         trainedCommands = trainedStore.load()
-        voiceStatus = "Команда обучена: ${target.title}"
-        trainingPhrase = clean
+        voiceStatus = "Действие добавлено к команде: $finalPhrase"
+        trainingPhrase = finalPhrase
         trainingTarget = null
+        attachToExisting = false
+        selectedExistingPhrase = null
     }
 
     fun addLog(message: String) { log = (log + message).takeLast(300) }
@@ -292,6 +299,43 @@ private fun App() {
                     Text("Что должна делать фраза?")
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip(
+                            selected = !attachToExisting,
+                            onClick = { attachToExisting = false; selectedExistingPhrase = null },
+                            label = { Text("Новая команда") }
+                        )
+                        FilterChip(
+                            selected = attachToExisting,
+                            onClick = { attachToExisting = true },
+                            label = { Text("К существующей") }
+                        )
+                    }
+                    if (attachToExisting) {
+                        Text("Выберите существующую команду:")
+                        val existingPhrases = trainedCommands.map { it.phrase }.distinct()
+                        if (existingPhrases.isEmpty()) {
+                            Text("Существующих команд пока нет.")
+                        } else {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                existingPhrases.forEach { phrase ->
+                                    FilterChip(
+                                        selected = selectedExistingPhrase == phrase,
+                                        onClick = { selectedExistingPhrase = phrase },
+                                        label = { Text("«$phrase»") },
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                            }
+                            Button(
+                                onClick = { saveTraining(selectedExistingPhrase.orEmpty()) },
+                                enabled = selectedExistingPhrase != null,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("➕ Добавить действие к этой команде")
+                            }
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
                             selected = trainingValue == "1",
                             onClick = { trainingValue = "1" },
                             label = { Text("Открыть / включить") }
@@ -306,7 +350,10 @@ private fun App() {
                         "Одну и ту же фразу можно записать для нескольких виджетов. " +
                             "Например, для «Доброе утро» обучите свет и шторы отдельно — при произнесении сработают оба действия."
                     )
-                    Text("Нажмите микрофон и произнесите фразу.")
+                    if (!attachToExisting) {
+                        Text("Нажмите микрофон и произнесите фразу.")
+                    }
+                    if (!attachToExisting) {
                     Button(
                         onClick = {
                             if (androidx.core.content.ContextCompat.checkSelfPermission(
@@ -322,6 +369,7 @@ private fun App() {
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text("🎤 Записать фразу")
+                    }
                     }
                     if (trainingPhrase.isNotBlank()) {
                         Text("Распознано: $trainingPhrase")
