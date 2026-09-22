@@ -1,6 +1,8 @@
 package com.yasn198020.aicontrol
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.content.Intent
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
@@ -14,8 +16,17 @@ class VoiceCommandManager(
     private var recognizer: SpeechRecognizer? = null
 
     fun startRussian() {
+        if (androidx.core.content.ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.RECORD_AUDIO
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            onStatus("Нет разрешения на микрофон")
+            return
+        }
+
         if (!SpeechRecognizer.isRecognitionAvailable(context)) {
-            onStatus("Распознавание речи недоступно")
+            onStatus("На телефоне нет доступного сервиса распознавания речи")
             return
         }
 
@@ -66,7 +77,14 @@ class VoiceCommandManager(
                     stop()
                 }
 
-                override fun onPartialResults(partialResults: android.os.Bundle?) = Unit
+                override fun onPartialResults(partialResults: android.os.Bundle?) {
+                    val partial = partialResults
+                        ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                        ?.firstOrNull()
+                        ?.trim()
+                        .orEmpty()
+                    if (partial.isNotBlank()) onStatus("Слышу: $partial")
+                }
                 override fun onEvent(eventType: Int, params: android.os.Bundle?) = Unit
             })
         }
@@ -75,8 +93,10 @@ class VoiceCommandManager(
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ru-RU")
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "ru-RU")
-            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+            putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
+            putExtra(RecognizerIntent.EXTRA_PROMPT, "Скажите фразу для обучения")
         }
 
         try {
