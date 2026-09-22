@@ -5,6 +5,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -14,7 +15,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import org.json.JSONObject
 
 data class Device(val id: String, val name: String, val online: Boolean, val widgets: List<WidgetState>)
@@ -25,7 +28,7 @@ data class WidgetState(val id: String, val title: String, val type: Type, val va
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { MaterialTheme { Surface(Modifier.fillMaxSize()) { App() } } }
+        setContent { MaterialTheme(colorScheme = darkColorScheme()) { Surface(Modifier.fillMaxSize()) { App() } } }
     }
 }
 
@@ -163,7 +166,7 @@ private fun App() {
     }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("ESP32 AI Control") }) },
+        topBar = { TopAppBar(title = { Text("ESP32 AI Control", fontWeight = FontWeight.SemiBold) }) },
         bottomBar = {
             NavigationBar {
                 listOf("Devices", "MQTT", "Log").forEachIndexed { index, title ->
@@ -196,9 +199,9 @@ private fun DevicesScreen(
     LazyColumn(modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         pageWidgets.forEach { (pageName, entries) ->
             item(key = "page-$pageName") {
-                Card(Modifier.fillMaxWidth()) {
+                Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(pageName, style = MaterialTheme.typography.titleLarge)
+                        Text(pageName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
 
                         entries
                             .sortedWith(compareBy<Pair<String, WidgetState>> { it.second.order }.thenBy { it.second.title })
@@ -209,13 +212,13 @@ private fun DevicesScreen(
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text(widget.title)
+                                        Text(widget.title, fontWeight = FontWeight.Medium)
                                         Switch(
                                             checked = widget.value == "1" || widget.value.equals("true", true),
                                             onCheckedChange = { onSend(deviceId, widget.id, if (it) "1" else "0") }
                                         )
                                     }
-                                    WidgetState.Type.BUTTON -> Button(onClick = { onSend(deviceId, widget.id, "1") }) {
+                                    WidgetState.Type.BUTTON -> Button(onClick = { onSend(deviceId, widget.id, "1") }, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
                                         Text(widget.title)
                                     }
                                     WidgetState.Type.INPUT -> InputWidget(widget, onSend = { value ->
@@ -268,7 +271,7 @@ private fun MqttScreen(modifier: Modifier, host: String, port: String, prefix: S
             OutlinedButton(onClick = onHello, enabled = connected) { Text("HELLO") }
         }
         HorizontalDivider()
-        Text(if (connected) "MQTT: connected" else "MQTT: disconnected")
+        Text(if (connected) "●  MQTT: connected" else "○  MQTT: disconnected", fontWeight = FontWeight.SemiBold)
         Text("MQTT: " + host + ":" + port)
     }
 }
@@ -280,7 +283,7 @@ private fun LogScreen(modifier: Modifier, log: List<String>, onClear: () -> Unit
 
     Column(modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text("MQTT Log (" + log.size + ")", style = MaterialTheme.typography.titleMedium)
+            Text("Журнал  •  " + log.size, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = onClear) {
                     Text("Очистить")
