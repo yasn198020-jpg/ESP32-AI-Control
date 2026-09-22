@@ -277,7 +277,10 @@ private fun App() {
     LaunchedEffect(voiceText) {
         val command = voiceText.trim()
         if (command.isNotBlank()) {
-            if (trainingTarget != null) {
+            if (variantPhraseTarget != null) {
+                variantPhraseText = command
+                voiceStatus = "Вариант распознан — нажмите «Добавить»"
+            } else if (trainingTarget != null) {
                 saveTraining(command)
             } else {
                 voiceStatus = "Анализ команды…"
