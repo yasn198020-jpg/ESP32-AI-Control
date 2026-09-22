@@ -243,5 +243,5 @@ class TrainedCommandMatcher(private val store: TrainedCommandStore) {
             .replace('ё', 'е')
             .replace(Regex("[^a-zа-я0-9]+"), " ")
             .trim()
-            .replace(Regex("\s+"), " ")
+            .replace(Regex("""\s+"""), " ")
 }
