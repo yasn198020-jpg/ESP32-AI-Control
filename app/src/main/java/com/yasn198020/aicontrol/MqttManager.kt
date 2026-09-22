@@ -81,7 +81,7 @@ class MqttManager(
                             try {
                                 val json = org.json.JSONObject(payload)
                                 val widgetId = parts[1]
-                                val label = json.optString("label", json.optString("name", widgetId))
+                                val label = json.optString("descr").ifBlank { json.optString("label", json.optString("name", widgetId)) }
                                 val widgetType = json.optString("widget", "status")
                                 emitLog(
                                     "MQTT CONFIG parsed: device=" + parts[0] +
