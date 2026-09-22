@@ -244,7 +244,7 @@ class MqttManager(
 
     fun publishControl(deviceId: String, widgetId: String, value: String): Boolean {
         if (prefix.isBlank() || deviceId.isBlank() || widgetId.isBlank()) return false
-        return publish(prefix + "/" + deviceId + "/" + widgetId + "/control", org.json.JSONObject().put("status", value).toString())
+        return publish("/" + prefix.trim('/') + "/" + deviceId + "/" + widgetId + "/control", org.json.JSONObject().put("status", value).toString())
     }
 
     private fun publish(topic: String, payload: String): Boolean {
