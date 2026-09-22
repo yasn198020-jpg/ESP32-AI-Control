@@ -35,7 +35,7 @@ object UpdateManager {
                             when {
                                 remote == null -> UpdateResult("GitHub сообщил некорректную версию: $tag")
                                 local == null -> UpdateResult("Не удалось определить текущую версию: $currentVersion")
-                                remote <= local -> UpdateResult("У вас установлена актуальная версия: $currentVersion")
+                                compareVersions(remote, local) <= 0 -> UpdateResult("У вас установлена актуальная версия: $currentVersion")
                                 else -> UpdateResult("Доступна новая версия: $tag\nТекущая версия: $currentVersion", htmlUrl.ifBlank { null })
                             }
                         }
@@ -46,6 +46,16 @@ object UpdateManager {
             }
             android.os.Handler(android.os.Looper.getMainLooper()).post { callback(result) }
         }.start()
+    }
+
+    private fun compareVersions(a: List<Int>, b: List<Int>): Int {
+        val size = maxOf(a.size, b.size)
+        for (i in 0 until size) {
+            val av = a.getOrElse(i) { 0 }
+            val bv = b.getOrElse(i) { 0 }
+            if (av != bv) return av.compareTo(bv)
+        }
+        return 0
     }
 
     private fun parseVersion(value: String): List<Int>? {
