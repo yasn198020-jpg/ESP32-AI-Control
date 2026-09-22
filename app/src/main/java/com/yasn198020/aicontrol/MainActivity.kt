@@ -61,12 +61,29 @@ private fun App() {
                     if (json.has("status")) json.optString("status") else payload
                 } catch (_: Exception) { payload }
                 devices = devices.map { device ->
-                    device.copy(
-                        online = true,
-                        widgets = device.widgets.map { widget ->
-                            if (widget.id == widgetId) widget.copy(value = value) else widget
+                    device.copy(online = true, widgets = device.widgets.map { widget ->
+                        if (widget.id == widgetId) widget.copy(value = value) else widget
+                    })
+                }
+            },
+            onConfig = { deviceId, widgetId, label, widgetType ->
+                val type = when (widgetType.lowercase()) {
+                    "toggle", "button", "vbtn", "btn" -> WidgetState.Type.TOGGLE
+                    "input", "text", "number", "slider", "anydata" -> WidgetState.Type.INPUT
+                    else -> WidgetState.Type.STATUS
+                }
+                val existing = devices.firstOrNull { it.id == deviceId }
+                if (existing == null) {
+                    devices = devices + Device(deviceId, deviceId, true, listOf(WidgetState(widgetId, label, type, "0")))
+                } else {
+                    devices = devices.map { device ->
+                        if (device.id != deviceId) device else {
+                            val exists = device.widgets.any { it.id == widgetId }
+                            device.copy(online = true, widgets = if (exists) device.widgets.map { w ->
+                                if (w.id == widgetId) w.copy(title = label, type = type) else w
+                            } else device.widgets + WidgetState(widgetId, label, type, "0"))
                         }
-                    )
+                    }
                 }
             }
         )
