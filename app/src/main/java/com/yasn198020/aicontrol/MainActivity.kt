@@ -17,8 +17,8 @@ import androidx.compose.ui.unit.dp
 import org.json.JSONObject
 
 data class Device(val id: String, val name: String, val online: Boolean, val widgets: List<WidgetState>)
-data class WidgetState(val id: String, val title: String, val type: Type, val value: String) {
-    enum class Type { TOGGLE, INPUT, STATUS }
+data class WidgetState(val id: String, val title: String, val type: Type, val value: String, val page: String = "Основная", val topic: String = "", val order: Int = 0, val unit: String = "") {
+    enum class Type { TOGGLE, BUTTON, VALUE, STATUS }
 }
 
 class MainActivity : ComponentActivity() {
@@ -86,7 +86,7 @@ private fun App() {
                     }
                 }
             },
-            onConfig = { deviceId, widgetId, label, widgetType ->
+            onConfig = { deviceId, widgetId, label, widgetType, page, topic, order, raw ->
                 val type = when (widgetType.lowercase()) {
                     "toggle", "button", "vbtn", "btn" -> WidgetState.Type.TOGGLE
                     "input", "text", "number", "slider", "anydata" -> WidgetState.Type.INPUT
@@ -94,14 +94,14 @@ private fun App() {
                 }
                 val existing = devices.firstOrNull { it.id == deviceId }
                 if (existing == null) {
-                    devices = devices + Device(deviceId, deviceId, true, listOf(WidgetState(widgetId, label, type, "0")))
+                    devices = devices + Device(deviceId, deviceId, true, listOf(WidgetState(widgetId, label, type, "", page.ifBlank { "Основная" }, topic, order, json.optString("after"))))
                 } else {
                     devices = devices.map { device ->
                         if (device.id != deviceId) device else {
                             val exists = device.widgets.any { it.id == widgetId }
                             device.copy(online = true, widgets = if (exists) device.widgets.map { w ->
                                 if (w.id == widgetId) w.copy(title = label, type = type) else w
-                            } else device.widgets + WidgetState(widgetId, label, type, "0"))
+                            } else device.widgets + WidgetState(widgetId, label, type, "", page.ifBlank { "Основная" }, topic, order, json.optString("after")))
                         }
                     }
                 }
@@ -128,7 +128,7 @@ private fun App() {
         mqtt.connect(mqttHost, mqttPort.toIntOrNull() ?: 1883, mqttPrefix, username, password, mqttTls)
     }
 
-    fun toggle(deviceId: String, widgetId: String, enabled: Boolean) {
+    fun sendWidget(deviceId: String, widgetId: String, value: String) {
         val value = if (enabled) "1" else "0"
         val sent = mqtt.publishControl(deviceId, widgetId, value)
         if (sent) {
@@ -161,7 +161,7 @@ private fun App() {
         }
     ) { padding ->
         when (tab) {
-            0 -> DevicesScreen(Modifier.padding(padding), devices, ::toggle, ::input)
+            0 -> DevicesScreen(Modifier.padding(padding), devices, ::sendWidget)
             1 -> MqttScreen(Modifier.padding(padding), mqttHost, mqttPort, mqttPrefix, username, password, mqttTls, connected,
                 { mqttHost = it }, { mqttPort = it }, { mqttPrefix = it }, { username = it }, { password = it }, { mqttTls = it },
                 ::saveSettings, { if (connected) mqtt.disconnect() else connect() }, { mqtt.publishHello() })
