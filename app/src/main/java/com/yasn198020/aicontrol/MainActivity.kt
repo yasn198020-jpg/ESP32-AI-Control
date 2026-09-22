@@ -214,17 +214,26 @@ private fun App() {
         mqtt.connect(mqttHost, mqttPort.toIntOrNull() ?: 1883, mqttPrefix, username, password, mqttTls)
     }
 
-    fun sendWidget(deviceId: String, widgetId: String, value: String) {
-        val widget = devices.firstOrNull { it.id == deviceId }?.widgets?.firstOrNull { it.id == widgetId } ?: return
-        if (widget.topic.isBlank()) {
-            addLog("MQTT TX skipped: config has no topic for " + widgetId)
-            return
+    fun sendWidget(deviceId: String, widgetId: String, value: String): Boolean {
+        val widget = devices.firstOrNull { it.id == deviceId }?.widgets?.firstOrNull { it.id == widgetId }
+        if (widget == null) {
+            addLog("MQTT TX skipped: widget not found: " + deviceId + "/" + widgetId)
+            return false
         }
+
+        // Control commands use the standard device/widget/control topic.
+        // They do not require the CONFIG message to contain a separate topic.
         val published = when (widget.type) {
             WidgetState.Type.TOGGLE, WidgetState.Type.BUTTON ->
                 mqtt.publishControl(deviceId, widgetId, value)
-            else ->
-                mqtt.publishWidget(widget.topic, value)
+            else -> {
+                if (widget.topic.isBlank()) {
+                    addLog("MQTT TX skipped: config has no topic for " + widgetId)
+                    false
+                } else {
+                    mqtt.publishWidget(widget.topic, value)
+                }
+            }
         }
 
         if (published) {
@@ -234,6 +243,7 @@ private fun App() {
                 )
             }
         }
+        return published
     }
 
     LaunchedEffect(voiceText) {
@@ -255,8 +265,11 @@ private fun App() {
                         ) {
                             skipped++
                         } else {
-                            sendWidget(trained.deviceId, trained.widgetId, trained.value)
-                            sent++
+                            if (sendWidget(trained.deviceId, trained.widgetId, trained.value)) {
+                                sent++
+                            } else {
+                                skipped++
+                            }
                         }
                     }
                     voiceStatus = if (skipped == 0) {
@@ -274,11 +287,9 @@ private fun App() {
                                 voiceStatus = "Подходящий виджет не найден. Команда не отправлена."
                             } else if (widget.type != WidgetState.Type.TOGGLE && widget.type != WidgetState.Type.BUTTON) {
                                 voiceStatus = "Этот виджет нельзя управлять голосовой командой."
-                            } else if (widget.topic.isBlank()) {
-                                voiceStatus = "У выбранного виджета нет MQTT topic."
                             } else {
-                                sendWidget(result.deviceId, result.widgetId, result.value)
-                                voiceStatus = result.reply
+                                val published = sendWidget(result.deviceId, result.widgetId, result.value)
+                                voiceStatus = if (published) result.reply else "Команда распознана, но MQTT публикация не выполнена."
                             }
                         }
                         LocalCommandAction.CLARIFY -> voiceStatus = result.reply
