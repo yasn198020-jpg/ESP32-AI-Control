@@ -71,9 +71,6 @@ private fun App() {
     val pendingValues = remember { mutableStateMapOf<String, String>() }
     val localCommandManager = remember { LocalCommandManager() }
     val speech = remember { TextToSpeech(context, null) }
-    LaunchedEffect(speech, voiceRate, voicePitch) {
-        applyVoiceSettings()
-    }
     val trainedStore = remember { TrainedCommandStore(prefs) }
     val trainedMatcher = remember { TrainedCommandMatcher(trainedStore) }
     var trainedCommands by remember { mutableStateOf(trainedStore.load()) }
