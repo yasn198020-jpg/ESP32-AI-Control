@@ -146,7 +146,14 @@ private fun App() {
             addLog("MQTT TX skipped: config has no topic for " + widgetId)
             return
         }
-        if (mqtt.publishWidget(widget.topic, value)) {
+        val published = when (widget.type) {
+            WidgetState.Type.TOGGLE, WidgetState.Type.BUTTON ->
+                mqtt.publishControl(deviceId, widgetId, value)
+            else ->
+                mqtt.publishWidget(widget.topic, value)
+        }
+
+        if (published) {
             devices = devices.map { device ->
                 if (device.id != deviceId) device else device.copy(
                     widgets = device.widgets.map { w -> if (w.id == widgetId) w.copy(value = value) else w }
@@ -170,7 +177,7 @@ private fun App() {
             1 -> MqttScreen(Modifier.padding(padding), mqttHost, mqttPort, mqttPrefix, username, password, mqttTls, connected,
                 { mqttHost = it }, { mqttPort = it }, { mqttPrefix = it }, { username = it }, { password = it }, { mqttTls = it },
                 ::saveSettings, { if (connected) mqtt.disconnect() else connect() }, { mqtt.publishHello() })
-            else -> LogScreen(Modifier.padding(padding), log)
+            else -> LogScreen(Modifier.padding(padding), log) { log = emptyList() }
         }
     }
 }
@@ -267,18 +274,23 @@ private fun MqttScreen(modifier: Modifier, host: String, port: String, prefix: S
 }
 
 @Composable
-private fun LogScreen(modifier: Modifier, log: List<String>) {
+private fun LogScreen(modifier: Modifier, log: List<String>, onClear: () -> Unit) {
     val context = LocalContext.current
     val logText = remember(log) { log.joinToString("\n") }
 
     Column(modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text("MQTT Log (" + log.size + ")", style = MaterialTheme.typography.titleMedium)
-            OutlinedButton(onClick = {
-                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("MQTT Log", logText))
-            }) {
-                Text("Копировать")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onClear) {
+                    Text("Очистить")
+                }
+                OutlinedButton(onClick = {
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("MQTT Log", logText))
+                }) {
+                    Text("Копировать")
+                }
             }
         }
         SelectionContainer {
