@@ -545,7 +545,7 @@ private fun App() {
                 onTrain = ::openTraining,
                 onVoice = { if (androidx.core.content.ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) voiceManager.startRussian() else requestMicPermission.launch(Manifest.permission.RECORD_AUDIO) },
                 onSend = ::sendWidget)
-            1 -> TrainedCommandsScreen(Modifier.padding(padding), trainedCommands, devices, onDelete = { command -> trainedStore.remove(command); trainedCommands = trainedStore.load() }, onAddVariant = { phrase -> variantPhraseTarget = phrase; variantPhraseText = "" })
+            1 -> TrainedCommandsScreen(Modifier.padding(padding), trainedCommands, devices, onDelete = { command -> trainedStore.remove(command); trainedCommands = trainedStore.load() }, onClearAll = { trainedStore.clear(); trainedCommands = trainedStore.load() }, onAddVariant = { phrase -> variantPhraseTarget = phrase; variantPhraseText = "" })
             2 -> MqttScreen(Modifier.padding(padding), mqttHost, mqttPort, mqttPrefix, username, password, mqttTls, connected,
                 { mqttHost = it }, { mqttPort = it }, { mqttPrefix = it }, { username = it }, { password = it }, { mqttTls = it },
                 ::saveSettings, {
@@ -727,7 +727,18 @@ private fun DashboardWidgetRow(
 }
 
 @Composable
-private fun TrainedCommandsScreen(modifier: Modifier, trainedCommands: List<TrainedVoiceCommand>, devices: List<Device>, onDelete: (TrainedVoiceCommand) -> Unit, onAddVariant: (String) -> Unit) {
+private fun TrainedCommandsScreen(modifier: Modifier, trainedCommands: List<TrainedVoiceCommand>, devices: List<Device>, onDelete: (TrainedVoiceCommand) -> Unit, onClearAll: () -> Unit, onAddVariant: (String) -> Unit) {
+    var showClearDialog by remember { mutableStateOf(false) }
+
+    if (showClearDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearDialog = false },
+            title = { Text("Очистить обученные команды?") },
+            text = { Text("Будут удалены все сохранённые фразы и их варианты. Настройки MQTT и другие данные приложения не изменятся.") },
+            confirmButton = { TextButton(onClick = { onClearAll(); showClearDialog = false }) { Text("Удалить всё") } },
+            dismissButton = { TextButton(onClick = { showClearDialog = false }) { Text("Отмена") } }
+        )
+    }
     if (trainedCommands.isEmpty()) {
         Box(modifier = modifier.fillMaxSize().padding(20.dp), contentAlignment = Alignment.Center) {
             Text("Пока нет обученных команд.\n\nЗажмите переключатель виджета на главном экране и запишите фразу.", style = MaterialTheme.typography.bodyLarge)
@@ -746,6 +757,7 @@ private fun TrainedCommandsScreen(modifier: Modifier, trainedCommands: List<Trai
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold
                 )
+                OutlinedButton(onClick = { showClearDialog = true }) { Text("Очистить всё") }
             }
         }
         items(items = trainedCommands, key = { it.phrase + "|" + it.deviceId + "|" + it.widgetId + "|" + it.value }) { command ->
