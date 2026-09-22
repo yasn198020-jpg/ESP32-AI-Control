@@ -260,7 +260,7 @@ private fun App() {
                     trainedActions.forEach { trained ->
                         val device = devices.firstOrNull { it.id == trained.deviceId }
                         val widget = device?.widgets?.firstOrNull { it.id == trained.widgetId }
-                        if (device == null || widget == null || widget.topic.isBlank() ||
+                        if (device == null || widget == null ||
                             (widget.type != WidgetState.Type.TOGGLE && widget.type != WidgetState.Type.BUTTON)
                         ) {
                             skipped++
