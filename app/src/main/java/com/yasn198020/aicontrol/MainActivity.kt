@@ -42,13 +42,7 @@ private fun App() {
     var tab by remember { mutableIntStateOf(0) }
     var connected by remember { mutableStateOf(false) }
     var log by remember { mutableStateOf(listOf("MQTT diagnostic log ready")) }
-    var devices by remember {
-        mutableStateOf(listOf(Device("esp32-1", "ESP32 Controller", false, listOf(
-            WidgetState("relay", "Relay", WidgetState.Type.TOGGLE, "0"),
-            WidgetState("value", "Value", WidgetState.Type.INPUT, ""),
-            WidgetState("status", "Status", WidgetState.Type.STATUS, "offline")
-        ))))
-    }
+    var devices by remember { mutableStateOf(emptyList<Device>()) }
 
     fun addLog(message: String) { log = (log + message).takeLast(300) }
     val mqtt = remember {
@@ -87,21 +81,29 @@ private fun App() {
                 }
             },
             onConfig = { deviceId, widgetId, label, widgetType, page, topic, order, raw ->
+                val json = try { JSONObject(raw) } catch (_: Exception) { JSONObject() }
                 val type = when (widgetType.lowercase()) {
-                    "toggle", "button", "vbtn", "btn" -> WidgetState.Type.TOGGLE
-                    "input", "text", "number", "slider", "anydata" -> WidgetState.Type.INPUT
+                    "toggle" -> WidgetState.Type.TOGGLE
+                    "button", "vbtn", "btn" -> WidgetState.Type.BUTTON
+                    "anydata", "value", "input", "text", "number", "slider" -> WidgetState.Type.VALUE
                     else -> WidgetState.Type.STATUS
                 }
+                val newPage = page.ifBlank { "Основная" }
+                val newUnit = json.optString("after")
                 val existing = devices.firstOrNull { it.id == deviceId }
+                val newWidget = WidgetState(widgetId, label, type, "", newPage, topic, order, newUnit)
                 if (existing == null) {
-                    devices = devices + Device(deviceId, deviceId, true, listOf(WidgetState(widgetId, label, type, "", page.ifBlank { "Основная" }, topic, order, json.optString("after"))))
+                    devices = devices + Device(deviceId, deviceId, true, listOf(newWidget))
                 } else {
                     devices = devices.map { device ->
                         if (device.id != deviceId) device else {
                             val exists = device.widgets.any { it.id == widgetId }
-                            device.copy(online = true, widgets = if (exists) device.widgets.map { w ->
-                                if (w.id == widgetId) w.copy(title = label, type = type) else w
-                            } else device.widgets + WidgetState(widgetId, label, type, "", page.ifBlank { "Основная" }, topic, order, json.optString("after")))
+                            device.copy(
+                                online = true,
+                                widgets = if (exists) device.widgets.map { w ->
+                                    if (w.id == widgetId) newWidget.copy(value = w.value) else w
+                                } else device.widgets + newWidget
+                            )
                         }
                     }
                 }
@@ -129,23 +131,16 @@ private fun App() {
     }
 
     fun sendWidget(deviceId: String, widgetId: String, value: String) {
-        val value = if (enabled) "1" else "0"
-        val sent = mqtt.publishControl(deviceId, widgetId, value)
-        if (sent) {
-            devices = devices.map { device ->
-                if (device.id != deviceId) device else device.copy(widgets = device.widgets.map { widget ->
-                    if (widget.id == widgetId) widget.copy(value = value) else widget
-                })
-            }
+        val widget = devices.firstOrNull { it.id == deviceId }?.widgets?.firstOrNull { it.id == widgetId } ?: return
+        if (widget.topic.isBlank()) {
+            addLog("MQTT TX skipped: config has no topic for " + widgetId)
+            return
         }
-    }
-
-    fun input(deviceId: String, widgetId: String, value: String) {
-        if (mqtt.publishControl(deviceId, widgetId, value)) {
+        if (mqtt.publishWidget(widget.topic, value)) {
             devices = devices.map { device ->
-                if (device.id != deviceId) device else device.copy(widgets = device.widgets.map { widget ->
-                    if (widget.id == widgetId) widget.copy(value = value) else widget
-                })
+                if (device.id != deviceId) device else device.copy(
+                    widgets = device.widgets.map { w -> if (w.id == widgetId) w.copy(value = value) else w }
+                )
             }
         }
     }
@@ -171,26 +166,50 @@ private fun App() {
 }
 
 @Composable
-private fun DevicesScreen(modifier: Modifier, devices: List<Device>, onToggle: (String, String, Boolean) -> Unit, onInput: (String, String, String) -> Unit) {
+private fun DevicesScreen(
+    modifier: Modifier,
+    devices: List<Device>,
+    onSend: (String, String, String) -> Unit
+) {
     LazyColumn(modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         items(devices, key = { it.id }) { device ->
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        Column { Text(device.name, style = MaterialTheme.typography.titleLarge); Text(device.id, style = MaterialTheme.typography.bodySmall) }
+                        Column {
+                            Text(device.name, style = MaterialTheme.typography.titleLarge)
+                            Text(device.id, style = MaterialTheme.typography.bodySmall)
+                        }
                         Text(if (device.online) "ONLINE" else "OFFLINE")
                     }
-                    device.widgets.forEach { widget ->
-                        when (widget.type) {
-                            WidgetState.Type.TOGGLE -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                Text(widget.title); Switch(checked = widget.value == "1", onCheckedChange = { onToggle(device.id, widget.id, it) })
+                    device.widgets.groupBy { it.page }.toSortedMap().forEach { (pageName, pageWidgets) ->
+                        Text(pageName, style = MaterialTheme.typography.titleMedium)
+                        pageWidgets.sortedWith(compareBy<WidgetState> { it.order }.thenBy { it.title }).forEach { widget ->
+                            when (widget.type) {
+                                WidgetState.Type.TOGGLE -> Row(
+                                    Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(widget.title)
+                                    Switch(
+                                        checked = widget.value == "1" || widget.value.equals("true", true),
+                                        onCheckedChange = { onSend(device.id, widget.id, if (it) "1" else "0") }
+                                    )
+                                }
+                                WidgetState.Type.BUTTON -> Button(onClick = { onSend(device.id, widget.id, "1") }) {
+                                    Text(widget.title)
+                                }
+                                WidgetState.Type.VALUE -> Text(widget.title + ": " + widget.value + widget.unit)
+                                WidgetState.Type.STATUS -> Text(widget.title + ": " + widget.value)
                             }
-                            WidgetState.Type.INPUT -> InputWidget(widget, onSend = { onInput(device.id, widget.id, it) })
-                            WidgetState.Type.STATUS -> Text(widget.title + ": " + widget.value)
                         }
                     }
                 }
             }
+        }
+        if (devices.isEmpty()) {
+            item { Text("Нет конфигурации. Подключитесь к MQTT и нажмите HELLO.") }
         }
     }
 }
