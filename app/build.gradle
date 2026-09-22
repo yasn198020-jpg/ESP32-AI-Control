@@ -5,6 +5,10 @@ plugins {
 }
 
 android {
+    buildFeatures {
+        buildConfig true
+    }
+
     namespace 'com.yasn198020.aicontrol'
     compileSdk 35
 
