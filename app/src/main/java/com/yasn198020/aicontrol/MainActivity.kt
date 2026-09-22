@@ -235,16 +235,16 @@ private fun App() {
                         .padding(horizontal = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("☰", fontSize = 34.sp, modifier = Modifier.padding(end = 18.dp))
-                    Text("?", fontSize = 25.sp, modifier = Modifier.padding(end = 18.dp))
+                    Text("☰", fontSize = 30.sp, modifier = Modifier.padding(end = 18.dp))
+                    Text("?", fontSize = 22.sp, modifier = Modifier.padding(end = 18.dp))
                     Text(
                         if (tab == 0) "Dashboard" else if (tab == 1) "MQTT" else "Log",
-                        fontSize = 26.sp,
+                        fontSize = 22.sp,
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.weight(1f)
                     )
-                    Text("ⓘ", fontSize = 25.sp, modifier = Modifier.padding(horizontal = 10.dp))
-                    Text("☁", fontSize = 32.sp)
+                    Text("ⓘ", fontSize = 22.sp, modifier = Modifier.padding(horizontal = 10.dp))
+                    Text("☁", fontSize = 27.sp)
                 }
 
                 if (tab == 0) {
@@ -260,19 +260,19 @@ private fun App() {
                 NavigationBarItem(
                     selected = tab == 0,
                     onClick = { tab = 0 },
-                    icon = { Text("▲", fontSize = 25.sp) },
+                    icon = { Text("▲", fontSize = 22.sp) },
                     label = null
                 )
                 NavigationBarItem(
                     selected = tab == 1,
                     onClick = { tab = 1 },
-                    icon = { Text("☰", fontSize = 25.sp) },
+                    icon = { Text("☰", fontSize = 22.sp) },
                     label = null
                 )
                 NavigationBarItem(
                     selected = tab == 2,
                     onClick = { tab = 2 },
-                    icon = { Text("○", fontSize = 29.sp) },
+                    icon = { Text("○", fontSize = 25.sp) },
                     label = null
                 )
             }
@@ -332,7 +332,7 @@ private fun DashboardPageTabs(devices: List<Device>, selectedPage: String?, onSe
                 Text(
                     text = page,
                     color = Color.White,
-                    fontSize = 16.sp,
+                    fontSize = 14.sp,
                     modifier = Modifier
                         .clickable { onSelect(page) }
                         .padding(horizontal = 16.dp, vertical = 12.dp)
@@ -416,20 +416,20 @@ private fun DashboardWidgetRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(91.dp)
-                .padding(horizontal = 26.dp),
+                .height(68.dp)
+                .padding(horizontal = 22.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("🌡", fontSize = 25.sp, modifier = Modifier.width(40.dp))
+            Text("🌡", fontSize = 22.sp, modifier = Modifier.width(34.dp))
             Text(
                 widget.title,
-                fontSize = 23.sp,
+                fontSize = 19.sp,
                 modifier = Modifier.weight(1f)
             )
             Surface(
                 modifier = Modifier
-                    .width(100.dp)
-                    .height(78.dp),
+                    .width(86.dp)
+                    .height(64.dp),
                 shape = RoundedCornerShape(18.dp),
                 color = Color(0xFF4285F4)
             ) {
@@ -437,7 +437,7 @@ private fun DashboardWidgetRow(
                     Text(
                         widget.value.ifBlank { "—" } + if (widget.unit.isNotBlank()) " " + widget.unit else "",
                         color = Color.White,
-                        fontSize = 25.sp,
+                        fontSize = 22.sp,
                         fontWeight = FontWeight.Medium
                     )
                 }
@@ -447,19 +447,19 @@ private fun DashboardWidgetRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(78.dp)
-                .padding(horizontal = 28.dp),
+                .height(66.dp)
+                .padding(horizontal = 22.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 "◉",
                 color = Color(0xFF8065E8),
-                fontSize = 25.sp,
-                modifier = Modifier.width(52.dp)
+                fontSize = 22.sp,
+                modifier = Modifier.width(44.dp)
             )
             Text(
                 widget.title,
-                fontSize = 23.sp,
+                fontSize = 19.sp,
                 modifier = Modifier.weight(1f)
             )
             Switch(
