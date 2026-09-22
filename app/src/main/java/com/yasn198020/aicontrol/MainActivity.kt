@@ -71,9 +71,12 @@ private fun App() {
     val pendingValues = remember { mutableStateMapOf<String, String>() }
     val localCommandManager = remember { LocalCommandManager() }
     val speech = remember { TextToSpeech(context, null) }
-    LaunchedEffect(speech, voiceRate, voicePitch) {
+    LaunchedEffect(speech) {
+        speech.language = Locale("ru", "RU")
+        availableVoices = speech.voices.filter { it.locale.language == "ru" }.sortedBy { it.name.lowercase() }
         applyVoiceSettings()
     }
+    LaunchedEffect(speech, voiceRate, voicePitch, selectedVoiceName) { applyVoiceSettings() }
     val trainedStore = remember { TrainedCommandStore(prefs) }
     val trainedMatcher = remember { TrainedCommandMatcher(trainedStore) }
     var trainedCommands by remember { mutableStateOf(trainedStore.load()) }
@@ -90,11 +93,20 @@ private fun App() {
     var voicePreset by remember { mutableStateOf(prefs.getString("voice_preset", "friendly") ?: "friendly") }
     var voiceRate by remember { mutableFloatStateOf(prefs.getFloat("voice_rate", 0.92f)) }
     var voicePitch by remember { mutableFloatStateOf(prefs.getFloat("voice_pitch", 1.05f)) }
+    var selectedVoiceName by remember { mutableStateOf(prefs.getString("tts_voice", "") ?: "") }
+    var availableVoices by remember { mutableStateOf(emptyList<android.speech.tts.Voice>()) }
 
     fun applyVoiceSettings() {
         speech.language = Locale("ru", "RU")
+        if (selectedVoiceName.isNotBlank()) speech.voices.firstOrNull { it.name == selectedVoiceName }?.let { speech.voice = it }
         speech.setSpeechRate(voiceRate)
         speech.setPitch(voicePitch)
+    }
+    fun selectVoice(name: String) {
+        selectedVoiceName = name
+        prefs.edit().putString("tts_voice", name).apply()
+        speech.voices.firstOrNull { it.name == name }?.let { speech.voice = it }
+        applyVoiceSettings()
     }
 
     fun selectVoicePreset(id: String) {
@@ -636,9 +648,11 @@ private fun App() {
             3 -> LogScreen(Modifier.padding(padding), log) { log = emptyList() }
             else -> VoiceSettingsScreen(
                 Modifier.padding(padding), voicePreset, voiceRate, voicePitch,
+                availableVoices, selectedVoiceName,
                 ::selectVoicePreset,
                 { voiceRate = it; voicePreset = "custom" },
                 { voicePitch = it; voicePreset = "custom" },
+                ::selectVoice,
                 ::saveVoiceSettings,
                 { sample -> speech.speak(sample, TextToSpeech.QUEUE_FLUSH, null, "voice-preview") }
             )
@@ -919,9 +933,12 @@ private fun VoiceSettingsScreen(
     preset: String,
     rate: Float,
     pitch: Float,
+    voices: List<android.speech.tts.Voice>,
+    selectedVoiceName: String,
     onPreset: (String) -> Unit,
     onRate: (Float) -> Unit,
     onPitch: (Float) -> Unit,
+    onVoice: (String) -> Unit,
     onSave: () -> Unit,
     onPreview: (String) -> Unit
 ) {
@@ -956,6 +973,28 @@ private fun VoiceSettingsScreen(
 
         Text("Высота голоса: " + String.format(Locale.US, "%.2f", pitch), fontWeight = FontWeight.Medium)
         Slider(value = pitch, onValueChange = onPitch, valueRange = 0.85f..1.25f)
+
+        Text("Конкретный голос", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        if (voices.isEmpty()) {
+            Text("Русские голоса TTS не найдены. Установите русский голос в настройках синтеза речи Android.")
+        } else {
+            var voiceMenuOpen by remember { mutableStateOf(false) }
+            val selectedVoice = voices.firstOrNull { it.name == selectedVoiceName }
+            OutlinedButton(onClick = { voiceMenuOpen = true }, modifier = Modifier.fillMaxWidth()) {
+                Text(selectedVoice?.name ?: "Выбрать голос", modifier = Modifier.weight(1f))
+            }
+            DropdownMenu(expanded = voiceMenuOpen, onDismissRequest = { voiceMenuOpen = false }) {
+                voices.forEach { voice ->
+                    DropdownMenuItem(
+                        text = { Column {
+                            Text(voice.name)
+                            Text(voice.locale.displayName + "  •  качество " + voice.quality, style = MaterialTheme.typography.bodySmall)
+                        } },
+                        onClick = { onVoice(voice.name); voiceMenuOpen = false }
+                    )
+                }
+            }
+        }
 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = { onPreview("Температура для помидоров: 24.5 градуса") }, modifier = Modifier.weight(1f)) { Text("▶ Проверить") }
