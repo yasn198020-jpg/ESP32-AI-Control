@@ -4,6 +4,8 @@ import android.content.SharedPreferences
 import org.json.JSONArray
 import org.json.JSONObject
 
+const val TRAINED_READ_VALUE = "__READ_VALUE__"
+
 data class TrainedVoiceCommand(
     val phrase: String,
     val deviceId: String,
