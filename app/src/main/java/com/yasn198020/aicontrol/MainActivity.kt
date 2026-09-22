@@ -55,15 +55,35 @@ private fun App() {
         MqttManager(
             onLog = ::addLog,
             onConnected = { value -> connected = value },
-            onStatus = { widgetId, payload ->
+            onStatus = { deviceId, widgetId, payload ->
                 val value = try {
                     val json = JSONObject(payload)
                     if (json.has("status")) json.optString("status") else payload
                 } catch (_: Exception) { payload }
-                devices = devices.map { device ->
-                    device.copy(online = true, widgets = device.widgets.map { widget ->
-                        if (widget.id == widgetId) widget.copy(value = value) else widget
-                    })
+                val existingDevice = devices.firstOrNull { it.id == deviceId }
+                if (existingDevice == null) {
+                    devices = devices + Device(
+                        deviceId,
+                        deviceId,
+                        true,
+                        listOf(WidgetState(widgetId, widgetId, WidgetState.Type.STATUS, value))
+                    )
+                } else {
+                    devices = devices.map { device ->
+                        if (device.id != deviceId) device else {
+                            val existingWidget = device.widgets.any { it.id == widgetId }
+                            device.copy(
+                                online = true,
+                                widgets = if (existingWidget) {
+                                    device.widgets.map { widget ->
+                                        if (widget.id == widgetId) widget.copy(value = value) else widget
+                                    }
+                                } else {
+                                    device.widgets + WidgetState(widgetId, widgetId, WidgetState.Type.STATUS, value)
+                                }
+                            )
+                        }
+                    }
                 }
             },
             onConfig = { deviceId, widgetId, label, widgetType ->
