@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <path
+        android:fillColor="#07182E"
+        android:pathData="M0,0h108v108h-108z" />
+
+    <path
+        android:fillColor="#101C2E"
+        android:pathData="M20,20h68c4.4,0 8,3.6 8,8v52c0,4.4 -3.6,8 -8,8H20c-4.4,0 -8,-3.6 -8,-8V28c0,-4.4 3.6,-8 8,-8z" />
+
+    <path
+        android:fillColor="#24374D"
+        android:pathData="M20,18h68c5.5,0 10,4.5 10,10v52c0,5.5 -4.5,10 -10,10H20c-5.5,0 -10,-4.5 -10,-10V28c0,-5.5 4.5,-10 10,-10zM20,22c-3.3,0 -6,2.7 -6,6v52c0,3.3 2.7,6 6,6h68c3.3,0 6,-2.7 6,-6V28c0,-3.3 -2.7,-6 -6,-6z" />
+
+    <!-- pins -->
+    <path
+        android:fillColor="#BFC9D5"
+        android:pathData="M18,8h5v10h-5zM30,8h5v10h-5zM42,8h5v10h-5zM54,8h5v10h-5zM66,8h5v10h-5zM78,8h5v10h-5zM18,90h5v10h-5zM30,90h5v10h-5zM42,90h5v10h-5zM54,90h5v10h-5zM66,90h5v10h-5zM78,90h5v10h-5zM8,18h10v5H8zM8,30h10v5H8zM8,42h10v5H8zM8,54h10v5H8zM8,66h10v5H8zM8,78h10v5H8zM90,18h10v5H90zM90,30h10v5H90zM90,42h10v5H90zM90,54h10v5H90zM90,66h10v5H90zM90,78h10v5H90z" />
+
+    <!-- circuit traces -->
+    <path
+        android:fillColor="#19DFFF"
+        android:pathData="M25,31h10l8,8h7v3h-8l-8,-8h-9zM83,31H73l-8,8h-7v3h8l8,-8h9zM25,77h10l8,-8h7v-3h-8l-8,8h-9zM83,77H73l-8,-8h-7v-3h8l8,8h9z" />
+
+    <!-- И -->
+    <path
+        android:fillColor="#35F2FF"
+        android:pathData="M30,46h5v11l8,-11h5v17h-5V52l-8,11h-5z" />
+
+    <!-- И -->
+    <path
+        android:fillColor="#35F2FF"
+        android:pathData="M57,46h5v11l8,-11h5v17h-5V52l-8,11h-5z" />
+
+    <!-- top AI nodes -->
+    <path
+        android:fillColor="#35F2FF"
+        android:pathData="M52,27h4v10h-4zM51,24a3,3 0,1 0,6 0a3,3 0,1 0,-6 0M37,27h4v7h-4zM36,24a3,3 0,1 0,6 0a3,3 0,1 0,-6 0M67,27h4v7h-4zM66,24a3,3 0,1 0,6 0a3,3 0,1 0,-6 0" />
+
+</vector>
