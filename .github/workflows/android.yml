@@ -5,9 +5,7 @@ on:
     branches:
       - main
       - android-apk-build
-  pull_request:
-    branches:
-      - main
+  workflow_dispatch:
 
 jobs:
   build:
@@ -35,7 +33,7 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          set -e
+          set -euo pipefail
           test -n "$ANDROID_KEYSTORE_BASE64"
           test -n "$ANDROID_KEYSTORE_PASSWORD"
           test -n "$ANDROID_KEY_ALIAS"
@@ -50,11 +48,30 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
+          set -euo pipefail
           VERSION_CODE=$((1000 + GITHUB_RUN_NUMBER))
-          gradle assembleRelease --no-daemon -PVERSION_CODE="$VERSION_CODE" -PVERSION_NAME="1.0.$VERSION_CODE"
+          VERSION_NAME="1.0.$VERSION_CODE"
+          gradle assembleRelease --no-daemon \
+            -PVERSION_CODE="$VERSION_CODE" \
+            -PVERSION_NAME="$VERSION_NAME"
+          test -s app/build/outputs/apk/release/app-release.apk
 
-      - name: Upload APK
+      - name: Verify APK is signed
+        run: |
+          set -euo pipefail
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose app/build/outputs/apk/release/app-release.apk
+
+      - name: Rename APK
+        run: |
+          set -euo pipefail
+          VERSION_CODE=$((1000 + GITHUB_RUN_NUMBER))
+          cp app/build/outputs/apk/release/app-release.apk \
+             "app/build/outputs/apk/release/ESP32-AI-Control-$VERSION_CODE.apk"
+
+      - name: Upload ready-to-install APK
         uses: actions/upload-artifact@v4
         with:
-          name: ESP32-AI-Control-release
-          path: app/build/outputs/apk/release/app-release.apk
+          name: ESP32-AI-Control-APK
+          path: app/build/outputs/apk/release/ESP32-AI-Control-*.apk
+          if-no-files-found: error
+          retention-days: 90
