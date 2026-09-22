@@ -236,35 +236,47 @@ private fun App() {
                 saveTraining(command)
             } else {
                 voiceStatus = "Анализ команды…"
-                val trained = trainedMatcher.match(command)
-                val result = if (trained != null) {
-                    LocalCommandResult(
-                        LocalCommandAction.CONTROL,
-                        trained.deviceId,
-                        trained.widgetId,
-                        trained.value,
-                        "Обученная команда: ${trained.phrase}"
-                    )
-                } else {
-                    localCommandManager.interpret(command, devices)
-                }
-                when (result.action) {
-                    LocalCommandAction.CONTROL -> {
-                        val device = devices.firstOrNull { it.id == result.deviceId }
-                        val widget = device?.widgets?.firstOrNull { it.id == result.widgetId }
-                        if (device == null || widget == null) {
-                            voiceStatus = "Подходящий виджет не найден. Команда не отправлена."
-                        } else if (widget.type != WidgetState.Type.TOGGLE && widget.type != WidgetState.Type.BUTTON) {
-                            voiceStatus = "Этот виджет нельзя управлять голосовой командой."
-                        } else if (widget.topic.isBlank()) {
-                            voiceStatus = "У выбранного виджета нет MQTT topic."
+                val trainedActions = trainedMatcher.matchAll(command)
+                if (trainedActions.isNotEmpty()) {
+                    var sent = 0
+                    var skipped = 0
+                    trainedActions.forEach { trained ->
+                        val device = devices.firstOrNull { it.id == trained.deviceId }
+                        val widget = device?.widgets?.firstOrNull { it.id == trained.widgetId }
+                        if (device == null || widget == null || widget.topic.isBlank() ||
+                            (widget.type != WidgetState.Type.TOGGLE && widget.type != WidgetState.Type.BUTTON)
+                        ) {
+                            skipped++
                         } else {
-                            sendWidget(result.deviceId, result.widgetId, result.value)
-                            voiceStatus = result.reply
+                            sendWidget(trained.deviceId, trained.widgetId, trained.value)
+                            sent++
                         }
                     }
-                    LocalCommandAction.CLARIFY -> voiceStatus = result.reply
-                    LocalCommandAction.NOT_FOUND -> voiceStatus = result.reply
+                    voiceStatus = if (skipped == 0) {
+                        "Выполнено действий: $sent"
+                    } else {
+                        "Выполнено действий: $sent, пропущено: $skipped"
+                    }
+                } else {
+                    val result = localCommandManager.interpret(command, devices)
+                    when (result.action) {
+                        LocalCommandAction.CONTROL -> {
+                            val device = devices.firstOrNull { it.id == result.deviceId }
+                            val widget = device?.widgets?.firstOrNull { it.id == result.widgetId }
+                            if (device == null || widget == null) {
+                                voiceStatus = "Подходящий виджет не найден. Команда не отправлена."
+                            } else if (widget.type != WidgetState.Type.TOGGLE && widget.type != WidgetState.Type.BUTTON) {
+                                voiceStatus = "Этот виджет нельзя управлять голосовой командой."
+                            } else if (widget.topic.isBlank()) {
+                                voiceStatus = "У выбранного виджета нет MQTT topic."
+                            } else {
+                                sendWidget(result.deviceId, result.widgetId, result.value)
+                                voiceStatus = result.reply
+                            }
+                        }
+                        LocalCommandAction.CLARIFY -> voiceStatus = result.reply
+                        LocalCommandAction.NOT_FOUND -> voiceStatus = result.reply
+                    }
                 }
             }
         }
@@ -290,6 +302,10 @@ private fun App() {
                             label = { Text("Закрыть / выключить") }
                         )
                     }
+                    Text(
+                        "Одну и ту же фразу можно записать для нескольких виджетов. " +
+                            "Например, для «Доброе утро» обучите свет и шторы отдельно — при произнесении сработают оба действия."
+                    )
                     Text("Нажмите микрофон и произнесите фразу.")
                     Button(
                         onClick = {
