@@ -72,6 +72,8 @@ private fun App() {
     var trainingPhrase by remember { mutableStateOf("") }
     var attachToExisting by remember { mutableStateOf(false) }
     var selectedExistingPhrase by remember { mutableStateOf<String?>(null) }
+    var variantPhraseTarget by remember { mutableStateOf<String?>(null) }
+    var variantPhraseText by remember { mutableStateOf("") }
 
     fun openTraining(deviceId: String, widget: WidgetState) {
         if (widget.type != WidgetState.Type.TOGGLE && widget.type != WidgetState.Type.BUTTON) return
@@ -298,6 +300,66 @@ private fun App() {
                 }
             }
         }
+    }
+
+    variantPhraseTarget?.let { phrase ->
+        AlertDialog(
+            onDismissRequest = {
+                variantPhraseTarget = null
+                variantPhraseText = ""
+            },
+            title = { Text("Добавить вариант фразы") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Команда: «$phrase»")
+                    Text("Произнесите или введите другой вариант этой команды.")
+                    OutlinedTextField(
+                        value = variantPhraseText,
+                        onValueChange = { variantPhraseText = it },
+                        label = { Text("Новый вариант") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    Button(
+                        onClick = {
+                            if (androidx.core.content.ContextCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.RECORD_AUDIO
+                                ) == PackageManager.PERMISSION_GRANTED
+                            ) {
+                                voiceManager.startRussian()
+                            } else {
+                                requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("🎤 Произнести вариант")
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val variant = variantPhraseText.trim()
+                        if (variant.isNotBlank()) {
+                            trainedStore.addVariant(phrase, variant)
+                            trainedCommands = trainedStore.load()
+                            variantPhraseTarget = null
+                            variantPhraseText = ""
+                            voiceStatus = "Вариант добавлен к команде: $phrase"
+                        }
+                    },
+                    enabled = variantPhraseText.trim().isNotBlank()
+                ) { Text("Добавить") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    variantPhraseTarget = null
+                    variantPhraseText = ""
+                }) { Text("Отмена") }
+            }
+        )
     }
 
     trainingTarget?.let { target ->
@@ -604,7 +666,19 @@ private fun TrainedCommandsScreen(modifier: Modifier, trainedCommands: List<Trai
         return
     }
     LazyColumn(modifier = modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        item { Text("Записанные команды: " + trainedCommands.size, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(bottom = 4.dp)) }
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    "Записанные команды: " + trainedCommands.size,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
         items(items = trainedCommands, key = { it.phrase + "|" + it.deviceId + "|" + it.widgetId + "|" + it.value }) { command ->
             val device = devices.firstOrNull { it.id == command.deviceId }
             val widget = device?.widgets?.firstOrNull { it.id == command.widgetId }
@@ -616,6 +690,15 @@ private fun TrainedCommandsScreen(modifier: Modifier, trainedCommands: List<Trai
                     Column(modifier = Modifier.weight(1f)) {
                         Text("«" + command.phrase + "»", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
                         Spacer(Modifier.height(5.dp)); Text(deviceName + "  •  " + widgetName); Text(action, color = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedButton(
+                            onClick = {
+                                variantPhraseTarget = command.phrase
+                                variantPhraseText = ""
+                            }
+                        ) {
+                            Text("➕ Добавить вариант фразы")
+                        }
                     }
                     IconButton(onClick = { onDelete(command) }) { Text("🗑", fontSize = 22.sp) }
                 }
