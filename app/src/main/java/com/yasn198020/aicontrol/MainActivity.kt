@@ -8,6 +8,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
@@ -51,6 +52,7 @@ private fun App() {
     var username by remember { mutableStateOf(prefs.getString("mqtt_user", "") ?: "") }
     var password by remember { mutableStateOf(prefs.getString("mqtt_pass", "") ?: "") }
     var tab by remember { mutableIntStateOf(0) }
+    var selectedPage by remember { mutableStateOf<String?>(null) }
     var connected by remember { mutableStateOf(false) }
     var log by remember { mutableStateOf(listOf("MQTT diagnostic log ready")) }
     var devices by remember { mutableStateOf(emptyList<Device>()) }
@@ -246,7 +248,7 @@ private fun App() {
                 }
 
                 if (tab == 0) {
-                    DashboardPageTabs(devices)
+                    DashboardPageTabs(devices, selectedPage, onSelect = { selectedPage = it })
                 }
             }
         },
@@ -280,6 +282,7 @@ private fun App() {
             0 -> DevicesScreen(
                 Modifier.padding(padding),
                 devices,
+                selectedPage,
                 voiceText,
                 voiceStatus,
                 onVoice = {
@@ -307,7 +310,7 @@ private fun App() {
 }
 
 @Composable
-private fun DashboardPageTabs(devices: List<Device>) {
+private fun DashboardPageTabs(devices: List<Device>, selectedPage: String?, onSelect: (String) -> Unit) {
     val pages = devices
         .flatMap { it.widgets.map { w -> w.page.ifBlank { "Основная" } } }
         .distinct()
@@ -319,16 +322,20 @@ private fun DashboardPageTabs(devices: List<Device>) {
             .padding(horizontal = 8.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        pages.forEach { page ->
+        pages.forEachIndexed { index, page ->
+            val selected = selectedPage == page || (selectedPage == null && index == 0)
             Surface(
                 shape = RoundedCornerShape(10.dp),
-                color = Color(0xFF4A4A4A)
+                color = if (selected) Color(0xFF626262) else Color(0xFF303030),
+                modifier = Modifier.padding(end = 2.dp)
             ) {
                 Text(
                     text = page,
                     color = Color.White,
                     fontSize = 16.sp,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                    modifier = Modifier
+                        .clickable { onSelect(page) }
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
                 )
             }
         }
@@ -339,6 +346,7 @@ private fun DashboardPageTabs(devices: List<Device>) {
 private fun DevicesScreen(
     modifier: Modifier,
     devices: List<Device>,
+    selectedPage: String?,
     voiceText: String,
     voiceStatus: String,
     onVoice: () -> Unit,
@@ -348,10 +356,10 @@ private fun DevicesScreen(
         .flatMap { it.widgets.map { it.page.ifBlank { "Основная" } } }
         .distinct()
 
-    val selectedPage = pages.firstOrNull() ?: "Основная"
+    val activePage = selectedPage ?: pages.firstOrNull() ?: "Основная"
     val entries = devices
         .flatMap { device -> device.widgets.map { device.id to it } }
-        .filter { (_, widget) -> widget.page.ifBlank { "Основная" } == selectedPage }
+        .filter { (_, widget) -> widget.page.ifBlank { "Основная" } == activePage }
         .sortedWith(compareBy<Pair<String, WidgetState>> { it.second.order }.thenBy { it.second.title })
 
     LazyColumn(
