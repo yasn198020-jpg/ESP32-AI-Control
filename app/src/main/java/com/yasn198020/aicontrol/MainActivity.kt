@@ -181,46 +181,51 @@ private fun DevicesScreen(
     devices: List<Device>,
     onSend: (String, String, String) -> Unit
 ) {
+    val pageWidgets = devices
+        .flatMap { device -> device.widgets.map { widget -> device.id to widget } }
+        .groupBy { (_, widget) -> widget.page }
+        .toSortedMap()
+
     LazyColumn(modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        items(devices, key = { it.id }) { device ->
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        Column {
-                            Text(device.name, style = MaterialTheme.typography.titleLarge)
-                            Text(device.id, style = MaterialTheme.typography.bodySmall)
-                        }
-                        Text(if (device.online) "ONLINE" else "OFFLINE")
-                    }
-                    device.widgets.groupBy { it.page }.toSortedMap().forEach { (pageName, pageWidgets) ->
-                        Text(pageName, style = MaterialTheme.typography.titleMedium)
-                        pageWidgets.sortedWith(compareBy<WidgetState> { it.order }.thenBy { it.title }).forEach { widget ->
-                            when (widget.type) {
-                                WidgetState.Type.TOGGLE -> Row(
-                                    Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(widget.title)
-                                    Switch(
-                                        checked = widget.value == "1" || widget.value.equals("true", true),
-                                        onCheckedChange = { onSend(device.id, widget.id, if (it) "1" else "0") }
+        pageWidgets.forEach { (pageName, entries) ->
+            item(key = "page-$pageName") {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(pageName, style = MaterialTheme.typography.titleLarge)
+
+                        entries
+                            .sortedWith(compareBy<Pair<String, WidgetState>> { it.second.order }.thenBy { it.second.title })
+                            .forEach { (deviceId, widget) ->
+                                when (widget.type) {
+                                    WidgetState.Type.TOGGLE -> Row(
+                                        Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(widget.title)
+                                        Switch(
+                                            checked = widget.value == "1" || widget.value.equals("true", true),
+                                            onCheckedChange = { onSend(deviceId, widget.id, if (it) "1" else "0") }
+                                        )
+                                    }
+                                    WidgetState.Type.BUTTON -> Button(onClick = { onSend(deviceId, widget.id, "1") }) {
+                                        Text(widget.title)
+                                    }
+                                    WidgetState.Type.INPUT -> InputWidget(widget, onSend = { value ->
+                                        if (value.isNotBlank()) onSend(deviceId, widget.id, value)
+                                    })
+                                    WidgetState.Type.VALUE -> Text(
+                                        widget.title + ": " + widget.value +
+                                            if (widget.unit.isNotBlank()) " " + widget.unit else ""
                                     )
+                                    WidgetState.Type.STATUS -> Text(widget.title + ": " + widget.value)
                                 }
-                                WidgetState.Type.BUTTON -> Button(onClick = { onSend(device.id, widget.id, "1") }) { Text(widget.title) }
-                                WidgetState.Type.INPUT -> InputWidget(widget, onSend = { value ->
-                                    if (value.isNotBlank()) onSend(device.id, widget.id, value)
-                                })
-                                WidgetState.Type.VALUE -> Text(
-                                    widget.title + ": " + widget.value + if (widget.unit.isNotBlank()) " " + widget.unit else ""
-                                )
-                                WidgetState.Type.STATUS -> Text(widget.title + ": " + widget.value)
                             }
-                        }
                     }
                 }
             }
         }
+
         if (devices.isEmpty()) {
             item { Text("Нет конфигурации. Подключитесь к MQTT и нажмите HELLO.") }
         }
