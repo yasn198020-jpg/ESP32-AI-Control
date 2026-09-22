@@ -65,7 +65,7 @@ class LocalCommandManager {
             candidate.device.id,
             candidate.widget.id,
             value,
-            "\${actionWord}: \${candidate.widget.title}"
+            "$actionWord: ${candidate.widget.title}"
         )
     }
 
