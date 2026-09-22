@@ -19,7 +19,7 @@ import org.json.JSONObject
 
 data class Device(val id: String, val name: String, val online: Boolean, val widgets: List<WidgetState>)
 data class WidgetState(val id: String, val title: String, val type: Type, val value: String, val page: String = "Основная", val topic: String = "", val order: Int = 0, val unit: String = "") {
-    enum class Type { TOGGLE, BUTTON, VALUE, STATUS }
+    enum class Type { TOGGLE, BUTTON, INPUT, VALUE, STATUS }
 }
 
 class MainActivity : ComponentActivity() {
@@ -44,31 +44,35 @@ private fun App() {
     var connected by remember { mutableStateOf(false) }
     var log by remember { mutableStateOf(listOf("MQTT diagnostic log ready")) }
     var devices by remember { mutableStateOf(emptyList<Device>()) }
+    val pendingValues = remember { mutableStateMapOf<String, String>() }
 
     fun addLog(message: String) { log = (log + message).takeLast(300) }
     val mqtt = remember {
         MqttManager(
             onLog = ::addLog,
             onConnected = { value -> connected = value },
-            onStatus = { deviceId, widgetId, payload ->
-                val value = try {
-                    val json = JSONObject(payload)
-                    if (json.has("status")) json.optString("status") else payload
-                } catch (_: Exception) { payload }
+            onStatus = { deviceId, widgetId, value ->
+                val key = "$deviceId/$widgetId"
                 val existingDevice = devices.firstOrNull { it.id == deviceId }
-                if (existingDevice == null) {
-                    devices = devices + Device(deviceId, deviceId, true, listOf(WidgetState(widgetId, widgetId, WidgetState.Type.STATUS, value)))
-                } else {
+                val existingWidget = existingDevice?.widgets?.any { it.id == widgetId } == true
+
+                if (!existingWidget) {
+                    pendingValues[key] = value
+                    addLog("MQTT state stored until CONFIG: " + key + " = " + value)
+                }
+
+                if (existingDevice != null && existingWidget) {
                     devices = devices.map { device ->
-                        if (device.id != deviceId) device else {
-                            val existingWidget = device.widgets.any { it.id == widgetId }
-                            device.copy(
-                                online = true,
-                                widgets = if (existingWidget) device.widgets.map { widget ->
-                                    if (widget.id == widgetId) widget.copy(value = value) else widget
-                                } else device.widgets + WidgetState(widgetId, widgetId, WidgetState.Type.STATUS, value)
-                            )
-                        }
+                        if (device.id != deviceId) device else device.copy(
+                            online = true,
+                            widgets = device.widgets.map { widget ->
+                                if (widget.id == widgetId) widget.copy(value = value) else widget
+                            }
+                        )
+                    }
+                } else if (existingDevice != null) {
+                    devices = devices.map { device ->
+                        if (device.id == deviceId) device.copy(online = true) else device
                     }
                 }
             },
@@ -77,13 +81,26 @@ private fun App() {
                 val type = when (widgetType.lowercase()) {
                     "toggle" -> WidgetState.Type.TOGGLE
                     "button", "vbtn", "btn" -> WidgetState.Type.BUTTON
-                    "anydata", "value", "input", "text", "number", "slider" -> WidgetState.Type.VALUE
+                    "input" -> WidgetState.Type.INPUT
+                    "anydata", "value", "text", "number", "slider" -> WidgetState.Type.VALUE
                     else -> WidgetState.Type.STATUS
                 }
                 val newPage = page.ifBlank { "Основная" }
-                val newUnit = json.optString("after")
+                val newUnit = json.optString("after").trim()
+                val key = "$deviceId/$widgetId"
+                val pendingValue = pendingValues[key]
                 val existing = devices.firstOrNull { it.id == deviceId }
-                val newWidget = WidgetState(widgetId, label, type, "", newPage, topic, order, newUnit)
+                val existingWidget = existing?.widgets?.firstOrNull { it.id == widgetId }
+                val newWidget = WidgetState(
+                    widgetId,
+                    label.ifBlank { widgetId },
+                    type,
+                    pendingValue ?: existingWidget?.value ?: "",
+                    newPage,
+                    topic,
+                    order,
+                    newUnit
+                )
                 if (existing == null) {
                     devices = devices + Device(deviceId, deviceId, true, listOf(newWidget))
                 } else {
@@ -93,12 +110,13 @@ private fun App() {
                             device.copy(
                                 online = true,
                                 widgets = if (exists) device.widgets.map { w ->
-                                    if (w.id == widgetId) newWidget.copy(value = w.value) else w
+                                    if (w.id == widgetId) newWidget else w
                                 } else device.widgets + newWidget
                             )
                         }
                     }
                 }
+                if (pendingValue != null) pendingValues.remove(key)
             }
         )
     }
@@ -190,7 +208,12 @@ private fun DevicesScreen(
                                     )
                                 }
                                 WidgetState.Type.BUTTON -> Button(onClick = { onSend(device.id, widget.id, "1") }) { Text(widget.title) }
-                                WidgetState.Type.VALUE -> Text(widget.title + ": " + widget.value + widget.unit)
+                                WidgetState.Type.INPUT -> InputWidget(widget, onSend = { value ->
+                                    if (value.isNotBlank()) onSend(device.id, widget.id, value)
+                                })
+                                WidgetState.Type.VALUE -> Text(
+                                    widget.title + ": " + widget.value + if (widget.unit.isNotBlank()) " " + widget.unit else ""
+                                )
                                 WidgetState.Type.STATUS -> Text(widget.title + ": " + widget.value)
                             }
                         }
