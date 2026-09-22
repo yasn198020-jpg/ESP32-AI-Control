@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.content.pm.PackageManager
+import android.speech.tts.TextToSpeech
+import java.util.Locale
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -68,6 +70,9 @@ private fun App() {
     var voiceStatus by remember { mutableStateOf("Нажмите 🎤 и скажите команду") }
     val pendingValues = remember { mutableStateMapOf<String, String>() }
     val localCommandManager = remember { LocalCommandManager() }
+    val speech = remember { TextToSpeech(context) { status ->
+        if (status == TextToSpeech.SUCCESS) it?.language = Locale("ru", "RU")
+    } }
     val trainedStore = remember { TrainedCommandStore(prefs) }
     val trainedMatcher = remember { TrainedCommandMatcher(trainedStore) }
     var trainedCommands by remember { mutableStateOf(trainedStore.load()) }
@@ -204,7 +209,14 @@ private fun App() {
         )
     }
 
-    DisposableEffect(mqtt, voiceManager) { onDispose { mqtt.disconnect(); voiceManager.stop() } }
+    DisposableEffect(mqtt, voiceManager, speech) {
+        onDispose {
+            mqtt.disconnect()
+            voiceManager.stop()
+            speech.stop()
+            speech.shutdown()
+        }
+    }
 
     fun saveSettings() {
         prefs.edit()
@@ -322,6 +334,10 @@ private fun App() {
                                 val published = sendWidget(result.deviceId, result.widgetId, result.value)
                                 voiceStatus = if (published) result.reply else "Команда распознана, но MQTT публикация не выполнена."
                             }
+                        }
+                        LocalCommandAction.READ_VALUE -> {
+                            voiceStatus = result.reply
+                            speech.speak(result.reply, TextToSpeech.QUEUE_FLUSH, null, "temperature")
                         }
                         LocalCommandAction.CLARIFY -> voiceStatus = result.reply
                         LocalCommandAction.NOT_FOUND -> voiceStatus = result.reply
