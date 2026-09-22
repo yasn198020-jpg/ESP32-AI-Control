@@ -524,7 +524,7 @@ private fun App() {
                 onTrain = ::openTraining,
                 onVoice = { if (androidx.core.content.ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) voiceManager.startRussian() else requestMicPermission.launch(Manifest.permission.RECORD_AUDIO) },
                 onSend = ::sendWidget)
-            1 -> TrainedCommandsScreen(Modifier.padding(padding), trainedCommands, devices, onDelete = { command -> trainedStore.remove(command); trainedCommands = trainedStore.load() })
+            1 -> TrainedCommandsScreen(Modifier.padding(padding), trainedCommands, devices, onDelete = { command -> trainedStore.remove(command); trainedCommands = trainedStore.load() }, onAddVariant = { phrase -> variantPhraseTarget = phrase; variantPhraseText = "" })
             2 -> MqttScreen(Modifier.padding(padding), mqttHost, mqttPort, mqttPrefix, username, password, mqttTls, connected,
                 { mqttHost = it }, { mqttPort = it }, { mqttPrefix = it }, { username = it }, { password = it }, { mqttTls = it },
                 ::saveSettings, { if (connected) mqtt.disconnect() else connect() }, { mqtt.publishHello() })
@@ -699,7 +699,7 @@ private fun DashboardWidgetRow(
 }
 
 @Composable
-private fun TrainedCommandsScreen(modifier: Modifier, trainedCommands: List<TrainedVoiceCommand>, devices: List<Device>, onDelete: (TrainedVoiceCommand) -> Unit) {
+private fun TrainedCommandsScreen(modifier: Modifier, trainedCommands: List<TrainedVoiceCommand>, devices: List<Device>, onDelete: (TrainedVoiceCommand) -> Unit, onAddVariant: (String) -> Unit) {
     if (trainedCommands.isEmpty()) {
         Box(modifier = modifier.fillMaxSize().padding(20.dp), contentAlignment = Alignment.Center) {
             Text("Пока нет обученных команд.\n\nЗажмите переключатель виджета на главном экране и запишите фразу.", style = MaterialTheme.typography.bodyLarge)
@@ -734,8 +734,7 @@ private fun TrainedCommandsScreen(modifier: Modifier, trainedCommands: List<Trai
                         Spacer(Modifier.height(8.dp))
                         OutlinedButton(
                             onClick = {
-                                variantPhraseTarget = command.phrase
-                                variantPhraseText = ""
+                                onAddVariant(command.phrase)
                             }
                         ) {
                             Text("➕ Добавить вариант фразы")
