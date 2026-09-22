@@ -71,12 +71,6 @@ private fun App() {
     val pendingValues = remember { mutableStateMapOf<String, String>() }
     val localCommandManager = remember { LocalCommandManager() }
     val speech = remember { TextToSpeech(context, null) }
-    LaunchedEffect(speech) {
-        speech.language = Locale("ru", "RU")
-        availableVoices = speech.voices.filter { it.locale.language == "ru" }.sortedBy { it.name.lowercase() }
-        applyVoiceSettings()
-    }
-    LaunchedEffect(speech, voiceRate, voicePitch, selectedVoiceName) { applyVoiceSettings() }
     val trainedStore = remember { TrainedCommandStore(prefs) }
     val trainedMatcher = remember { TrainedCommandMatcher(trainedStore) }
     var trainedCommands by remember { mutableStateOf(trainedStore.load()) }
@@ -127,6 +121,18 @@ private fun App() {
             .putFloat("voice_rate", voiceRate).putFloat("voice_pitch", voicePitch).apply()
         applyVoiceSettings()
         voiceStatus = "Настройки голоса сохранены"
+    }
+
+    LaunchedEffect(speech) {
+        speech.language = Locale("ru", "RU")
+        availableVoices = speech.voices
+            .filter { it.locale.language == "ru" }
+            .sortedBy { it.name.lowercase(Locale.ROOT) }
+        applyVoiceSettings()
+    }
+
+    LaunchedEffect(speech, voiceRate, voicePitch, selectedVoiceName) {
+        applyVoiceSettings()
     }
 
     fun openTraining(deviceId: String, widget: WidgetState) {
