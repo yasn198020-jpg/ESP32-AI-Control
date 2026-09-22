@@ -9,6 +9,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
@@ -29,6 +30,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import org.json.JSONObject
 
 data class Device(val id: String, val name: String, val online: Boolean, val widgets: List<WidgetState>)
+data class TrainingTarget(val deviceId: String, val widgetId: String, val title: String)
 data class WidgetState(val id: String, val title: String, val type: Type, val value: String, val page: String = "Основная", val topic: String = "", val order: Int = 0, val unit: String = "") {
     enum class Type { TOGGLE, BUTTON, INPUT, VALUE, STATUS }
 }
@@ -60,6 +62,33 @@ private fun App() {
     var voiceStatus by remember { mutableStateOf("Нажмите 🎤 и скажите команду") }
     val pendingValues = remember { mutableStateMapOf<String, String>() }
     val localCommandManager = remember { LocalCommandManager() }
+    val trainedStore = remember { TrainedCommandStore(prefs) }
+    val trainedMatcher = remember { TrainedCommandMatcher(trainedStore) }
+    var trainedCommands by remember { mutableStateOf(trainedStore.load()) }
+    var trainingTarget by remember { mutableStateOf<TrainingTarget?>(null) }
+    var trainingValue by remember { mutableStateOf("1") }
+    var trainingPhrase by remember { mutableStateOf("") }
+
+    fun openTraining(deviceId: String, widget: WidgetState) {
+        if (widget.type != WidgetState.Type.TOGGLE && widget.type != WidgetState.Type.BUTTON) return
+        trainingTarget = TrainingTarget(deviceId, widget.id, widget.title)
+        trainingValue = "1"
+        trainingPhrase = ""
+    }
+
+    fun saveTraining(phrase: String) {
+        val target = trainingTarget ?: return
+        val clean = phrase.trim()
+        if (clean.isBlank()) {
+            voiceStatus = "Фраза не распознана"
+            return
+        }
+        trainedStore.add(TrainedVoiceCommand(clean, target.deviceId, target.widgetId, trainingValue))
+        trainedCommands = trainedStore.load()
+        voiceStatus = "Команда обучена: ${target.title}"
+        trainingPhrase = clean
+        trainingTarget = null
+    }
 
     fun addLog(message: String) { log = (log + message).takeLast(300) }
     val voiceManager = remember {
@@ -201,27 +230,90 @@ private fun App() {
     LaunchedEffect(voiceText) {
         val command = voiceText.trim()
         if (command.isNotBlank()) {
-            voiceStatus = "Анализ команды…"
-            val result = localCommandManager.interpret(command, devices)
-            when (result.action) {
-                LocalCommandAction.CONTROL -> {
-                    val device = devices.firstOrNull { it.id == result.deviceId }
-                    val widget = device?.widgets?.firstOrNull { it.id == result.widgetId }
-                    if (device == null || widget == null) {
-                        voiceStatus = "Подходящий виджет не найден. Команда не отправлена."
-                    } else if (widget.type != WidgetState.Type.TOGGLE && widget.type != WidgetState.Type.BUTTON) {
-                        voiceStatus = "Этот виджет нельзя управлять голосовой командой."
-                    } else if (widget.topic.isBlank()) {
-                        voiceStatus = "У выбранного виджета нет MQTT topic."
-                    } else {
-                        sendWidget(result.deviceId, result.widgetId, result.value)
-                        voiceStatus = result.reply
-                    }
+            if (trainingTarget != null) {
+                saveTraining(command)
+            } else {
+                voiceStatus = "Анализ команды…"
+                val trained = trainedMatcher.match(command)
+                val result = if (trained != null) {
+                    LocalCommandResult(
+                        LocalCommandAction.CONTROL,
+                        trained.deviceId,
+                        trained.widgetId,
+                        trained.value,
+                        "Обученная команда: ${trained.phrase}"
+                    )
+                } else {
+                    localCommandManager.interpret(command, devices)
                 }
-                LocalCommandAction.CLARIFY -> voiceStatus = result.reply
-                LocalCommandAction.NOT_FOUND -> voiceStatus = result.reply
+                when (result.action) {
+                    LocalCommandAction.CONTROL -> {
+                        val device = devices.firstOrNull { it.id == result.deviceId }
+                        val widget = device?.widgets?.firstOrNull { it.id == result.widgetId }
+                        if (device == null || widget == null) {
+                            voiceStatus = "Подходящий виджет не найден. Команда не отправлена."
+                        } else if (widget.type != WidgetState.Type.TOGGLE && widget.type != WidgetState.Type.BUTTON) {
+                            voiceStatus = "Этот виджет нельзя управлять голосовой командой."
+                        } else if (widget.topic.isBlank()) {
+                            voiceStatus = "У выбранного виджета нет MQTT topic."
+                        } else {
+                            sendWidget(result.deviceId, result.widgetId, result.value)
+                            voiceStatus = result.reply
+                        }
+                    }
+                    LocalCommandAction.CLARIFY -> voiceStatus = result.reply
+                    LocalCommandAction.NOT_FOUND -> voiceStatus = result.reply
+                }
             }
         }
+    }
+
+    trainingTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { trainingTarget = null },
+            title = { Text("Обучить голосовую команду") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Виджет: ${target.title}")
+                    Text("Что должна делать фраза?")
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = trainingValue == "1",
+                            onClick = { trainingValue = "1" },
+                            label = { Text("Открыть / включить") }
+                        )
+                        FilterChip(
+                            selected = trainingValue == "0",
+                            onClick = { trainingValue = "0" },
+                            label = { Text("Закрыть / выключить") }
+                        )
+                    }
+                    Text("Нажмите микрофон и произнесите фразу.")
+                    Button(
+                        onClick = {
+                            if (androidx.core.content.ContextCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.RECORD_AUDIO
+                                ) == PackageManager.PERMISSION_GRANTED
+                            ) {
+                                voiceManager.startRussian()
+                            } else {
+                                requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("🎤 Записать фразу")
+                    }
+                    if (trainingPhrase.isNotBlank()) {
+                        Text("Распознано: $trainingPhrase")
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { trainingTarget = null }) { Text("Готово") }
+            }
+        )
     }
 
     Scaffold(
@@ -382,7 +474,7 @@ private fun DevicesScreen(
             items = entries,
             key = { it.first + "/" + it.second.id }
         ) { (deviceId, widget) ->
-            DashboardWidgetRow(widget, onSend = { value -> onSend(deviceId, widget.id, value) })
+            DashboardWidgetRow(widget, onSend = { value -> onSend(deviceId, widget.id, value) }, onTrain = { openTraining(deviceId, widget) })
         }
 
         item(key = "voice-hidden-access") {
@@ -408,7 +500,8 @@ private fun DevicesScreen(
 @Composable
 private fun DashboardWidgetRow(
     widget: WidgetState,
-    onSend: (String) -> Unit
+    onSend: (String) -> Unit,
+    onTrain: () -> Unit
 ) {
     val isValue = widget.type == WidgetState.Type.VALUE || widget.type == WidgetState.Type.STATUS
 
@@ -417,7 +510,8 @@ private fun DashboardWidgetRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(68.dp)
-                .padding(horizontal = 22.dp),
+                .padding(horizontal = 22.dp)
+                .combinedClickable(onLongClick = onTrain, onClick = { }),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text("🌡", fontSize = 22.sp, modifier = Modifier.width(34.dp))
