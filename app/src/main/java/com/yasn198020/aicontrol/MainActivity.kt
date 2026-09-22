@@ -7,6 +7,8 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -20,6 +22,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.Color
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import org.json.JSONObject
@@ -220,12 +223,56 @@ private fun App() {
     }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("ESP32 AI Control", fontWeight = FontWeight.SemiBold) }) },
-        bottomBar = {
-            NavigationBar {
-                listOf("Devices", "MQTT", "Log").forEachIndexed { index, title ->
-                    NavigationBarItem(selected = tab == index, onClick = { tab = index }, icon = { Text((index + 1).toString()) }, label = { Text(title) })
+        containerColor = Color(0xFF202020),
+        topBar = {
+            Column {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(76.dp)
+                        .padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("☰", fontSize = 34.sp, modifier = Modifier.padding(end = 18.dp))
+                    Text("?", fontSize = 25.sp, modifier = Modifier.padding(end = 18.dp))
+                    Text(
+                        if (tab == 0) "Dashboard" else if (tab == 1) "MQTT" else "Log",
+                        fontSize = 26.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text("ⓘ", fontSize = 25.sp, modifier = Modifier.padding(horizontal = 10.dp))
+                    Text("☁", fontSize = 32.sp)
                 }
+
+                if (tab == 0) {
+                    DashboardPageTabs(devices)
+                }
+            }
+        },
+        bottomBar = {
+            NavigationBar(
+                containerColor = Color(0xFF24252A),
+                tonalElevation = 0.dp
+            ) {
+                NavigationBarItem(
+                    selected = tab == 0,
+                    onClick = { tab = 0 },
+                    icon = { Text("▲", fontSize = 25.sp) },
+                    label = null
+                )
+                NavigationBarItem(
+                    selected = tab == 1,
+                    onClick = { tab = 1 },
+                    icon = { Text("☰", fontSize = 25.sp) },
+                    label = null
+                )
+                NavigationBarItem(
+                    selected = tab == 2,
+                    onClick = { tab = 2 },
+                    icon = { Text("○", fontSize = 29.sp) },
+                    label = null
+                )
             }
         }
     ) { padding ->
@@ -260,6 +307,35 @@ private fun App() {
 }
 
 @Composable
+private fun DashboardPageTabs(devices: List<Device>) {
+    val pages = devices
+        .flatMap { it.widgets.map { w -> w.page.ifBlank { "Основная" } } }
+        .distinct()
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        pages.forEach { page ->
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = Color(0xFF4A4A4A)
+            ) {
+                Text(
+                    text = page,
+                    color = Color.White,
+                    fontSize = 16.sp,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun DevicesScreen(
     modifier: Modifier,
     devices: List<Device>,
@@ -268,86 +344,123 @@ private fun DevicesScreen(
     onVoice: () -> Unit,
     onSend: (String, String, String) -> Unit
 ) {
-    val pageWidgets = devices
-        .flatMap { device -> device.widgets.map { widget -> device.id to widget } }
-        .groupBy { (_, widget) -> widget.page }
-        .toSortedMap()
+    val pages = devices
+        .flatMap { it.widgets.map { it.page.ifBlank { "Основная" } } }
+        .distinct()
 
-    LazyColumn(modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item(key = "voice-command") {
-            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
-                Column(
-                    Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Голосовые сценарии", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                            Text(
-                                "Например: «Открой форточку у помидоров»",
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                        }
-                        Button(onClick = onVoice, shape = RoundedCornerShape(16.dp)) {
-                            Text("🎤")
-                        }
-                    }
-                    if (voiceText.isNotBlank()) {
-                        Text("Вы сказали: «" + voiceText + "»", fontWeight = FontWeight.Medium)
-                    }
-                    Text(voiceStatus, style = MaterialTheme.typography.bodySmall)
-                }
-            }
-        }
-        pageWidgets.forEach { (pageName, entries) ->
-            item(key = "page-$pageName") {
-                Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(pageName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+    val selectedPage = pages.firstOrNull() ?: "Основная"
+    val entries = devices
+        .flatMap { device -> device.widgets.map { device.id to it } }
+        .filter { (_, widget) -> widget.page.ifBlank { "Основная" } == selectedPage }
+        .sortedWith(compareBy<Pair<String, WidgetState>> { it.second.order }.thenBy { it.second.title })
 
-                        entries
-                            .sortedWith(compareBy<Pair<String, WidgetState>> { it.second.order }.thenBy { it.second.title })
-                            .forEach { (deviceId, widget) ->
-                                when (widget.type) {
-                                    WidgetState.Type.TOGGLE -> Row(
-                                        Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(widget.title, fontWeight = FontWeight.Medium)
-                                        Switch(
-                                            checked = widget.value == "1" || widget.value.equals("true", true),
-                                            onCheckedChange = { onSend(deviceId, widget.id, if (it) "1" else "0") }
-                                        )
-                                    }
-                                    WidgetState.Type.BUTTON -> Button(onClick = { onSend(deviceId, widget.id, "1") }, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-                                        Text(widget.title)
-                                    }
-                                    WidgetState.Type.INPUT -> InputWidget(widget, onSend = { value ->
-                                        if (value.isNotBlank()) onSend(deviceId, widget.id, value)
-                                    })
-                                    WidgetState.Type.VALUE -> Text(
-                                        widget.title + ": " + widget.value +
-                                            if (widget.unit.isNotBlank()) " " + widget.unit else ""
-                                    )
-                                    WidgetState.Type.STATUS -> Text(widget.title + ": " + widget.value)
-                                }
-                            }
-                    }
-                }
+    LazyColumn(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        if (entries.isEmpty()) {
+            item {
+                Text(
+                    "Нет конфигурации. Подключитесь к MQTT и нажмите HELLO.",
+                    modifier = Modifier.padding(20.dp),
+                    style = MaterialTheme.typography.bodyLarge
+                )
             }
         }
 
-        if (devices.isEmpty()) {
-            item { Text("Нет конфигурации. Подключитесь к MQTT и нажмите HELLO.") }
+        items(
+            items = entries,
+            key = { it.first + "/" + it.second.id }
+        ) { (deviceId, widget) ->
+            DashboardWidgetRow(widget, onSend = { value -> onSend(deviceId, widget.id, value) })
+        }
+
+        item(key = "voice-hidden-access") {
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = onVoice,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("🎤 Голосовая команда")
+            }
+            if (voiceText.isNotBlank()) {
+                Text(
+                    "«$voiceText»  •  $voiceStatus",
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
         }
     }
 }
 
+@Composable
+private fun DashboardWidgetRow(
+    widget: WidgetState,
+    onSend: (String) -> Unit
+) {
+    val isValue = widget.type == WidgetState.Type.VALUE || widget.type == WidgetState.Type.STATUS
+
+    if (isValue) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(91.dp)
+                .padding(horizontal = 26.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("🌡", fontSize = 25.sp, modifier = Modifier.width(40.dp))
+            Text(
+                widget.title,
+                fontSize = 23.sp,
+                modifier = Modifier.weight(1f)
+            )
+            Surface(
+                modifier = Modifier
+                    .width(100.dp)
+                    .height(78.dp),
+                shape = RoundedCornerShape(18.dp),
+                color = Color(0xFF4285F4)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        widget.value.ifBlank { "—" } + if (widget.unit.isNotBlank()) " " + widget.unit else "",
+                        color = Color.White,
+                        fontSize = 25.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        }
+    } else {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(78.dp)
+                .padding(horizontal = 28.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "◉",
+                color = Color(0xFF8065E8),
+                fontSize = 25.sp,
+                modifier = Modifier.width(52.dp)
+            )
+            Text(
+                widget.title,
+                fontSize = 23.sp,
+                modifier = Modifier.weight(1f)
+            )
+            Switch(
+                checked = widget.value == "1" || widget.value.equals("true", true),
+                onCheckedChange = { checked -> onSend(if (checked) "1" else "0") }
+            )
+        }
+    }
+}
 
 @Composable
 private fun InputWidget(widget: WidgetState, onSend: (String) -> Unit) {
