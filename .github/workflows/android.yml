@@ -28,11 +28,33 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
-      - name: Build debug APK
-        run: gradle assembleDebug --no-daemon
+      - name: Prepare signing key
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -e
+          test -n "$ANDROID_KEYSTORE_BASE64"
+          test -n "$ANDROID_KEYSTORE_PASSWORD"
+          test -n "$ANDROID_KEY_ALIAS"
+          test -n "$ANDROID_KEY_PASSWORD"
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/android-release.keystore"
+          test -s "$RUNNER_TEMP/android-release.keystore"
+
+      - name: Build signed release APK
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/android-release.keystore
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          VERSION_CODE=$((1000 + GITHUB_RUN_NUMBER))
+          gradle assembleRelease --no-daemon -PVERSION_CODE="$VERSION_CODE" -PVERSION_NAME="1.0.$VERSION_CODE"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: ESP32-AI-Control-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: ESP32-AI-Control-release
+          path: app/build/outputs/apk/release/app-release.apk
