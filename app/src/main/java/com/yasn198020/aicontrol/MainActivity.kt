@@ -55,6 +55,7 @@ private fun App() {
     var username by remember { mutableStateOf(prefs.getString("mqtt_user", "") ?: "") }
     var password by remember { mutableStateOf(prefs.getString("mqtt_pass", "") ?: "") }
     var tab by remember { mutableIntStateOf(0) }
+    var menuOpen by remember { mutableStateOf(false) }
     var selectedPage by remember { mutableStateOf<String?>(null) }
     var connected by remember { mutableStateOf(false) }
     var log by remember { mutableStateOf(listOf("MQTT diagnostic log ready")) }
@@ -317,87 +318,38 @@ private fun App() {
         )
     }
 
-    Scaffold(
-        containerColor = Color(0xFF202020),
+    Scaffold(containerColor = Color(0xFF202020),
         topBar = {
             Column {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(76.dp)
-                        .padding(horizontal = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("☰", fontSize = 30.sp, modifier = Modifier.padding(end = 18.dp))
+                Row(modifier = Modifier.fillMaxWidth().height(76.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box {
+                        Text("☰", fontSize = 30.sp, modifier = Modifier.clickable { menuOpen = true }.padding(end = 18.dp))
+                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            DropdownMenuItem(text = { Text("MQTT подключение") }, onClick = { menuOpen = false; tab = 2 })
+                            DropdownMenuItem(text = { Text("Журнал") }, onClick = { menuOpen = false; tab = 3 })
+                        }
+                    }
                     Text("?", fontSize = 22.sp, modifier = Modifier.padding(end = 18.dp))
-                    Text(
-                        if (tab == 0) "Dashboard" else if (tab == 1) "MQTT" else "Log",
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Text("ⓘ", fontSize = 22.sp, modifier = Modifier.padding(horizontal = 10.dp))
-                    Text("☁", fontSize = 27.sp)
+                    Text(when (tab) { 0 -> "Dashboard"; 1 -> "Обученные команды"; 2 -> "MQTT"; else -> "Log" }, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    Text("ⓘ", fontSize = 22.sp, modifier = Modifier.padding(horizontal = 10.dp)); Text("☁", fontSize = 27.sp)
                 }
-
-                if (tab == 0) {
-                    DashboardPageTabs(devices, selectedPage, onSelect = { selectedPage = it })
-                }
+                if (tab == 0) DashboardPageTabs(devices, selectedPage, onSelect = { selectedPage = it })
             }
         },
-        bottomBar = {
-            NavigationBar(
-                containerColor = Color(0xFF24252A),
-                tonalElevation = 0.dp
-            ) {
-                NavigationBarItem(
-                    selected = tab == 0,
-                    onClick = { tab = 0 },
-                    icon = { Text("▲", fontSize = 22.sp) },
-                    label = null
-                )
-                NavigationBarItem(
-                    selected = tab == 1,
-                    onClick = { tab = 1 },
-                    icon = { Text("☰", fontSize = 22.sp) },
-                    label = null
-                )
-                NavigationBarItem(
-                    selected = tab == 2,
-                    onClick = { tab = 2 },
-                    icon = { Text("○", fontSize = 25.sp) },
-                    label = null
-                )
-            }
-        }
+        bottomBar = { NavigationBar(containerColor = Color(0xFF24252A), tonalElevation = 0.dp) {
+            NavigationBarItem(selected = tab == 0, onClick = { tab = 0 }, icon = { Text("▲", fontSize = 22.sp) }, label = { Text("Главная") })
+            NavigationBarItem(selected = tab == 1, onClick = { tab = 1 }, icon = { Text("🎤", fontSize = 22.sp) }, label = { Text("Команды") })
+        } }
     ) { padding ->
         when (tab) {
-            0 -> DevicesScreen(
-                Modifier.padding(padding),
-                devices,
-                selectedPage,
-                voiceText,
-                voiceStatus,
+            0 -> DevicesScreen(Modifier.padding(padding), devices, selectedPage, voiceText, voiceStatus,
                 onTrain = ::openTraining,
-                onVoice = {
-                    if (androidx.core.content.ContextCompat.checkSelfPermission(
-                            context,
-                            Manifest.permission.RECORD_AUDIO
-                        ) == PackageManager.PERMISSION_GRANTED
-                    ) {
-                        voiceManager.startRussian()
-                    } else {
-                        requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
-                    }
-                },
-                onSend = ::sendWidget
-            )
-            1 -> MqttScreen(
-                Modifier.padding(padding),
-                mqttHost, mqttPort, mqttPrefix, username, password, mqttTls, connected,
+                onVoice = { if (androidx.core.content.ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) voiceManager.startRussian() else requestMicPermission.launch(Manifest.permission.RECORD_AUDIO) },
+                onSend = ::sendWidget)
+            1 -> TrainedCommandsScreen(Modifier.padding(padding), trainedCommands, devices, onDelete = { command -> trainedStore.remove(command); trainedCommands = trainedStore.load() })
+            2 -> MqttScreen(Modifier.padding(padding), mqttHost, mqttPort, mqttPrefix, username, password, mqttTls, connected,
                 { mqttHost = it }, { mqttPort = it }, { mqttPrefix = it }, { username = it }, { password = it }, { mqttTls = it },
-                ::saveSettings, { if (connected) mqtt.disconnect() else connect() }, { mqtt.publishHello() }
-            )
+                ::saveSettings, { if (connected) mqtt.disconnect() else connect() }, { mqtt.publishHello() })
             else -> LogScreen(Modifier.padding(padding), log) { log = emptyList() }
         }
     }
@@ -568,6 +520,34 @@ private fun DashboardWidgetRow(
     }
 }
 
+@Composable
+private fun TrainedCommandsScreen(modifier: Modifier, trainedCommands: List<TrainedVoiceCommand>, devices: List<Device>, onDelete: (TrainedVoiceCommand) -> Unit) {
+    if (trainedCommands.isEmpty()) {
+        Box(modifier = modifier.fillMaxSize().padding(20.dp), contentAlignment = Alignment.Center) {
+            Text("Пока нет обученных команд.\n\nЗажмите переключатель виджета на главном экране и запишите фразу.", style = MaterialTheme.typography.bodyLarge)
+        }
+        return
+    }
+    LazyColumn(modifier = modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        item { Text("Записанные команды: " + trainedCommands.size, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(bottom = 4.dp)) }
+        items(items = trainedCommands, key = { it.phrase + "|" + it.deviceId + "|" + it.widgetId + "|" + it.value }) { command ->
+            val device = devices.firstOrNull { it.id == command.deviceId }
+            val widget = device?.widgets?.firstOrNull { it.id == command.widgetId }
+            val deviceName = device?.name?.ifBlank { device.id } ?: command.deviceId
+            val widgetName = widget?.title?.ifBlank { widget.id } ?: command.widgetId
+            val action = if (command.value == "1") "ВКЛ / ОТКРЫТЬ" else "ВЫКЛ / ЗАКРЫТЬ"
+            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
+                Row(modifier = Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("«" + command.phrase + "»", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.height(5.dp)); Text(deviceName + "  •  " + widgetName); Text(action, color = MaterialTheme.colorScheme.primary)
+                    }
+                    IconButton(onClick = { onDelete(command) }) { Text("🗑", fontSize = 22.sp) }
+                }
+            }
+        }
+    }
+}
 @Composable
 private fun InputWidget(widget: WidgetState, onSend: (String) -> Unit) {
     var value by remember(widget.id, widget.value) { mutableStateOf(widget.value) }
