@@ -230,15 +230,14 @@ class MqttManager(
         publish("/dghjko", "HELLO")
     }
 
-    fun publishControl(deviceId: String, widgetId: String, value: String): Boolean {
-        if (prefix.isBlank() || deviceId.isBlank() || widgetId.isBlank()) {
-            return false
-        }
+    fun publishWidget(topic: String, value: String): Boolean {
+        if (topic.isBlank()) return false
+        return publish(topic, value)
+    }
 
-        return publish(
-            prefix + "/" + deviceId + "/" + widgetId + "/control",
-            value
-        )
+    fun publishControl(deviceId: String, widgetId: String, value: String): Boolean {
+        if (prefix.isBlank() || deviceId.isBlank() || widgetId.isBlank()) return false
+        return publish(prefix + "/" + deviceId + "/" + widgetId + "/control", value)
     }
 
     private fun publish(topic: String, payload: String): Boolean {
