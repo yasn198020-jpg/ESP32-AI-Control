@@ -26,30 +26,51 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
-      - name: Build debug APK
+      - name: Restore release signing key
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "${ANDROID_KEYSTORE_BASE64}"
+          test -n "${ANDROID_KEYSTORE_PASSWORD}"
+          test -n "${ANDROID_KEY_ALIAS}"
+          test -n "${ANDROID_KEY_PASSWORD}"
+
+          echo "${ANDROID_KEYSTORE_BASE64}" | base64 --decode > "${RUNNER_TEMP}/ESP32-AI-Control.keystore"
+          test -s "${RUNNER_TEMP}/ESP32-AI-Control.keystore"
+
+          echo "ANDROID_KEYSTORE_PATH=${RUNNER_TEMP}/ESP32-AI-Control.keystore" >> "${GITHUB_ENV}"
+          echo "ANDROID_KEYSTORE_PASSWORD=${ANDROID_KEYSTORE_PASSWORD}" >> "${GITHUB_ENV}"
+          echo "ANDROID_KEY_ALIAS=${ANDROID_KEY_ALIAS}" >> "${GITHUB_ENV}"
+          echo "ANDROID_KEY_PASSWORD=${ANDROID_KEY_PASSWORD}" >> "${GITHUB_ENV}"
+
+      - name: Build signed release APK
         run: |
           set -euo pipefail
           VERSION_CODE=$((1000 + GITHUB_RUN_NUMBER))
           VERSION_NAME="1.0.$VERSION_CODE"
 
-          gradle assembleDebug --no-daemon \
+          gradle assembleRelease --no-daemon \
             -PVERSION_CODE="$VERSION_CODE" \
             -PVERSION_NAME="$VERSION_NAME"
 
-          test -s app/build/outputs/apk/debug/app-debug.apk
+          test -s app/build/outputs/apk/release/app-release.apk
 
-      - name: Prepare artifact
+      - name: Prepare release artifact
         run: |
           set -euo pipefail
           VERSION_CODE=$((1000 + GITHUB_RUN_NUMBER))
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk "dist/ESP32-AI-Control-$VERSION_CODE-debug.apk"
-          cp app/build/outputs/apk/debug/app-debug.apk "dist/ESP32-AI-Control-debug-latest.apk"
+          cp app/build/outputs/apk/release/app-release.apk "dist/ESP32-AI-Control-$VERSION_CODE.apk"
+          cp app/build/outputs/apk/release/app-release.apk "dist/ESP32-AI-Control-latest.apk"
 
-      - name: Upload APK
+      - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: ESP32-AI-Control-debug-APK
+          name: ESP32-AI-Control-release-APK
           path: dist/
           if-no-files-found: error
           retention-days: 90
