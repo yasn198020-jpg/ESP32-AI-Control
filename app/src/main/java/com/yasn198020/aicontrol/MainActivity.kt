@@ -1,6 +1,8 @@
 package com.yasn198020.aicontrol
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -18,6 +20,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.activity.result.contract.ActivityResultContracts
 import org.json.JSONObject
 
 data class Device(val id: String, val name: String, val online: Boolean, val widgets: List<WidgetState>)
@@ -47,9 +50,32 @@ private fun App() {
     var connected by remember { mutableStateOf(false) }
     var log by remember { mutableStateOf(listOf("MQTT diagnostic log ready")) }
     var devices by remember { mutableStateOf(emptyList<Device>()) }
+    var voiceText by remember { mutableStateOf("") }
+    var voiceStatus by remember { mutableStateOf("Нажмите 🎤 и скажите команду") }
     val pendingValues = remember { mutableStateMapOf<String, String>() }
 
     fun addLog(message: String) { log = (log + message).takeLast(300) }
+    val voiceManager = remember {
+        VoiceCommandManager(
+            context = context,
+            onResult = { text ->
+                voiceText = text
+                voiceStatus = "Команда распознана"
+            },
+            onStatus = { status -> voiceStatus = status }
+        )
+    }
+
+    val requestMicPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            voiceManager.startRussian()
+        } else {
+            voiceStatus = "Нужно разрешение на микрофон"
+        }
+    }
+
     val mqtt = remember {
         MqttManager(
             onLog = ::addLog,
@@ -124,7 +150,7 @@ private fun App() {
         )
     }
 
-    DisposableEffect(mqtt) { onDispose { mqtt.disconnect() } }
+    DisposableEffect(mqtt, voiceManager) { onDispose { mqtt.disconnect(); voiceManager.stop() } }
 
     fun saveSettings() {
         prefs.edit()
@@ -176,7 +202,24 @@ private fun App() {
         }
     ) { padding ->
         when (tab) {
-            0 -> DevicesScreen(Modifier.padding(padding), devices, ::sendWidget)
+            0 -> DevicesScreen(
+                Modifier.padding(padding),
+                devices,
+                voiceText,
+                voiceStatus,
+                onVoice = {
+                    if (androidx.core.content.ContextCompat.checkSelfPermission(
+                            context,
+                            Manifest.permission.RECORD_AUDIO
+                        ) == PackageManager.PERMISSION_GRANTED
+                    ) {
+                        voiceManager.startRussian()
+                    } else {
+                        requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
+                    }
+                },
+                onSend = ::sendWidget
+            )
             1 -> MqttScreen(Modifier.padding(padding), mqttHost, mqttPort, mqttPrefix, username, password, mqttTls, connected,
                 { mqttHost = it }, { mqttPort = it }, { mqttPrefix = it }, { username = it }, { password = it }, { mqttTls = it },
                 ::saveSettings, { if (connected) mqtt.disconnect() else connect() }, { mqtt.publishHello() })
@@ -189,6 +232,9 @@ private fun App() {
 private fun DevicesScreen(
     modifier: Modifier,
     devices: List<Device>,
+    voiceText: String,
+    voiceStatus: String,
+    onVoice: () -> Unit,
     onSend: (String, String, String) -> Unit
 ) {
     val pageWidgets = devices
@@ -197,6 +243,35 @@ private fun DevicesScreen(
         .toSortedMap()
 
     LazyColumn(modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item(key = "voice-command") {
+            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
+                Column(
+                    Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Голосовые сценарии", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "Например: «Открой форточку у помидоров»",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                        Button(onClick = onVoice, shape = RoundedCornerShape(16.dp)) {
+                            Text("🎤")
+                        }
+                    }
+                    if (voiceText.isNotBlank()) {
+                        Text("Вы сказали: «" + voiceText + "»", fontWeight = FontWeight.Medium)
+                    }
+                    Text(voiceStatus, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
         pageWidgets.forEach { (pageName, entries) ->
             item(key = "page-$pageName") {
                 Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
@@ -240,6 +315,58 @@ private fun DevicesScreen(
             item { Text("Нет конфигурации. Подключитесь к MQTT и нажмите HELLO.") }
         }
     }
+}
+
+
+private fun executeVoiceScenario(
+    command: String,
+    devices: List<Device>,
+    onSend: (String, String, String) -> Unit
+): String {
+    val text = command.lowercase()
+        .replace("ё", "е")
+        .trim()
+
+    val isOpen = listOf("открой", "открыть", "открывай", "подними", "включи", "включить").any { text.contains(it) }
+    val isClose = listOf("закрой", "закрыть", "закрывай", "опусти", "выключи", "выключить").any { text.contains(it) }
+
+    if (!isOpen && !isClose) {
+        return "Пока поддерживаются команды открыть/закрыть и включить/выключить"
+    }
+
+    val pageCandidates = when {
+        listOf("помидор", "помидоры", "томат", "томаты").any { text.contains(it) } ->
+            devices.filter { it.widgets.any { w -> w.page.lowercase().contains("🍅") || w.page.lowercase().contains("помид") || w.page.lowercase().contains("томат") } }
+        listOf("огурец", "огурцы").any { text.contains(it) } ->
+            devices.filter { it.widgets.any { w -> w.page.lowercase().contains("🥒") || w.page.lowercase().contains("огур") } }
+        else -> devices
+    }
+
+    val greenhouseWords = listOf("форточ", "двер", "ворот", "заслон", "клапан")
+    val requestedObject = greenhouseWords.firstOrNull { text.contains(it) }
+
+    val candidates = pageCandidates
+        .flatMap { device -> device.widgets.map { device.id to it } }
+        .filter { (_, widget) ->
+            val title = widget.title.lowercase()
+            when {
+                requestedObject != null -> title.contains(requestedObject)
+                isOpen || isClose -> greenhouseWords.any { title.contains(it) }
+                else -> widget.type == WidgetState.Type.TOGGLE || widget.type == WidgetState.Type.BUTTON
+            }
+        }
+
+    if (candidates.size == 1) {
+        val (deviceId, widget) = candidates.first()
+        onSend(deviceId, widget.id, if (isOpen) "1" else "0")
+        return (if (isOpen) "Открываю: " else "Закрываю: ") + widget.title
+    }
+
+    if (candidates.isEmpty()) {
+        return "Не нашёл подходящий виджет для команды"
+    }
+
+    return "Нашёл несколько подходящих устройств. Уточните: дверь или форточка?"
 }
 
 @Composable
