@@ -73,17 +73,24 @@ class TrainedCommandStore(private val prefs: SharedPreferences) {
 }
 
 class TrainedCommandMatcher(private val store: TrainedCommandStore) {
-    fun match(text: String): TrainedVoiceCommand? {
+    fun match(text: String): TrainedVoiceCommand? = matchAll(text).firstOrNull()
+
+    fun matchAll(text: String): List<TrainedVoiceCommand> {
         val normalized = normalize(text)
-        if (normalized.isBlank()) return null
+        if (normalized.isBlank()) return emptyList()
 
-        val exact = store.load().firstOrNull { normalize(it.phrase) == normalized }
-        if (exact != null) return exact
+        val commands = store.load()
+        val exact = commands.filter { normalize(it.phrase) == normalized }
+        if (exact.isNotEmpty()) return exact
 
-        // Also accept a trained phrase when the spoken command contains it.
-        return store.load()
+        // One spoken phrase may control several widgets.
+        // Return every trained action whose phrase is contained in the spoken command.
+        return commands
             .filter { normalized.contains(normalize(it.phrase)) }
-            .maxByOrNull { normalize(it.phrase).length }
+            .groupBy { normalize(it.phrase) }
+            .maxByOrNull { it.key.length }
+            ?.value
+            ?: emptyList()
     }
 
     private fun normalize(value: String): String =
