@@ -89,9 +89,17 @@ private fun App() {
     var updateDialogOpen by remember { mutableStateOf(false) }
 
     fun openTraining(deviceId: String, widget: WidgetState) {
-        if (widget.type != WidgetState.Type.TOGGLE && widget.type != WidgetState.Type.BUTTON) return
+        val canTrain = widget.type == WidgetState.Type.TOGGLE ||
+            widget.type == WidgetState.Type.BUTTON ||
+            widget.type == WidgetState.Type.VALUE ||
+            widget.type == WidgetState.Type.STATUS
+        if (!canTrain) return
         trainingTarget = TrainingTarget(deviceId, widget.id, widget.title)
-        trainingValue = "1"
+        trainingValue = if (widget.type == WidgetState.Type.VALUE || widget.type == WidgetState.Type.STATUS) {
+            TRAINED_READ_VALUE
+        } else {
+            "1"
+        }
         trainingPhrase = ""
         attachToExisting = false
         selectedExistingPhrase = null
@@ -304,16 +312,27 @@ private fun App() {
                     trainedActions.forEach { trained ->
                         val device = devices.firstOrNull { it.id == trained.deviceId }
                         val widget = device?.widgets?.firstOrNull { it.id == trained.widgetId }
-                        if (device == null || widget == null ||
-                            (widget.type != WidgetState.Type.TOGGLE && widget.type != WidgetState.Type.BUTTON)
-                        ) {
+                        if (device == null || widget == null) {
                             skipped++
-                        } else {
-                            if (sendWidget(trained.deviceId, trained.widgetId, trained.value)) {
+                        } else if (trained.value == TRAINED_READ_VALUE) {
+                            if (widget.type == WidgetState.Type.VALUE || widget.type == WidgetState.Type.STATUS) {
+                                val raw = widget.value.trim()
+                                val unit = widget.unit.trim()
+                                val spoken = if (raw.isBlank() || raw == "—") {
+                                    "${widget.title}: значение пока неизвестно"
+                                } else {
+                                    "${widget.title}: $raw${if (unit.isNotBlank()) " $unit" else ""}"
+                                }
+                                voiceStatus = spoken
+                                speech.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, "trained-value")
                                 sent++
                             } else {
                                 skipped++
                             }
+                        } else if (widget.type == WidgetState.Type.TOGGLE || widget.type == WidgetState.Type.BUTTON) {
+                            if (sendWidget(trained.deviceId, trained.widgetId, trained.value)) sent++ else skipped++
+                        } else {
+                            skipped++
                         }
                     }
                     voiceStatus = if (skipped == 0) {
@@ -475,22 +494,30 @@ private fun App() {
                             }
                         }
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(
-                            selected = trainingValue == "1",
-                            onClick = { trainingValue = "1" },
-                            label = { Text("Открыть / включить") }
+                    val isReadValueTraining = trainingValue == TRAINED_READ_VALUE
+                    if (isReadValueTraining) {
+                        Text(
+                            "Эта фраза будет читать текущее значение виджета вслух. " +
+                                "Например: «Какая температура в помидорах?» → приложение скажет текущее значение этого датчика."
                         )
-                        FilterChip(
-                            selected = trainingValue == "0",
-                            onClick = { trainingValue = "0" },
-                            label = { Text("Закрыть / выключить") }
+                    } else {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilterChip(
+                                selected = trainingValue == "1",
+                                onClick = { trainingValue = "1" },
+                                label = { Text("Открыть / включить") }
+                            )
+                            FilterChip(
+                                selected = trainingValue == "0",
+                                onClick = { trainingValue = "0" },
+                                label = { Text("Закрыть / выключить") }
+                            )
+                        }
+                        Text(
+                            "Одну и ту же фразу можно записать для нескольких виджетов. " +
+                                "Например, для «Доброе утро» обучите свет и шторы отдельно — при произнесении сработают оба действия."
                         )
                     }
-                    Text(
-                        "Одну и ту же фразу можно записать для нескольких виджетов. " +
-                            "Например, для «Доброе утро» обучите свет и шторы отдельно — при произнесении сработают оба действия."
-                    )
                     if (!attachToExisting) {
                         Text("Нажмите микрофон и произнесите фразу.")
                     }
@@ -692,7 +719,8 @@ private fun DashboardWidgetRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(68.dp)
-                .padding(horizontal = 22.dp),
+                .padding(horizontal = 22.dp)
+                .combinedClickable(onLongClick = onTrain, onClick = { }),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text("🌡", fontSize = 22.sp, modifier = Modifier.width(34.dp))
@@ -785,7 +813,7 @@ private fun TrainedCommandsScreen(modifier: Modifier, trainedCommands: List<Trai
             val widget = device?.widgets?.firstOrNull { it.id == command.widgetId }
             val deviceName = device?.name?.ifBlank { device.id } ?: command.deviceId
             val widgetName = widget?.title?.ifBlank { widget.id } ?: command.widgetId
-            val action = if (command.value == "1") "ВКЛ / ОТКРЫТЬ" else "ВЫКЛ / ЗАКРЫТЬ"
+            val action = if (command.value == TRAINED_READ_VALUE) "ПРОИЗНЕСТИ ЗНАЧЕНИЕ" else if (command.value == "1") "ВКЛ / ОТКРЫТЬ" else "ВЫКЛ / ЗАКРЫТЬ"
             Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
                 Row(modifier = Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1f)) {
