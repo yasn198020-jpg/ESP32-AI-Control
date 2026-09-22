@@ -47,9 +47,6 @@ private fun App() {
     var mqttPrefix by remember { mutableStateOf(prefs.getString("mqtt_prefix", "IoTManager") ?: "IoTManager") }
     var username by remember { mutableStateOf(prefs.getString("mqtt_user", "") ?: "") }
     var password by remember { mutableStateOf(prefs.getString("mqtt_pass", "") ?: "") }
-    var aiEndpoint by remember { mutableStateOf(prefs.getString("ai_endpoint", "https://api.openai.com/v1/responses") ?: "https://api.openai.com/v1/responses") }
-    var aiApiKey by remember { mutableStateOf(prefs.getString("ai_api_key", "") ?: "") }
-    var aiModel by remember { mutableStateOf(prefs.getString("ai_model", "gpt-5.6-luna") ?: "gpt-5.6-luna") }
     var tab by remember { mutableIntStateOf(0) }
     var connected by remember { mutableStateOf(false) }
     var log by remember { mutableStateOf(listOf("MQTT diagnostic log ready")) }
@@ -57,7 +54,7 @@ private fun App() {
     var voiceText by remember { mutableStateOf("") }
     var voiceStatus by remember { mutableStateOf("Нажмите 🎤 и скажите команду") }
     val pendingValues = remember { mutableStateMapOf<String, String>() }
-    val aiManager = remember { AiCommandManager() }
+    val localCommandManager = remember { LocalCommandManager() }
 
     fun addLog(message: String) { log = (log + message).takeLast(300) }
     val voiceManager = remember {
@@ -165,9 +162,6 @@ private fun App() {
             .putString("mqtt_prefix", mqttPrefix)
             .putString("mqtt_user", username)
             .putString("mqtt_pass", password)
-            .putString("ai_endpoint", aiEndpoint)
-            .putString("ai_api_key", aiApiKey)
-            .putString("ai_model", aiModel)
             .apply()
         addLog("Settings saved")
     }
@@ -202,35 +196,25 @@ private fun App() {
     LaunchedEffect(voiceText) {
         val command = voiceText.trim()
         if (command.isNotBlank()) {
-            voiceStatus = "ИИ анализирует команду…"
-            val result = aiManager.interpret(
-                endpoint = aiEndpoint,
-                apiKey = aiApiKey,
-                model = aiModel,
-                command = command,
-                devices = devices
-            )
-            result.onSuccess { intent ->
-                if (intent.action == "clarify") {
-                    voiceStatus = intent.reply.ifBlank { "Уточните команду" }
-                } else {
-                    val device = devices.firstOrNull { it.id == intent.deviceId }
-                    val widget = device?.widgets?.firstOrNull { it.id == intent.widgetId }
+            voiceStatus = "Анализ команды…"
+            val result = localCommandManager.interpret(command, devices)
+            when (result.action) {
+                LocalCommandAction.CONTROL -> {
+                    val device = devices.firstOrNull { it.id == result.deviceId }
+                    val widget = device?.widgets?.firstOrNull { it.id == result.widgetId }
                     if (device == null || widget == null) {
-                        voiceStatus = "ИИ выбрал неизвестный виджет. Команда не отправлена."
+                        voiceStatus = "Подходящий виджет не найден. Команда не отправлена."
                     } else if (widget.type != WidgetState.Type.TOGGLE && widget.type != WidgetState.Type.BUTTON) {
-                        voiceStatus = "Выбранный виджет нельзя управлять этой командой."
+                        voiceStatus = "Этот виджет нельзя управлять голосовой командой."
                     } else if (widget.topic.isBlank()) {
-                        voiceStatus = "У выбранного виджета нет MQTT topic. Команда не отправлена."
-                    } else if (intent.value != "0" && intent.value != "1") {
-                        voiceStatus = "Недопустимое значение команды. Команда не отправлена."
+                        voiceStatus = "У выбранного виджета нет MQTT topic."
                     } else {
-                        sendWidget(intent.deviceId, intent.widgetId, intent.value)
-                        voiceStatus = intent.reply.ifBlank { "Команда отправлена" }
+                        sendWidget(result.deviceId, result.widgetId, result.value)
+                        voiceStatus = result.reply
                     }
                 }
-            }.onFailure { error ->
-                voiceStatus = "Ошибка ИИ: " + (error.message ?: "неизвестная ошибка")
+                LocalCommandAction.CLARIFY -> voiceStatus = result.reply
+                LocalCommandAction.NOT_FOUND -> voiceStatus = result.reply
             }
         }
     }
@@ -267,9 +251,7 @@ private fun App() {
             1 -> MqttScreen(
                 Modifier.padding(padding),
                 mqttHost, mqttPort, mqttPrefix, username, password, mqttTls, connected,
-                aiEndpoint, aiApiKey, aiModel,
                 { mqttHost = it }, { mqttPort = it }, { mqttPrefix = it }, { username = it }, { password = it }, { mqttTls = it },
-                { aiEndpoint = it }, { aiApiKey = it }, { aiModel = it },
                 ::saveSettings, { if (connected) mqtt.disconnect() else connect() }, { mqtt.publishHello() }
             )
             else -> LogScreen(Modifier.padding(padding), log) { log = emptyList() }
@@ -367,57 +349,6 @@ private fun DevicesScreen(
 }
 
 
-private fun executeVoiceScenario(
-    command: String,
-    devices: List<Device>,
-    onSend: (String, String, String) -> Unit
-): String {
-    val text = command.lowercase()
-        .replace("ё", "е")
-        .trim()
-
-    val isOpen = listOf("открой", "открыть", "открывай", "подними", "включи", "включить").any { text.contains(it) }
-    val isClose = listOf("закрой", "закрыть", "закрывай", "опусти", "выключи", "выключить").any { text.contains(it) }
-
-    if (!isOpen && !isClose) {
-        return "Пока поддерживаются команды открыть/закрыть и включить/выключить"
-    }
-
-    val pageCandidates = when {
-        listOf("помидор", "помидоры", "томат", "томаты").any { text.contains(it) } ->
-            devices.filter { it.widgets.any { w -> w.page.lowercase().contains("🍅") || w.page.lowercase().contains("помид") || w.page.lowercase().contains("томат") } }
-        listOf("огурец", "огурцы").any { text.contains(it) } ->
-            devices.filter { it.widgets.any { w -> w.page.lowercase().contains("🥒") || w.page.lowercase().contains("огур") } }
-        else -> devices
-    }
-
-    val greenhouseWords = listOf("форточ", "двер", "ворот", "заслон", "клапан", "автомат", "насос", "вентилят")
-    val requestedObject = greenhouseWords.firstOrNull { text.contains(it) }
-
-    val candidates = pageCandidates
-        .flatMap { device -> device.widgets.map { device.id to it } }
-        .filter { (_, widget) ->
-            val title = widget.title.lowercase()
-            when {
-                requestedObject != null -> title.contains(requestedObject)
-                isOpen || isClose -> greenhouseWords.any { title.contains(it) }
-                else -> widget.type == WidgetState.Type.TOGGLE || widget.type == WidgetState.Type.BUTTON
-            }
-        }
-
-    if (candidates.size == 1) {
-        val (deviceId, widget) = candidates.first()
-        onSend(deviceId, widget.id, if (isOpen) "1" else "0")
-        return (if (isOpen) "Открываю: " else "Закрываю: ") + widget.title
-    }
-
-    if (candidates.isEmpty()) {
-        return "Не нашёл подходящий виджет для команды"
-    }
-
-    return "Нашёл несколько подходящих устройств. Уточните: дверь или форточка?"
-}
-
 @Composable
 private fun InputWidget(widget: WidgetState, onSend: (String) -> Unit) {
     var value by remember(widget.id, widget.value) { mutableStateOf(widget.value) }
@@ -429,9 +360,7 @@ private fun InputWidget(widget: WidgetState, onSend: (String) -> Unit) {
 
 @Composable
 private fun MqttScreen(modifier: Modifier, host: String, port: String, prefix: String, username: String, password: String, tls: Boolean, connected: Boolean,
-    aiEndpoint: String, aiApiKey: String, aiModel: String,
     onHost: (String) -> Unit, onPort: (String) -> Unit, onPrefix: (String) -> Unit, onUser: (String) -> Unit, onPass: (String) -> Unit, onTls: (Boolean) -> Unit,
-    onAiEndpoint: (String) -> Unit, onAiApiKey: (String) -> Unit, onAiModel: (String) -> Unit,
     onSave: () -> Unit, onConnect: () -> Unit, onHello: () -> Unit) {
     Column(modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         OutlinedTextField(host, onHost, label = { Text("MQTT host / IP") }, modifier = Modifier.fillMaxWidth())
@@ -453,28 +382,9 @@ private fun MqttScreen(modifier: Modifier, host: String, port: String, prefix: S
         Text("MQTT: " + host + ":" + port)
 
         HorizontalDivider()
-        Text("ИИ для голосовых команд", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-        OutlinedTextField(
-            aiEndpoint,
-            onAiEndpoint,
-            label = { Text("AI endpoint") },
-            modifier = Modifier.fillMaxWidth()
-        )
-        OutlinedTextField(
-            aiModel,
-            onAiModel,
-            label = { Text("AI model") },
-            modifier = Modifier.fillMaxWidth()
-        )
-        OutlinedTextField(
-            aiApiKey,
-            onAiApiKey,
-            label = { Text("OpenAI API key") },
-            modifier = Modifier.fillMaxWidth(),
-            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
-        )
+        Text("Голосовое управление работает локально", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         Text(
-            "Ключ хранится локально в настройках приложения. Для публичной APK-версии безопаснее использовать свой backend/proxy, а не встраивать ключ в APK.",
+            "Команда анализируется прямо в APK по реальным виджетам MQTT. OpenAI API и интернет для анализа команды не нужны.",
             style = MaterialTheme.typography.bodySmall
         )
     }
