@@ -218,6 +218,8 @@ class MqttManager(
                 object : IMqttActionListener {
                     override fun onSuccess(asyncActionToken: IMqttToken?) {
                         emitLog("MQTT subscribed: " + topics.joinToString(", "))
+                        // HELLO is sent automatically after the subscription is ready.
+                        publishHello()
                     }
 
                     override fun onFailure(
