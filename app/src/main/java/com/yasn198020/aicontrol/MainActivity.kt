@@ -928,13 +928,22 @@ private fun MqttScreen(modifier: Modifier, host: String, port: String, prefix: S
 }
 
 private fun friendlyVoiceName(voice: android.speech.tts.Voice): String {
-    val raw = voice.name.lowercase()
+    val raw = voice.name.lowercase(Locale.ROOT)
+    val provider = when {
+        raw.contains("google") -> "Google"
+        raw.contains("samsung") -> "Samsung"
+        raw.contains("yandex") || raw.contains("яндекс") -> "Яндекс"
+        raw.contains("microsoft") -> "Microsoft"
+        raw.contains("acapela") -> "Acapela"
+        else -> "TTS"
+    }
     val gender = when {
-        raw.contains("female") || raw.contains("woman") || raw.contains("fem") ||
-            raw.contains("жен") || raw.contains("female") -> "Женский"
+        raw.contains("female") || raw.contains("woman") || raw.contains("fem") || raw.contains("жен") -> "Женский"
         raw.contains("male") || raw.contains("man") || raw.contains("муж") -> "Мужской"
         else -> "Голос"
     }
+    return if (gender == "Голос") "$provider — Русский" else "$gender — $provider"
+}
 
     val provider = when {
         raw.contains("google") -> "Google"
