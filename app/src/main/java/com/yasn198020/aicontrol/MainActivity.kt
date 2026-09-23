@@ -101,7 +101,6 @@ private fun App(
     var devices by remember { mutableStateOf(emptyList<Device>()) }
     var voiceText by remember { mutableStateOf("") }
     var voiceStatus by remember { mutableStateOf("Нажмите 🎤 и скажите команду") }
-    var wakeWordTriggered by remember { mutableIntStateOf(0) }
     val pendingValues = remember { mutableStateMapOf<String, String>() }
     val localCommandManager = remember { LocalCommandManager() }
     val speech = remember { TextToSpeech(context, null) }
@@ -227,19 +226,8 @@ private fun App(
                 voiceText = text
                 voiceStatus = "Команда распознана"
             },
-            onStatus = { status -> voiceStatus = status },
-            onWakeWord = {
-                wakeWordTriggered++
-                voiceStatus = "Марфа активирована — говорите команду"
-            }
+            onStatus = { status -> voiceStatus = status }
         )
-    }
-
-    LaunchedEffect(wakeWordTriggered) {
-        if (wakeWordTriggered > 0) {
-            delay(50)
-            voiceManager.startRussian()
-        }
     }
 
     val requestMicPermission = rememberLauncherForActivityResult(
