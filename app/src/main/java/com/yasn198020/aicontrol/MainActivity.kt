@@ -814,6 +814,28 @@ private fun App(
                             DropdownMenuItem(text = { Text("Журнал") }, onClick = { menuOpen = false; tab = 3 })
                             DropdownMenuItem(text = { Text("Голос") }, onClick = { menuOpen = false; tab = 4 })
                             DropdownMenuItem(text = { Text("Размер текста") }, onClick = { menuOpen = false; textSizeDialogOpen = true })
+                            DropdownMenuItem(
+                                text = { Text("Установить ярлык «🎙 Марфа»") },
+                                onClick = {
+                                    menuOpen = false
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                                        androidx.core.content.pm.ShortcutManagerCompat.isRequestPinShortcutSupported(context)
+                                    ) {
+                                        MarfaShortcutInstaller.requestPinned(context)
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            "Добавьте ярлык «🎙 Марфа» на рабочий стол",
+                                            android.widget.Toast.LENGTH_LONG
+                                        ).show()
+                                    } else {
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            "Телефон не поддерживает установку ярлыков",
+                                            android.widget.Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                }
+                            )
 
                             DropdownMenuItem(
                                 text = { Text("Проверить обновление") },
