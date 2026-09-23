@@ -100,7 +100,7 @@ private fun App(
     var log by remember { mutableStateOf(listOf("MQTT diagnostic log ready")) }
     var devices by remember { mutableStateOf(emptyList<Device>()) }
     var voiceText by remember { mutableStateOf("") }
-    var voiceStatus by remember { mutableStateOf("Нажмите 🎤 и скажите команду") }
+    var voiceStatus by remember { mutableStateOf("Нажмите 🎤 и скажите команду") }\n    var wakeWordTriggered by remember { mutableIntStateOf(0) }
     val pendingValues = remember { mutableStateMapOf<String, String>() }
     val localCommandManager = remember { LocalCommandManager() }
     val speech = remember { TextToSpeech(context, null) }
@@ -228,9 +228,17 @@ private fun App(
             },
             onStatus = { status -> voiceStatus = status },
             onWakeWord = {
+                wakeWordTriggered++
                 voiceStatus = "Марфа активирована — говорите команду"
             }
         )
+    }
+
+    LaunchedEffect(wakeWordTriggered) {
+        if (wakeWordTriggered > 0) {
+            delay(50)
+            voiceManager.startRussian()
+        }
     }
 
     val requestMicPermission = rememberLauncherForActivityResult(
