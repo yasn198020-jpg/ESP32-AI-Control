@@ -12,28 +12,20 @@ data class LocalCommandResult(
 
 fun formatTemperatureForSpeech(raw: String, unit: String = "°C"): String {
     val normalized = raw.trim().replace(',', '.')
-    val number = normalized.toBigDecimalOrNull() ?: return "$raw ${unit.ifBlank { "°C" }}"
-    val sign = if (number.signum() < 0) "минус " else ""
-    val absolute = number.abs()
-    val text = absolute.stripTrailingZeros().toPlainString()
-    val parts = text.split(".")
-    val whole = parts[0].toLongOrNull() ?: return "$raw ${unit.ifBlank { "°C" }}"
-    val fractionText = parts.getOrNull(1)?.take(2).orEmpty()
-    fun fractionWord(value: Int, digits: Int): String =
-        if (digits == 1) {
-            if (value == 1) "десятая" else "десятых"
-        } else {
-            if (value == 1) "сотая" else "сотых"
+    val number = normalized.toBigDecimalOrNull() ?: return raw + " " + unit.ifBlank { "°C" }
+    val value = number.stripTrailingZeros().toPlainString().replace('.', ',')
+    val degreeWord = if (number.abs() % java.math.BigDecimal("1") == java.math.BigDecimal.ZERO) {
+        val whole = number.abs().toInt()
+        when {
+            whole % 100 in 11..14 -> "градусов"
+            whole % 10 == 1 -> "градус"
+            whole % 10 in 2..4 -> "градуса"
+            else -> "градусов"
         }
-    val degreeWord = when {
-        whole % 100 in 11..14 -> "градусов"
-        whole % 10 == 1L -> "градус"
-        whole % 10 in 2..4 -> "градуса"
-        else -> "градусов"
+    } else {
+        "градуса"
     }
-    if (fractionText.isBlank() || fractionText.toIntOrNull() == 0) return "$sign$whole $degreeWord"
-    val fraction = fractionText.toIntOrNull() ?: return "$raw ${unit.ifBlank { "°C" }}"
-    return "$sign$whole целых $fraction ${fractionWord(fraction, fractionText.length)} $degreeWord"
+    return value + " " + degreeWord
 }
 class LocalCommandManager {
 
