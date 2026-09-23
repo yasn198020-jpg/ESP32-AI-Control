@@ -206,9 +206,6 @@ private fun ScenarioEditorDialog(
                         val safeIndex = draft.selectedIndex.coerceIn(0, conditionWidgets.lastIndex)
                         draft.selectedIndex = safeIndex
                         val pair = conditionWidgets[safeIndex]
-                        Text(if (index == 0) "Условие 1" else "Условие ${index + 1}")
-
-                        Text(if (index == 0) "Условие 1" else "Условие ${index + 1}")
 
                         // Выбор виджета показываем плитками — в том же визуальном стиле,
                         // что и элементы главного экрана.
@@ -245,8 +242,17 @@ private fun ScenarioEditorDialog(
                                 }
                             }
                         }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(onClick = { draft.operator = operatorNext(draft.operator) }) { Text(draft.operator) }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedButton(
+                                onClick = { draft.operator = operatorNext(draft.operator) },
+                                modifier = Modifier.width(72.dp)
+                            ) {
+                                Text(draft.operator)
+                            }
                             OutlinedTextField(
                                 value = draft.thresholdText,
                                 onValueChange = { draft.thresholdText = it },
