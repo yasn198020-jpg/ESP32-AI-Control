@@ -445,7 +445,7 @@ private fun ScenarioEditorDialog(
                                 onValueChange = { verifyValueText = it },
                                 label = { Text("Результат должен быть равен") },
                                 singleLine = true,
-                                modifier = Modifier.weight(1f).onFocusChanged { if (it.isFocused) verifySelectionOpen = false }
+                                modifier = Modifier.weight(1f)
                             )
                         }
 
@@ -461,7 +461,7 @@ private fun ScenarioEditorDialog(
                             onValueChange = { verifyFailureMessage = it },
                             label = { Text("Если не подтверждено") },
                             singleLine = true,
-                            modifier = Modifier.onFocusChanged { if (it.isFocused) verifySelectionOpen = false }
+                            modifier = Modifier
                         )
                     }
 
