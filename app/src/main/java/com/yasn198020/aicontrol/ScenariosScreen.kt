@@ -343,7 +343,7 @@ private fun ScenarioEditorDialog(
                                         val pageControls = controls.filter { it.second.page.ifBlank { "Основная" } == page }
                                         val visiblePageControls = pageControls.filter { item ->
                                             val itemIndex = controls.indexOf(item)
-                                            actionSelectionOpenIndex != actionNumber || safeActionIndex == itemIndex
+                                            actionSelectionOpenIndex == actionNumber || safeActionIndex == itemIndex
                                         }
                                         if (visiblePageControls.isNotEmpty()) {
                                             Text(page, fontWeight = FontWeight.Medium)
