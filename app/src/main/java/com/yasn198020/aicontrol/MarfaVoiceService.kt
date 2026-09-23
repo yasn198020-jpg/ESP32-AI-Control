@@ -253,7 +253,8 @@ class MarfaVoiceService : Service() {
 
     private fun speak(text: String) {
         if (text.isBlank()) return
-        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "marfa-command")
+        // Queue multiple answers so all matching saved commands are spoken.
+        tts?.speak(text, TextToSpeech.QUEUE_ADD, null, "marfa-command-" + System.nanoTime())
     }
 
     override fun onDestroy() {
