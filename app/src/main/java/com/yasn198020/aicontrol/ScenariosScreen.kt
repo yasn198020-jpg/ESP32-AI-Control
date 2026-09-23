@@ -17,6 +17,7 @@ fun ScenariosScreen(
     store: ScenarioStore,
     onRequestNotifications: () -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     var scenarios by remember { mutableStateOf(store.load()) }
     var adding by remember { mutableStateOf(false) }
     fun refresh() { scenarios = store.load() }
@@ -24,7 +25,16 @@ fun ScenariosScreen(
     Column(modifier.fillMaxSize().padding(12.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text("Сценарии", fontSize = 24.sp)
-            Button(onClick = { onRequestNotifications(); adding = true }) { Text("+ Добавить") }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                OutlinedButton(onClick = {
+                    onRequestNotifications()
+                    val test = scenarios.firstOrNull()
+                    if (test != null) {
+                        ScenarioNotifier.notify(context, test, "25.0")
+                    }
+                }) { Text("🔔 Тест") }
+                Button(onClick = { onRequestNotifications(); adding = true }) { Text("+ Добавить") }
+            }
         }
         Spacer(Modifier.height(8.dp))
         if (scenarios.isEmpty()) {
