@@ -36,6 +36,35 @@ object MarfaShortcutInstaller {
         ShortcutManagerCompat.requestPinShortcut(context, shortcut, null)
     }
 
+    fun requestPinned(context: Context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        if (!ShortcutManagerCompat.isRequestPinShortcutSupported(context)) return
+
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        prefs.edit().putBoolean(PREF_REQUESTED, true).apply()
+
+        val active = prefs.getBoolean("marfa_voice_active", false)
+        val shortcut = ShortcutInfoCompat.Builder(context, SHORTCUT_ID)
+            .setShortLabel(if (active) "🎙 Марфа • ВКЛ" else "🎙 Марфа")
+            .setLongLabel(
+                if (active) "🎙 Марфа — микрофон включён"
+                else "🎙 Марфа — включить/выключить микрофон"
+            )
+            .setIcon(
+                IconCompat.createWithResource(
+                    context,
+                    if (active) R.drawable.ic_marfa_on else R.drawable.ic_marfa_off
+                )
+            )
+            .setIntent(Intent(context, MarfaToggleActivity::class.java))
+            .build()
+
+        try {
+            ShortcutManagerCompat.requestPinShortcut(context, shortcut, null)
+        } catch (_: Exception) {
+        }
+    }
+
     fun setActive(context: Context, active: Boolean) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
 
