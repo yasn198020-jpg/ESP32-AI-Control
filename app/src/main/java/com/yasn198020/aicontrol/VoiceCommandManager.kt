@@ -48,7 +48,7 @@ class VoiceCommandManager(
 
         listening = true
         handler.removeCallbacksAndMessages(null)
-        stopRecognizerOnly()
+        cancelRecognizerOnly()
         lastPartialText = ""
 
         recognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
@@ -100,7 +100,7 @@ class VoiceCommandManager(
                         .firstOrNull { it.isNotBlank() }
                         .orEmpty()
 
-                    stopRecognizerOnly()
+                    cancelRecognizerOnly()
                     lastPartialText = ""
 
                     if (!listening) return
@@ -178,10 +178,16 @@ class VoiceCommandManager(
         try {
             recognizer?.stopListening()
             recognizer?.cancel()
-            recognizer?.destroy()
         } catch (_: Exception) {
         }
-        recognizer = null
+    }
+
+    private fun cancelRecognizerOnly() {
+        try {
+            recognizer?.stopListening()
+            recognizer?.cancel()
+        } catch (_: Exception) {
+        }
     }
 
     fun stop() {
