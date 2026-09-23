@@ -25,6 +25,7 @@ fun ScenariosScreen(
     val context = androidx.compose.ui.platform.LocalContext.current
     var scenarios by remember { mutableStateOf(store.load()) }
     var adding by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf<Scenario?>(null) }
     fun refresh() { scenarios = store.load() }
 
     Column(modifier.fillMaxSize().padding(12.dp)) {
@@ -68,6 +69,7 @@ fun ScenariosScreen(
                                     store.update(scenario.copy(enabled = !scenario.enabled, armed = true))
                                     refresh()
                                 }) { Text(if (scenario.enabled) "Выключить" else "Включить") }
+                                OutlinedButton(onClick = { editing = scenario }) { Text("Изменить") }
                                 OutlinedButton(onClick = { store.delete(scenario.id); refresh() }) { Text("Удалить") }
                             }
                         }
@@ -77,8 +79,13 @@ fun ScenariosScreen(
         }
     }
     if (adding) {
-        ScenarioEditorDialog(devices, onDismiss = { adding = false }, onSave = {
+        ScenarioEditorDialog(devices, null, onDismiss = { adding = false }, onSave = {
             store.add(it); refresh(); adding = false
+        })
+    }
+    editing?.let { scenario ->
+        ScenarioEditorDialog(devices, scenario, onDismiss = { editing = null }, onSave = {
+            store.update(it); refresh(); editing = null
         })
     }
 }
@@ -137,6 +144,7 @@ private fun ScenarioWidgetTile(
 @Composable
 private fun ScenarioEditorDialog(
     devices: List<Device>,
+    initialScenario: Scenario?,
     onDismiss: () -> Unit,
     onSave: (Scenario) -> Unit
 ) {
@@ -170,25 +178,61 @@ private fun ScenarioEditorDialog(
         }
     }
 
-    val drafts = remember { mutableStateListOf(ConditionDraft()) }
-    var title by remember { mutableStateOf("Температура высокая") }
-    var message by remember { mutableStateOf("Условие выполнено: {value}") }
-    var actionType by remember { mutableStateOf("NOTIFICATION") }
-    var notificationEnabled by remember { mutableStateOf(true) }
-    val actionDrafts = remember { mutableStateListOf(ActionDraft()) }
+    val drafts = remember(initialScenario) {
+        mutableStateListOf<ConditionDraft>().apply {
+            val saved = initialScenario?.conditions ?: emptyList()
+            if (saved.isEmpty()) add(ConditionDraft())
+            else saved.forEach { add(ConditionDraft(0, it.operator, it.threshold.toString(), it.connector)) }
+        }
+    }
+    var title by remember(initialScenario) { mutableStateOf(initialScenario?.title ?: "Температура высокая") }
+    var message by remember(initialScenario) { mutableStateOf(initialScenario?.message ?: "Условие выполнено: {value}") }
+    var actionType by remember(initialScenario) { mutableStateOf(initialScenario?.actionType ?: "NOTIFICATION") }
+    var notificationEnabled by remember(initialScenario) { mutableStateOf(initialScenario?.notificationEnabled ?: true) }
+    val actionDrafts = remember(initialScenario) {
+        val saved = initialScenario?.actions?.ifEmpty {
+            if (initialScenario.actionType == "MQTT_CONTROL" && initialScenario.actionDeviceId.isNotBlank() && initialScenario.actionWidgetId.isNotBlank())
+                listOf(ScenarioAction(initialScenario.actionDeviceId, initialScenario.actionWidgetId, initialScenario.actionValue))
+            else emptyList()
+        } ?: emptyList()
+        mutableStateListOf(*saved.map { ActionDraft(0, it.value) }.ifEmpty { listOf(ActionDraft()) }.toTypedArray())
+    }
     var actionSelectionOpenIndex by remember { mutableIntStateOf(-1) }
     var actionValueMenuIndex by remember { mutableIntStateOf(-1) }
     var actionMenuOpen by remember { mutableStateOf(false) }
     var valueMenuOpen by remember { mutableStateOf(false) }
-    var verifyEnabled by remember { mutableStateOf(false) }
+    var verifyEnabled by remember(initialScenario) { mutableStateOf(initialScenario?.verifyEnabled ?: false) }
     var verifyTargetIndex by remember { mutableIntStateOf(0) }
-    var verifyTimeoutText by remember { mutableStateOf("30") }
-    var verifyValueText by remember { mutableStateOf("1") }
-    var verifySuccessMessage by remember { mutableStateOf("Подтверждение получено: {value}") }
-    var verifyFailureMessage by remember { mutableStateOf("Подтверждение не получено") }
+    var verifyTimeoutText by remember(initialScenario) { mutableStateOf((initialScenario?.verifyTimeoutSec ?: 30).toString()) }
+    var verifyValueText by remember(initialScenario) { mutableStateOf((initialScenario?.verifyValue ?: 1.0).toString()) }
+    var verifySuccessMessage by remember(initialScenario) { mutableStateOf(initialScenario?.verifySuccessMessage ?: "Подтверждение получено: {value}") }
+    var verifyFailureMessage by remember(initialScenario) { mutableStateOf(initialScenario?.verifyFailureMessage ?: "Подтверждение не получено") }
     var conditionSelectionOpen by remember { mutableStateOf(false) }
     var actionSelectionOpen by remember { mutableStateOf(false) }
     var verifySelectionOpen by remember { mutableStateOf(false) }
+
+    LaunchedEffect(initialScenario, conditionWidgets) {
+        initialScenario?.conditions?.forEachIndexed { index, condition ->
+            if (index < drafts.size) {
+                val found = conditionWidgets.indexOfFirst { it.first.id == condition.deviceId && it.second.id == condition.widgetId }
+                if (found >= 0) drafts[index] = drafts[index].copy(selectedIndex = found)
+            }
+        }
+        initialScenario?.actions?.forEachIndexed { index, action ->
+            if (index < actionDrafts.size) {
+                val found = controls.indexOfFirst { it.first.id == action.deviceId && it.second.id == action.widgetId }
+                if (found >= 0) actionDrafts[index] = actionDrafts[index].copy(selectedIndex = found)
+            }
+        }
+        if (initialScenario != null && initialScenario.actions.isEmpty() && initialScenario.actionDeviceId.isNotBlank()) {
+            val found = controls.indexOfFirst { it.first.id == initialScenario.actionDeviceId && it.second.id == initialScenario.actionWidgetId }
+            if (found >= 0) actionDrafts[0] = actionDrafts[0].copy(selectedIndex = found)
+        }
+        if (initialScenario != null && initialScenario.verifyDeviceId.isNotBlank()) {
+            val found = conditionWidgets.indexOfFirst { it.first.id == initialScenario.verifyDeviceId && it.second.id == initialScenario.verifyWidgetId }
+            if (found >= 0) verifyTargetIndex = found
+        }
+    }
 
     fun operatorNext(value: String) = when (value) {
         ">" -> ">="
@@ -200,7 +244,7 @@ private fun ScenarioEditorDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Новый сценарий") },
+        title = { Text(if (initialScenario == null) "Новый сценарий" else "Редактирование сценария") },
         text = {
             Column(modifier = Modifier.heightIn(max = 560.dp).verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (conditionWidgets.isEmpty()) {
@@ -501,6 +545,9 @@ private fun ScenarioEditorDialog(
                     } else emptyList()
                     val firstAction = actions.firstOrNull()
                     onSave(Scenario(
+                        id = initialScenario?.id ?: java.util.UUID.randomUUID().toString(),
+                        enabled = initialScenario?.enabled ?: true,
+                        armed = initialScenario?.armed ?: true,
                         deviceId = first.deviceId,
                         widgetId = first.widgetId,
                         title = title.trim().ifBlank { "Сценарий" },
