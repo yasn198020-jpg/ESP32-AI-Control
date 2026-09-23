@@ -18,6 +18,7 @@ class VoiceCommandManager(
 ) {
     private var recognizer: SpeechRecognizer? = null
     private var listening = false
+    private var finishing = false
     private var restarting = false
     private var lastPartialText = ""
     private val handler = Handler(Looper.getMainLooper())
@@ -47,10 +48,14 @@ class VoiceCommandManager(
                 override fun onBeginningOfSpeech() = Unit
                 override fun onRmsChanged(rmsdB: Float) = Unit
                 override fun onBufferReceived(buffer: ByteArray?) = Unit
-
                 override fun onEndOfSpeech() = Unit
 
                 override fun onError(error: Int) {
+                    if (finishing) {
+                        finishing = false
+                        releaseRecognizer()
+                        return
+                    }
                     if (!listening || restarting) return
                     scheduleRestart(1200L)
                 }
@@ -85,14 +90,22 @@ class VoiceCommandManager(
 
                     lastPartialText = ""
 
-                    if (!listening) return
+                    // On button release we call stopListening(). Android then
+                    // delivers the final result asynchronously. Do not destroy
+                    // the recognizer before that result reaches the app.
+                    if (!listening && !finishing) return
 
                     if (text.isNotBlank()) {
                         onStatus("Команда: $text")
                         onResult(text)
                     }
 
-                    scheduleRestart(300L)
+                    if (finishing) {
+                        finishing = false
+                        releaseRecognizer()
+                    } else {
+                        scheduleRestart(300L)
+                    }
                 }
 
                 override fun onEvent(eventType: Int, params: android.os.Bundle?) = Unit
@@ -113,6 +126,7 @@ class VoiceCommandManager(
         }
 
         listening = true
+        finishing = false
         if (restarting) return
 
         handler.removeCallbacksAndMessages(null)
@@ -140,13 +154,13 @@ class VoiceCommandManager(
     }
 
     private fun scheduleRestart(delayMs: Long) {
-        if (!listening || restarting) return
+        if (!listening || restarting || finishing) return
 
         restarting = true
         handler.removeCallbacksAndMessages(null)
         handler.postDelayed({
             restarting = false
-            if (!listening) return@postDelayed
+            if (!listening || finishing) return@postDelayed
 
             try {
                 val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
@@ -163,13 +177,46 @@ class VoiceCommandManager(
                 }
                 recognizer?.startListening(intent)
             } catch (_: Exception) {
-                if (listening) scheduleRestart(1500L)
+                if (listening && !finishing) scheduleRestart(1500L)
             }
         }, delayMs)
     }
 
     fun startRussian() {
         startListening()
+    }
+
+    fun finishRussian() {
+        if (!listening) return
+
+        listening = false
+        restarting = false
+        finishing = true
+        handler.removeCallbacksAndMessages(null)
+
+        val current = recognizer
+        if (current == null) {
+            finishing = false
+            return
+        }
+
+        try {
+            // stopListening() requests the final recognition result.
+            // Do NOT call cancel()/destroy() immediately here.
+            current.stopListening()
+        } catch (_: Exception) {
+            finishing = false
+            releaseRecognizer()
+            return
+        }
+
+        // Safety timeout in case the speech service does not return a result.
+        handler.postDelayed({
+            if (finishing) {
+                finishing = false
+                releaseRecognizer()
+            }
+        }, 1200L)
     }
 
     private fun normalizeCommand(text: String): String {
@@ -181,7 +228,7 @@ class VoiceCommandManager(
 
         if (normalized.isBlank()) return ""
 
-        val words = normalized.split(Regex("\\s+"))
+        val words = normalized.split(Regex("\s+"))
         val wakeIndex = words.indexOfFirst {
             it == "марфа" || it == "марфу" || it == "марфе" || it == "марфой"
         }
@@ -197,7 +244,6 @@ class VoiceCommandManager(
         val current = recognizer ?: return
         recognizer = null
         try {
-            current.stopListening()
             current.cancel()
         } catch (_: Exception) {
         }
@@ -209,6 +255,7 @@ class VoiceCommandManager(
 
     fun stop() {
         listening = false
+        finishing = false
         restarting = false
         lastPartialText = ""
         handler.removeCallbacksAndMessages(null)
