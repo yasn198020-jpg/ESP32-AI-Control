@@ -48,7 +48,7 @@ class VoiceCommandManager(
 
         listening = true
         handler.removeCallbacksAndMessages(null)
-        cancelRecognizerOnly()
+        stopRecognizerOnly()
         lastPartialText = ""
 
         recognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
@@ -68,7 +68,7 @@ class VoiceCommandManager(
                 override fun onError(error: Int) {
                     stopRecognizerOnly()
                     if (listening) {
-                        handler.postDelayed({ startListening() }, 500L)
+                        handler.postDelayed({ startListening() }, 1000L)
                     }
                 }
 
@@ -100,7 +100,7 @@ class VoiceCommandManager(
                         .firstOrNull { it.isNotBlank() }
                         .orEmpty()
 
-                    cancelRecognizerOnly()
+                    stopRecognizerOnly()
                     lastPartialText = ""
 
                     if (!listening) return
@@ -110,7 +110,7 @@ class VoiceCommandManager(
                         onResult(text)
                     }
 
-                    handler.postDelayed({ startListening() }, 300L)
+                    handler.postDelayed({ startListening() }, 1000L)
                 }
 
                 override fun onEvent(eventType: Int, params: android.os.Bundle?) = Unit
@@ -182,13 +182,6 @@ class VoiceCommandManager(
         }
     }
 
-    private fun cancelRecognizerOnly() {
-        try {
-            recognizer?.stopListening()
-            recognizer?.cancel()
-        } catch (_: Exception) {
-        }
-    }
 
     fun stop() {
         listening = false
