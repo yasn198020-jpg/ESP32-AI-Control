@@ -246,8 +246,8 @@ private fun App() {
                 val type = when (widgetType.lowercase()) {
                     "toggle" -> WidgetState.Type.TOGGLE
                     "button", "vbtn", "btn" -> WidgetState.Type.BUTTON
-                    "input" -> WidgetState.Type.INPUT
-                    "anydata", "value", "text", "number", "slider" -> WidgetState.Type.VALUE
+                    "input", "text", "number", "slider" -> WidgetState.Type.INPUT
+                    "anydata", "anydatavlt", "value" -> WidgetState.Type.VALUE
                     else -> WidgetState.Type.STATUS
                 }
                 val newPage = page.ifBlank { "Основная" }
@@ -830,64 +830,116 @@ private fun DashboardWidgetRow(
     onSend: (String) -> Unit,
     onTrain: () -> Unit
 ) {
-    val isValue = widget.type == WidgetState.Type.VALUE || widget.type == WidgetState.Type.STATUS
-
-    if (isValue) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(68.dp)
-                .padding(horizontal = 22.dp)
-                .combinedClickable(onLongClick = onTrain, onClick = { }),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("🌡", fontSize = 22.sp, modifier = Modifier.width(34.dp))
-            Text(
-                widget.title,
-                fontSize = 19.sp,
-                modifier = Modifier.weight(1f)
-            )
-            Surface(
+    when (widget.type) {
+        WidgetState.Type.INPUT -> {
+            Row(
                 modifier = Modifier
-                    .width(86.dp)
-                    .height(64.dp),
-                shape = RoundedCornerShape(18.dp),
-                color = Color(0xFF4285F4)
+                    .fillMaxWidth()
+                    .padding(horizontal = 22.dp, vertical = 6.dp)
+                    .combinedClickable(onLongClick = onTrain, onClick = { }),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        widget.value.ifBlank { "—" } + if (widget.unit.isNotBlank()) " " + widget.unit else "",
-                        color = Color.White,
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.Medium
-                    )
+                Text(
+                    "⌨",
+                    color = Color(0xFF8065E8),
+                    fontSize = 22.sp,
+                    modifier = Modifier.width(44.dp)
+                )
+                InputWidget(
+                    widget = widget,
+                    onSend = onSend
+                )
+            }
+        }
+
+        WidgetState.Type.VALUE, WidgetState.Type.STATUS -> {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(68.dp)
+                    .padding(horizontal = 22.dp)
+                    .combinedClickable(onLongClick = onTrain, onClick = { }),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("🌡", fontSize = 22.sp, modifier = Modifier.width(34.dp))
+                Text(
+                    widget.title,
+                    fontSize = 19.sp,
+                    modifier = Modifier.weight(1f)
+                )
+                Surface(
+                    modifier = Modifier
+                        .width(86.dp)
+                        .height(64.dp),
+                    shape = RoundedCornerShape(18.dp),
+                    color = Color(0xFF4285F4)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            widget.value.ifBlank { "—" } +
+                                if (widget.unit.isNotBlank()) " " + widget.unit else "",
+                            color = Color.White,
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
                 }
             }
         }
-    } else {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(66.dp)
-                .padding(horizontal = 22.dp)
-                .combinedClickable(onLongClick = onTrain, onClick = { }),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                "◉",
-                color = Color(0xFF8065E8),
-                fontSize = 22.sp,
-                modifier = Modifier.width(44.dp)
-            )
-            Text(
-                widget.title,
-                fontSize = 19.sp,
-                modifier = Modifier.weight(1f)
-            )
-            Switch(
-                checked = widget.value == "1" || widget.value.equals("true", true),
-                onCheckedChange = { checked -> onSend(if (checked) "1" else "0") }
-            )
+
+        WidgetState.Type.BUTTON -> {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(66.dp)
+                    .padding(horizontal = 22.dp)
+                    .combinedClickable(onLongClick = onTrain, onClick = { }),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "◉",
+                    color = Color(0xFF8065E8),
+                    fontSize = 22.sp,
+                    modifier = Modifier.width(44.dp)
+                )
+                Text(
+                    widget.title,
+                    fontSize = 19.sp,
+                    modifier = Modifier.weight(1f)
+                )
+                Button(onClick = { onSend("1") }) {
+                    Text("Нажать")
+                }
+            }
+        }
+
+        WidgetState.Type.TOGGLE -> {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(66.dp)
+                    .padding(horizontal = 22.dp)
+                    .combinedClickable(onLongClick = onTrain, onClick = { }),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "◉",
+                    color = Color(0xFF8065E8),
+                    fontSize = 22.sp,
+                    modifier = Modifier.width(44.dp)
+                )
+                Text(
+                    widget.title,
+                    fontSize = 19.sp,
+                    modifier = Modifier.weight(1f)
+                )
+                Switch(
+                    checked = widget.value == "1" || widget.value.equals("true", true),
+                    onCheckedChange = { checked ->
+                        onSend(if (checked) "1" else "0")
+                    }
+                )
+            }
         }
     }
 }
