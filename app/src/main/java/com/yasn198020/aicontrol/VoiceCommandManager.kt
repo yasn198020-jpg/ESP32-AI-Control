@@ -228,7 +228,7 @@ class VoiceCommandManager(
 
         if (normalized.isBlank()) return ""
 
-        val words = normalized.split(Regex("\s+"))
+        val words = normalized.split(Regex("\\s+"))
         val wakeIndex = words.indexOfFirst {
             it == "марфа" || it == "марфу" || it == "марфе" || it == "марфой"
         }
