@@ -246,7 +246,11 @@ private fun ScenarioEditorDialog(
                                                 widget = item.second,
                                                 selected = safeIndex == itemIndex,
                                                 onClick = {
-                                                    drafts[index] = draft.copy(selectedIndex = itemIndex)
+                                                    if (safeIndex == itemIndex) {
+                                                        textInputFocused = false
+                                                    } else {
+                                                        drafts[index] = draft.copy(selectedIndex = itemIndex)
+                                                    }
                                                 }
                                             )
                                         }
@@ -339,7 +343,13 @@ private fun ScenarioEditorDialog(
                                                 device = item.first,
                                                 widget = item.second,
                                                 selected = safeActionIndex == itemIndex,
-                                                onClick = { actionIndex = itemIndex }
+                                                onClick = {
+                                                    if (safeActionIndex == itemIndex) {
+                                                        textInputFocused = false
+                                                    } else {
+                                                        actionIndex = itemIndex
+                                                    }
+                                                }
                                             )
                                         }
                                     }
@@ -396,7 +406,13 @@ private fun ScenarioEditorDialog(
                                             device = item.first,
                                             widget = item.second,
                                             selected = verifyTargetIndex.coerceIn(0, conditionWidgets.lastIndex) == itemIndex,
-                                            onClick = { verifyTargetIndex = itemIndex }
+                                            onClick = {
+                                            if (verifyTargetIndex.coerceIn(0, conditionWidgets.lastIndex) == itemIndex) {
+                                                textInputFocused = false
+                                            } else {
+                                                verifyTargetIndex = itemIndex
+                                            }
+                                        }
                                         )
                                     }
                                 }
