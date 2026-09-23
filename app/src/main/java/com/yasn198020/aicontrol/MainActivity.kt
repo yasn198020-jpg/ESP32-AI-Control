@@ -331,9 +331,11 @@ private fun App(
     // while the user holds the in-app Marfa button.
 
     val scenarioStore = remember { ScenarioStore(prefs) }
+    val scenarioActionExecutor = remember { ScenarioActionExecutor() }
     val scenarioEngine = remember {
         ScenarioEngine(scenarioStore) { scenario, rawValue, _ ->
             ScenarioNotifier.notify(context, scenario, rawValue)
+            scenarioActionExecutor.execute(scenario)
         }
     }
 
@@ -411,6 +413,7 @@ private fun App(
             }
         )
     }
+    scenarioActionExecutor.mqtt = mqtt
 
     DisposableEffect(mqtt, voiceManager, speech) {
         onDispose {
