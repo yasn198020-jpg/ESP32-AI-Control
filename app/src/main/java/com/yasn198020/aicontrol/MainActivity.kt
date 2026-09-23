@@ -886,48 +886,34 @@ private fun App(
                     label = { Text("Главная") }
                 )
 
-                Box(
-                    modifier = Modifier
-                        .weight(0.7f)
-                        .fillMaxHeight()
-                        .padding(horizontal = 2.dp, vertical = 4.dp)
-                        .pointerInput(Unit) {
-                            detectTapGestures(
-                                onPress = {
-                                    if (ContextCompat.checkSelfPermission(
-                                            context,
-                                            Manifest.permission.RECORD_AUDIO
-                                        ) == PackageManager.PERMISSION_GRANTED
-                                    ) {
-                                        voiceStatus = "🎙 Слушаю… отпустите кнопку для остановки"
-                                        voiceManager.startRussian()
-                                        try {
-                                            tryAwaitRelease()
-                                        } finally {
-                                            voiceManager.finishRussian()
-                                            voiceStatus = "Микрофон выключен"
-                                        }
-                                    } else {
-                                        requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
+                NavigationBarItem(
+                    selected = false,
+                    onClick = { },
+                    modifier = Modifier.pointerInput(Unit) {
+                        detectTapGestures(
+                            onPress = {
+                                if (ContextCompat.checkSelfPermission(
+                                        context,
+                                        Manifest.permission.RECORD_AUDIO
+                                    ) == PackageManager.PERMISSION_GRANTED
+                                ) {
+                                    voiceStatus = "🎙 Слушаю… отпустите кнопку для остановки"
+                                    voiceManager.startRussian()
+                                    try {
+                                        tryAwaitRelease()
+                                    } finally {
+                                        voiceManager.finishRussian()
+                                        voiceStatus = "Микрофон выключен"
                                     }
+                                } else {
+                                    requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
                                 }
-                            )
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Surface(
-                        modifier = Modifier.fillMaxSize(),
-                        shape = RoundedCornerShape(12.dp),
-                        tonalElevation = 3.dp
-                    ) {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("🎙", fontSize = 20.sp)
-                        }
-                    }
-                }
+                            }
+                        )
+                    },
+                    icon = { Text("🎙", fontSize = 22.sp) },
+                    label = { Text("Марфа") }
+                )
 
                 NavigationBarItem(
                     selected = tab == 1,
