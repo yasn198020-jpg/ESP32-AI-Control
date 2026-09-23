@@ -325,9 +325,15 @@ private fun ScenarioEditorDialog(
                                     val pageControls = controls.filter {
                                         it.second.page.ifBlank { "Основная" } == page
                                     }
-                                    Text(page, fontWeight = FontWeight.Medium)
+                                    val visiblePageControls = pageControls.filter { item ->
+                                        val itemIndex = controls.indexOf(item)
+                                        !textInputFocused || safeActionIndex == itemIndex
+                                    }
+                                    if (visiblePageControls.isNotEmpty()) {
+                                        Text(page, fontWeight = FontWeight.Medium)
+                                    }
                                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        pageControls.forEach { item ->
+                                        visiblePageControls.forEach { item ->
                                             val itemIndex = controls.indexOf(item)
                                             ScenarioWidgetTile(
                                                 device = item.first,
@@ -376,9 +382,15 @@ private fun ScenarioEditorDialog(
                                 val pageWidgets = conditionWidgets.filter {
                                     it.second.page.ifBlank { "Основная" } == page
                                 }
-                                Text(page, fontWeight = FontWeight.Medium)
+                                val visiblePageWidgets = pageWidgets.filter { item ->
+                                    val itemIndex = conditionWidgets.indexOf(item)
+                                    !textInputFocused || verifyTargetIndex.coerceIn(0, conditionWidgets.lastIndex) == itemIndex
+                                }
+                                if (visiblePageWidgets.isNotEmpty()) {
+                                    Text(page, fontWeight = FontWeight.Medium)
+                                }
                                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    pageWidgets.forEach { item ->
+                                    visiblePageWidgets.forEach { item ->
                                         val itemIndex = conditionWidgets.indexOf(item)
                                         ScenarioWidgetTile(
                                             device = item.first,
