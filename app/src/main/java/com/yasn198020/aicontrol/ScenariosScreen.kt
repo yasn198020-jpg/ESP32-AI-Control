@@ -230,7 +230,7 @@ private fun ScenarioEditorDialog(
                                         device = item.first,
                                         widget = item.second,
                                         selected = safeIndex == itemIndex,
-                                        onClick = { draft.selectedIndex = itemIndex }
+                                        onClick = { drafts[index] = draft.copy(selectedIndex = itemIndex) }
                                     )
                                 }
                             }
