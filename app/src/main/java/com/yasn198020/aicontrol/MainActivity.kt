@@ -894,7 +894,7 @@ private fun App(
                     }
                 },
                 onVoiceStop = {
-                    voiceManager.stop()
+                    voiceManager.finishRussian()
                     voiceStatus = "Микрофон выключен"
                 },
                 onSend = ::sendWidget)
@@ -1004,10 +1004,10 @@ private fun DevicesScreen(
 
         item(key = "voice-hidden-access") {
             Spacer(Modifier.height(8.dp))
-            OutlinedButton(
-                onClick = { },
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .height(52.dp)
                     .pointerInput(Unit) {
                         detectTapGestures(
                             onPress = {
@@ -1019,10 +1019,22 @@ private fun DevicesScreen(
                                 }
                             }
                         )
-                    },
-                shape = RoundedCornerShape(12.dp)
+                    }
+                    .then(Modifier)
             ) {
-                Text("🎙 Марфа — держите для разговора")
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    shape = RoundedCornerShape(12.dp),
+                    tonalElevation = 2.dp,
+                    border = ButtonDefaults.outlinedButtonBorder
+                ) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("🎙 Марфа — держите для разговора")
+                    }
+                }
             }
             if (voiceText.isNotBlank()) {
                 Text(
