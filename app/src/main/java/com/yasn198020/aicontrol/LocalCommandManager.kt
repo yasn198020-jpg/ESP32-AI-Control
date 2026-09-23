@@ -10,6 +10,26 @@ data class LocalCommandResult(
     val reply: String
 )
 
+fun formatTemperatureForSpeech(raw: String, unit: String = "°C"): String {
+    val normalized = raw.trim().replace(',', '.')
+    val number = normalized.toBigDecimalOrNull() ?: return "$raw ${unit.ifBlank { "°C" }}"
+    val sign = if (number.signum() < 0) "минус " else ""
+    val absolute = number.abs()
+    val text = absolute.stripTrailingZeros().toPlainString()
+    val parts = text.split(".")
+    val whole = parts[0].toLongOrNull() ?: return "$raw ${unit.ifBlank { "°C" }}"
+    val fractionText = parts.getOrNull(1)?.take(2).orEmpty()
+    fun hundredWord(value: Int): String = if (value == 1) "сотая" else "сотых"
+    val degreeWord = when {
+        whole % 100 in 11..14 -> "градусов"
+        whole % 10 == 1L -> "градус"
+        whole % 10 in 2..4 -> "градуса"
+        else -> "градусов"
+    }
+    if (fractionText.isBlank() || fractionText.toIntOrNull() == 0) return "$sign$whole $degreeWord"
+    val fraction = fractionText.toIntOrNull() ?: return "$raw ${unit.ifBlank { "°C" }}"
+    return "$sign$whole целых $fraction ${hundredWord(fraction)} $degreeWord"
+}
 class LocalCommandManager {
 
     fun interpret(command: String, devices: List<Device>): LocalCommandResult {
@@ -37,7 +57,7 @@ class LocalCommandManager {
             val spoken = if (raw.isBlank() || raw == "—") {
                 "Температура для помидоров пока неизвестна"
             } else {
-                "Температура для помидоров: $raw $unit"
+                "Температура для помидоров: ${formatTemperatureForSpeech(raw, unit)}"
             }
             return LocalCommandResult(LocalCommandAction.READ_VALUE, best.first.device.id, widget.id, raw, spoken)
         }
