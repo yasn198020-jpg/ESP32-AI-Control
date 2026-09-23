@@ -58,11 +58,24 @@ fun ScenariosScreen(
                                 )
                             }
                             Text(scenario.message)
-                            Text(
-                                if (scenario.actionType == "MQTT_CONTROL")
-                                    "Действие: ${scenario.actionDeviceId}/${scenario.actionWidgetId} → ${scenario.actionValue}"
-                                else "Действие: уведомление"
-                            )
+                            if (scenario.actionType == "MQTT_CONTROL") {
+                                val displayActions = scenario.actions.ifEmpty {
+                                    if (scenario.actionDeviceId.isNotBlank() && scenario.actionWidgetId.isNotBlank()) {
+                                        listOf(ScenarioAction(scenario.actionDeviceId, scenario.actionWidgetId, scenario.actionValue))
+                                    } else emptyList()
+                                }
+                                if (displayActions.isEmpty()) {
+                                    Text("Действие: не задано")
+                                } else {
+                                    displayActions.forEachIndexed { actionIndex, action ->
+                                        Text(
+                                            "Действие ${actionIndex + 1}: ${action.deviceId}/${action.widgetId} → ${action.value}"
+                                        )
+                                    }
+                                }
+                            } else {
+                                Text("Действие: уведомление")
+                            }
                             Text((if (scenario.enabled) "Включён" else "Выключен") + "  •  " + (if (scenario.notificationEnabled) "уведомления включены" else "без уведомлений"))
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 OutlinedButton(onClick = {
