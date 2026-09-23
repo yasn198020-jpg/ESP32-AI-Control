@@ -77,3 +77,17 @@ class ScenarioEngine(private val store: ScenarioStore, private val onTrigger: (S
         }
     }
 }
+
+class ScenarioActionExecutor {
+    @Volatile var mqtt: MqttManager? = null
+
+    fun execute(scenario: Scenario) {
+        if (scenario.actionType != "MQTT_CONTROL") return
+        val deviceId = scenario.actionDeviceId
+        val widgetId = scenario.actionWidgetId
+        if (deviceId.isBlank() || widgetId.isBlank()) return
+        val manager = mqtt ?: return
+        if (!manager.isConnected()) return
+        manager.publishControl(deviceId, widgetId, scenario.actionValue.ifBlank { "1" })
+    }
+}
