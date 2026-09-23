@@ -235,6 +235,30 @@ private fun App(
     }
 
     fun addLog(message: String) { log = (log + message).takeLast(100) }
+    DisposableEffect(Unit) {
+        val receiver = object : android.content.BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                if (intent.action == MarfaVoiceService.ACTION_VOICE_RESULT) {
+                    val text = intent.getStringExtra(MarfaVoiceService.EXTRA_TEXT).orEmpty()
+                    if (text.isNotBlank()) {
+                        voiceText = text
+                        voiceStatus = "Команда распознана"
+                    }
+                }
+            }
+        }
+        val filter = android.content.IntentFilter(MarfaVoiceService.ACTION_VOICE_RESULT)
+        androidx.core.content.ContextCompat.registerReceiver(
+            context,
+            receiver,
+            filter,
+            androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+        onDispose {
+            runCatching { context.unregisterReceiver(receiver) }
+        }
+    }
+
     val voiceManager = remember {
         VoiceCommandManager(
             context = context,
@@ -347,7 +371,9 @@ private fun App(
 
     DisposableEffect(mqtt, voiceManager, speech) {
         onDispose {
-            mqtt.disconnect()
+            if (!context.getSharedPreferences("settings", Context.MODE_PRIVATE).getBoolean("marfa_voice_active", false)) {
+                mqtt.disconnect()
+            }
             voiceManager.stop()
             speech.stop()
             speech.shutdown()
@@ -380,7 +406,8 @@ private fun App(
             when (event) {
                 Lifecycle.Event.ON_STOP -> voiceManager.stop()
                 Lifecycle.Event.ON_START -> {
-                    if (ContextCompat.checkSelfPermission(
+                    if (!context.getSharedPreferences("settings", Context.MODE_PRIVATE).getBoolean("marfa_voice_active", false)
+                        && ContextCompat.checkSelfPermission(
                             context,
                             Manifest.permission.RECORD_AUDIO
                         ) == PackageManager.PERMISSION_GRANTED
@@ -403,7 +430,8 @@ private fun App(
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_STOP -> {
-                    if (!manualMqttDisconnect) {
+                    val marfaActive = context.getSharedPreferences("settings", Context.MODE_PRIVATE).getBoolean("marfa_voice_active", false)
+                    if (!manualMqttDisconnect && !marfaActive) {
                         addLog("MQTT background mode: starting service")
                         mqtt.disconnect()
                         val intent = Intent(context, MqttBackgroundService::class.java)
@@ -419,10 +447,13 @@ private fun App(
                     }
                 }
                 Lifecycle.Event.ON_START -> {
-                    try {
-                        context.stopService(Intent(context, MqttBackgroundService::class.java))
-                    } catch (_: Exception) {}
-                    if (!manualMqttDisconnect) {
+                    val marfaActive = context.getSharedPreferences("settings", Context.MODE_PRIVATE).getBoolean("marfa_voice_active", false)
+                    if (!marfaActive) {
+                        try {
+                            context.stopService(Intent(context, MqttBackgroundService::class.java))
+                        } catch (_: Exception) {}
+                    }
+                    if (!manualMqttDisconnect && !marfaActive) {
                         addLog("MQTT foreground mode: restoring connection")
                         connect()
                     }
