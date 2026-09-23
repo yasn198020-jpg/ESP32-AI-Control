@@ -78,11 +78,13 @@ class VoiceCommandManager(
                     stopRecognizerOnly()
 
                     if (wakeDetected && wakeWordEnabled) {
+                        // Hand the microphone directly to command recognition.
+                        // Do not start another wake session after the wake word.
+                        wakeWordEnabled = false
+                        handler.removeCallbacksAndMessages(null)
                         onStatus("Марфа услышала. Говорите команду…")
                         onWakeWord()
-                    }
-
-                    if (wakeWordEnabled) {
+                    } else if (wakeWordEnabled) {
                         handler.postDelayed({ startWakeRecognizer() }, 700L)
                     }
                 }
@@ -92,14 +94,14 @@ class VoiceCommandManager(
                         ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                         .orEmpty()
 
-                    if (partials.any { containsWakeWord(it) }) {
+                    if (wakeWordEnabled && partials.any { containsWakeWord(it) }) {
+                        // Do not restart the wake recognizer here. The UI immediately
+                        // switches to command recognition after onWakeWord().
+                        wakeWordEnabled = false
+                        handler.removeCallbacksAndMessages(null)
                         stopRecognizerOnly()
                         onStatus("Марфа услышала. Говорите команду…")
                         onWakeWord()
-
-                        if (wakeWordEnabled) {
-                            handler.postDelayed({ startWakeRecognizer() }, 250L)
-                        }
                     }
                 }
 
@@ -115,9 +117,9 @@ class VoiceCommandManager(
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
             // Keep the wake-word recognition session open longer so the microphone does not
             // repeatedly turn on/off while waiting for «Марфа».
-            putExtra("android.speech.extra.SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS", 60000L)
-            putExtra("android.speech.extra.SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS", 60000L)
-            putExtra("android.speech.extra.SPEECH_INPUT_MINIMUM_LENGTH_MILLIS", 60000L)
+            putExtra("android.speech.extra.SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS", 300000L)
+            putExtra("android.speech.extra.SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS", 300000L)
+            putExtra("android.speech.extra.SPEECH_INPUT_MINIMUM_LENGTH_MILLIS", 300000L)
             putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
             putExtra(RecognizerIntent.EXTRA_PROMPT, "Скажите «Марфа»")
         }
@@ -217,6 +219,10 @@ class VoiceCommandManager(
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "ru-RU")
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+            // Give enough time to say the command after «Марфа».
+            putExtra("android.speech.extra.SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS", 5000L)
+            putExtra("android.speech.extra.SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS", 5000L)
+            putExtra("android.speech.extra.SPEECH_INPUT_MINIMUM_LENGTH_MILLIS", 5000L)
             putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
             putExtra(RecognizerIntent.EXTRA_PROMPT, "Говорите команду")
         }
