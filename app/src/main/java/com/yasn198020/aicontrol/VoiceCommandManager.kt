@@ -64,7 +64,7 @@ class VoiceCommandManager(
                 override fun onError(error: Int) {
                     stopRecognizerOnly()
                     if (wakeWordEnabled) {
-                        handler.postDelayed({ startWakeRecognizer() }, 400L)
+                        handler.postDelayed({ startWakeRecognizer() }, 1200L)
                     }
                 }
 
@@ -83,7 +83,7 @@ class VoiceCommandManager(
                     }
 
                     if (wakeWordEnabled) {
-                        handler.postDelayed({ startWakeRecognizer() }, 250L)
+                        handler.postDelayed({ startWakeRecognizer() }, 700L)
                     }
                 }
 
@@ -113,6 +113,11 @@ class VoiceCommandManager(
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "ru-RU")
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+            // Keep the wake-word recognition session open longer so the microphone does not
+            // repeatedly turn on/off while waiting for «Марфа».
+            putExtra("android.speech.extra.SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS", 60000L)
+            putExtra("android.speech.extra.SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS", 60000L)
+            putExtra("android.speech.extra.SPEECH_INPUT_MINIMUM_LENGTH_MILLIS", 60000L)
             putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
             putExtra(RecognizerIntent.EXTRA_PROMPT, "Скажите «Марфа»")
         }
