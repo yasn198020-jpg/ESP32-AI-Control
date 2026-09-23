@@ -26,6 +26,14 @@ data class Scenario(
     val actionDeviceId: String = "",
     val actionWidgetId: String = "",
     val actionValue: String = "1",
+    val verifyEnabled: Boolean = false,
+    val verifyTimeoutSec: Int = 30,
+    val verifyDeviceId: String = "",
+    val verifyWidgetId: String = "",
+    val verifyOperator: String = "=",
+    val verifyValue: Double = 1.0,
+    val verifySuccessMessage: String = "Подтверждение получено: {value}",
+    val verifyFailureMessage: String = "Подтверждение не получено",
     val conditions: List<ScenarioCondition> = listOf(
         ScenarioCondition(deviceId, widgetId, operator, threshold)
     )
@@ -83,6 +91,14 @@ class ScenarioStore(private val prefs: android.content.SharedPreferences) {
                             actionDeviceId = o.optString("actionDeviceId", ""),
                             actionWidgetId = o.optString("actionWidgetId", ""),
                             actionValue = o.optString("actionValue", "1"),
+                            verifyEnabled = o.optBoolean("verifyEnabled", false),
+                            verifyTimeoutSec = o.optInt("verifyTimeoutSec", 30).coerceIn(1, 300),
+                            verifyDeviceId = o.optString("verifyDeviceId", ""),
+                            verifyWidgetId = o.optString("verifyWidgetId", ""),
+                            verifyOperator = o.optString("verifyOperator", "="),
+                            verifyValue = o.optDouble("verifyValue", 1.0),
+                            verifySuccessMessage = o.optString("verifySuccessMessage", "Подтверждение получено: {value}"),
+                            verifyFailureMessage = o.optString("verifyFailureMessage", "Подтверждение не получено"),
                             conditions = conditions
                         ))
                     }
@@ -108,6 +124,14 @@ class ScenarioStore(private val prefs: android.content.SharedPreferences) {
                 put("actionDeviceId", s.actionDeviceId)
                 put("actionWidgetId", s.actionWidgetId)
                 put("actionValue", s.actionValue)
+                put("verifyEnabled", s.verifyEnabled)
+                put("verifyTimeoutSec", s.verifyTimeoutSec)
+                put("verifyDeviceId", s.verifyDeviceId)
+                put("verifyWidgetId", s.verifyWidgetId)
+                put("verifyOperator", s.verifyOperator)
+                put("verifyValue", s.verifyValue)
+                put("verifySuccessMessage", s.verifySuccessMessage)
+                put("verifyFailureMessage", s.verifyFailureMessage)
                 val ca = JSONArray()
                 s.conditions.forEachIndexed { index, c ->
                     ca.put(JSONObject().apply {
@@ -132,9 +156,12 @@ class ScenarioStore(private val prefs: android.content.SharedPreferences) {
 
 class ScenarioEngine(
     private val store: ScenarioStore,
-    private val onTrigger: (Scenario, String, Double) -> Unit
+    private val onTrigger: (Scenario, String, Double) -> Unit,
+    private val onVerificationResult: (Scenario, Boolean, String) -> Unit
 ) {
     private val values = mutableMapOf<String, Double>()
+    private val verificationTasks = mutableMapOf<String, java.util.concurrent.ScheduledFuture<*>>()
+    private val scheduler = java.util.concurrent.Executors.newSingleThreadScheduledExecutor()
 
     private fun key(deviceId: String, widgetId: String) = "$deviceId/$widgetId"
 
@@ -160,6 +187,32 @@ class ScenarioEngine(
         return result
     }
 
+    private fun verificationMatches(scenario: Scenario, value: Double): Boolean {
+        return when (scenario.verifyOperator) {
+            ">" -> value > scenario.verifyValue
+            ">=" -> value >= scenario.verifyValue
+            "<" -> value < scenario.verifyValue
+            "<=" -> value <= scenario.verifyValue
+            else -> kotlin.math.abs(value - scenario.verifyValue) < 0.000001
+        }
+    }
+
+    private fun startVerification(scenario: Scenario, triggerRawValue: String) {
+        if (!scenario.verifyEnabled ||
+            scenario.verifyDeviceId.isBlank() ||
+            scenario.verifyWidgetId.isBlank()
+        ) return
+
+        verificationTasks.remove(scenario.id)?.cancel(false)
+
+        verificationTasks[scenario.id] = scheduler.schedule({
+            synchronized(this) {
+                verificationTasks.remove(scenario.id)
+            }
+            onVerificationResult(scenario, false, "")
+        }, scenario.verifyTimeoutSec.coerceIn(1, 300).toLong(), java.util.concurrent.TimeUnit.SECONDS)
+    }
+
     @Synchronized
     fun onValue(deviceId: String, widgetId: String, rawValue: String) {
         val value = rawValue.trim().replace(',', '.').toDoubleOrNull() ?: return
@@ -167,6 +220,19 @@ class ScenarioEngine(
 
         store.load().forEach { scenario ->
             if (!scenario.enabled) return@forEach
+
+            if (scenario.verifyEnabled &&
+                scenario.verifyDeviceId == deviceId &&
+                scenario.verifyWidgetId == widgetId &&
+                verificationMatches(scenario, value)
+            ) {
+                val task = verificationTasks.remove(scenario.id)
+                if (task != null) {
+                    task.cancel(false)
+                    onVerificationResult(scenario, true, rawValue)
+                }
+            }
+
             val conditions = scenario.conditions.ifEmpty {
                 listOf(ScenarioCondition(scenario.deviceId, scenario.widgetId, scenario.operator, scenario.threshold))
             }
@@ -176,6 +242,7 @@ class ScenarioEngine(
             if (matched && scenario.armed) {
                 onTrigger(scenario, rawValue, value)
                 store.update(scenario.copy(armed = false))
+                startVerification(scenario, rawValue)
             } else if (!matched && !scenario.armed) {
                 store.update(scenario.copy(armed = true))
             }
