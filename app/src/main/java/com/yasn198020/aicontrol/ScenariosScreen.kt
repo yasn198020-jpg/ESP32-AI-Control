@@ -15,7 +15,7 @@ fun ScenariosScreen(
     modifier: Modifier,
     devices: List<Device>,
     store: ScenarioStore,
-    onRequestNotifications: () -> Unit
+    onRequestNotifications: (() -> Unit) -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var scenarios by remember { mutableStateOf(store.load()) }
@@ -27,13 +27,16 @@ fun ScenariosScreen(
             Text("Сценарии", fontSize = 24.sp)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 OutlinedButton(onClick = {
-                    onRequestNotifications()
-                    val test = scenarios.firstOrNull()
-                    if (test != null) {
-                        ScenarioNotifier.notify(context, test, "25.0")
+                    onRequestNotifications {
+                        val test = scenarios.firstOrNull()
+                        if (test != null) {
+                            ScenarioNotifier.notify(context, test, "25.0")
+                        } else {
+                            ScenarioNotifier.test(context)
+                        }
                     }
                 }) { Text("🔔 Тест") }
-                Button(onClick = { onRequestNotifications(); adding = true }) { Text("+ Добавить") }
+                Button(onClick = { onRequestNotifications { adding = true } }) { Text("+ Добавить") }
             }
         }
         Spacer(Modifier.height(8.dp))
