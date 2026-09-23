@@ -1,4 +1,5 @@
 package com.yasn198020.aicontrol
+import com.yasn198020.aicontrol.core.Device
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
