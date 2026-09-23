@@ -283,15 +283,19 @@ private fun App(
 
     LaunchedEffect(Unit) {
         delay(700)
-        if (ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.RECORD_AUDIO
-            ) == PackageManager.PERMISSION_GRANTED
-        ) {
-            voiceStatus = "Голосовая активация: скажите «Марфа»"
-            voiceManager.startWakeWord()
-        } else {
-            requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
+        val marfaActive = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+            .getBoolean("marfa_voice_active", false)
+        if (!marfaActive) {
+            if (ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.RECORD_AUDIO
+                ) == PackageManager.PERMISSION_GRANTED
+            ) {
+                voiceStatus = "Голосовая активация: скажите «Марфа»"
+                voiceManager.startWakeWord()
+            } else {
+                requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
+            }
         }
     }
 
