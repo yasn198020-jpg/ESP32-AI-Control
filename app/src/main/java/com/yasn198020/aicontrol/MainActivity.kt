@@ -32,6 +32,7 @@ import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -49,13 +50,38 @@ data class WidgetState(val id: String, val title: String, val type: Type, val va
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { MaterialTheme(colorScheme = darkColorScheme()) { Surface(Modifier.fillMaxSize()) { App() } } }
+        val prefs = getSharedPreferences("settings", Context.MODE_PRIVATE)
+        setContent {
+            val baseDensity = LocalDensity.current
+            var fontScale by remember {
+                mutableFloatStateOf(prefs.getFloat("ui_font_scale", 0.85f).coerceIn(0.70f, 1.10f))
+            }
+            CompositionLocalProvider(
+                LocalDensity provides Density(density = baseDensity.density, fontScale = fontScale)
+            ) {
+                MaterialTheme(colorScheme = darkColorScheme()) {
+                    Surface(Modifier.fillMaxSize()) {
+                        App(
+                            fontScale = fontScale,
+                            onFontScaleChange = {
+                                val value = it.coerceIn(0.70f, 1.10f)
+                                fontScale = value
+                                prefs.edit().putFloat("ui_font_scale", value).apply()
+                            }
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun App() {
+private fun App(
+    fontScale: Float,
+    onFontScaleChange: (Float) -> Unit
+) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("settings", Context.MODE_PRIVATE) }
     var mqttHost by remember { mutableStateOf(prefs.getString("mqtt_host", "m4.wqtt.ru") ?: "m4.wqtt.ru") }
@@ -66,6 +92,7 @@ private fun App() {
     var password by remember { mutableStateOf(prefs.getString("mqtt_pass", "") ?: "") }
     var tab by remember { mutableIntStateOf(0) }
     var menuOpen by remember { mutableStateOf(false) }
+    var textSizeDialogOpen by remember { mutableStateOf(false) }
     var selectedPage by remember { mutableStateOf<String?>(null) }
     var connected by remember { mutableStateOf(false) }
     var manualMqttDisconnect by remember { mutableStateOf(false) }
@@ -556,6 +583,27 @@ private fun App() {
         )
     }
 
+    if (textSizeDialogOpen) {
+        AlertDialog(
+            onDismissRequest = { textSizeDialogOpen = false },
+            title = { Text("Размер текста") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("${(fontScale * 100f).toInt()}%", fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                    Slider(value = fontScale, onValueChange = onFontScaleChange, valueRange = 0.70f..1.10f, steps = 7)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Мельче")
+                        Text("Обычный")
+                        Text("Крупнее")
+                    }
+                    Text("Настройка применяется ко всему тексту приложения и сохраняется автоматически.", style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = { TextButton(onClick = { textSizeDialogOpen = false }) { Text("Готово") } },
+            dismissButton = { TextButton(onClick = { onFontScaleChange(0.85f) }) { Text("По умолчанию") } }
+        )
+    }
+
     trainingTarget?.let { target ->
         AlertDialog(
             onDismissRequest = { trainingTarget = null },
@@ -667,6 +715,7 @@ private fun App() {
                             DropdownMenuItem(text = { Text("MQTT подключение") }, onClick = { menuOpen = false; tab = 2 })
                             DropdownMenuItem(text = { Text("Журнал") }, onClick = { menuOpen = false; tab = 3 })
                             DropdownMenuItem(text = { Text("Голос") }, onClick = { menuOpen = false; tab = 4 })
+                            DropdownMenuItem(text = { Text("Размер текста") }, onClick = { menuOpen = false; textSizeDialogOpen = true })
 
                             DropdownMenuItem(
                                 text = { Text("Проверить обновление") },
