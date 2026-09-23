@@ -29,11 +29,8 @@ fun ScenariosScreen(
                 OutlinedButton(onClick = {
                     onRequestNotifications {
                         val test = scenarios.firstOrNull()
-                        if (test != null) {
-                            ScenarioNotifier.notify(context, test, "25.0")
-                        } else {
-                            ScenarioNotifier.test(context)
-                        }
+                        if (test != null) ScenarioNotifier.notify(context, test, "25.0")
+                        else ScenarioNotifier.test(context)
                     }
                 }) { Text("🔔 Тест") }
                 Button(onClick = { onRequestNotifications { adding = true } }) { Text("+ Добавить") }
@@ -41,20 +38,30 @@ fun ScenariosScreen(
         }
         Spacer(Modifier.height(8.dp))
         if (scenarios.isEmpty()) {
-            Text("Нет сценариев. Например: температура t65 > 25 °C → уведомление на телефон.", fontSize = 16.sp)
+            Text("Нет сценариев. Например: t65 > 25 И d12 < 10 → уведомление.")
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(scenarios, key = { it.id }) { scenario ->
                     Card(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(12.dp)) {
                             Text(scenario.title, fontSize = 18.sp)
-                            Text("${scenario.deviceId} / ${scenario.widgetId}  ${scenario.operator}  ${scenario.threshold}")
+                            scenario.conditions.forEachIndexed { index, condition ->
+                                Text(
+                                    (if (index == 0) "" else "${condition.connector} ") +
+                                        "${condition.deviceId} / ${condition.widgetId} ${condition.operator} ${condition.threshold}"
+                                )
+                            }
                             Text(scenario.message)
-                            Text(if (scenario.actionType == "MQTT_CONTROL") "Действие: ${scenario.actionDeviceId}/${scenario.actionWidgetId} → ${scenario.actionValue}" else "Действие: уведомление")
+                            Text(
+                                if (scenario.actionType == "MQTT_CONTROL")
+                                    "Действие: ${scenario.actionDeviceId}/${scenario.actionWidgetId} → ${scenario.actionValue}"
+                                else "Действие: уведомление"
+                            )
                             Text(if (scenario.enabled) "Включён" else "Выключен")
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 OutlinedButton(onClick = {
-                                    store.update(scenario.copy(enabled = !scenario.enabled, armed = true)); refresh()
+                                    store.update(scenario.copy(enabled = !scenario.enabled, armed = true))
+                                    refresh()
                                 }) { Text(if (scenario.enabled) "Выключить" else "Включить") }
                                 OutlinedButton(onClick = { store.delete(scenario.id); refresh() }) { Text("Удалить") }
                             }
@@ -71,6 +78,13 @@ fun ScenariosScreen(
     }
 }
 
+private data class ConditionDraft(
+    var selectedIndex: Int = 0,
+    var operator: String = ">",
+    var thresholdText: String = "25",
+    var connector: String = "AND"
+)
+
 @Composable
 private fun ScenarioEditorDialog(
     devices: List<Device>,
@@ -80,49 +94,89 @@ private fun ScenarioEditorDialog(
     val numericWidgets = devices.flatMap { device ->
         device.widgets.filter { it.type == WidgetState.Type.VALUE || it.type == WidgetState.Type.STATUS }.map { device to it }
     }
-    var selectedIndex by remember { mutableIntStateOf(0) }
-    var operator by remember { mutableStateOf(">") }
-    var thresholdText by remember { mutableStateOf("25") }
+    val controls = devices.flatMap { d ->
+        d.widgets.filter { it.type == WidgetState.Type.TOGGLE || it.type == WidgetState.Type.BUTTON }.map { d to it }
+    }
+
+    val drafts = remember { mutableStateListOf(ConditionDraft()) }
     var title by remember { mutableStateOf("Температура высокая") }
-    var message by remember { mutableStateOf("Температура выше {threshold}°C: {value}°C") }
+    var message by remember { mutableStateOf("Условие выполнено: {value}") }
     var actionType by remember { mutableStateOf("NOTIFICATION") }
     var actionIndex by remember { mutableIntStateOf(0) }
     var actionValue by remember { mutableStateOf("1") }
-    var menuOpen by remember { mutableStateOf(false) }
+    var openMenu by remember { mutableIntStateOf(-1) }
     var actionMenuOpen by remember { mutableStateOf(false) }
     var targetMenuOpen by remember { mutableStateOf(false) }
     var valueMenuOpen by remember { mutableStateOf(false) }
+
+    fun operatorNext(value: String) = when (value) {
+        ">" -> ">="
+        ">=" -> "<"
+        "<" -> "<="
+        "<=" -> "="
+        else -> ">"
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Новый сценарий") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(modifier = Modifier.heightIn(max = 560.dp).verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (numericWidgets.isEmpty()) {
                     Text("Пока нет датчиков со значением. Сначала дождитесь CONFIG от устройства.")
                 } else {
-                    val safeIndex = selectedIndex.coerceIn(0, numericWidgets.lastIndex)
-                    val pair = numericWidgets[safeIndex]
-                    Text("Датчик")
-                    Box {
-                        OutlinedButton(onClick = { menuOpen = true }) { Text("${pair.first.id} / ${pair.second.id}  ${pair.second.title}") }
-                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                            numericWidgets.forEachIndexed { index, item ->
-                                DropdownMenuItem(
-                                    text = { Text("${item.first.id} / ${item.second.id}  ${item.second.title}") },
-                                    onClick = { selectedIndex = index; menuOpen = false }
-                                )
+                    Text("Условия", fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                    drafts.forEachIndexed { index, draft ->
+                        if (index > 0) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("Связь:", modifier = Modifier.align(Alignment.CenterVertically))
+                                OutlinedButton(onClick = { draft.connector = if (draft.connector == "AND") "OR" else "AND" }) {
+                                    Text(if (draft.connector == "AND") "И" else "ИЛИ")
+                                }
+                                Spacer(Modifier.weight(1f))
+                                TextButton(onClick = { drafts.removeAt(index) }) { Text("Удалить") }
                             }
                         }
+
+                        val safeIndex = draft.selectedIndex.coerceIn(0, numericWidgets.lastIndex)
+                        draft.selectedIndex = safeIndex
+                        val pair = numericWidgets[safeIndex]
+                        Text(if (index == 0) "Условие 1" else "Условие ${index + 1}")
+
+                        Box {
+                            OutlinedButton(onClick = { openMenu = index }) {
+                                Text("${pair.first.id} / ${pair.second.id}  ${pair.second.title}")
+                            }
+                            DropdownMenu(expanded = openMenu == index, onDismissRequest = { openMenu = -1 }) {
+                                numericWidgets.forEachIndexed { itemIndex, item ->
+                                    DropdownMenuItem(
+                                        text = { Text("${item.first.id} / ${item.second.id}  ${item.second.title}") },
+                                        onClick = { draft.selectedIndex = itemIndex; openMenu = -1 }
+                                    )
+                                }
+                            }
+                        }
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(onClick = { draft.operator = operatorNext(draft.operator) }) { Text(draft.operator) }
+                            OutlinedTextField(
+                                value = draft.thresholdText,
+                                onValueChange = { draft.thresholdText = it },
+                                label = { Text("Порог") },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = {
-                            operator = when (operator) { ">" -> ">="; ">=" -> "<"; "<" -> "<="; else -> ">" }
-                        }) { Text(operator) }
-                        OutlinedTextField(value = thresholdText, onValueChange = { thresholdText = it }, label = { Text("Порог") }, singleLine = true, modifier = Modifier.weight(1f))
+
+                    OutlinedButton(onClick = { drafts.add(ConditionDraft()) }, modifier = Modifier.fillMaxWidth()) {
+                        Text("+ Условие")
                     }
+                    Text("Условия проверяются слева направо. Например: t > 1 И d < 10.")
+
                     OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Заголовок") }, singleLine = true)
                     OutlinedTextField(value = message, onValueChange = { message = it }, label = { Text("Сообщение") }, minLines = 2)
+
                     Text("Действие после условия", fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
                     Box {
                         OutlinedButton(onClick = { actionMenuOpen = true }) {
@@ -133,10 +187,8 @@ private fun ScenarioEditorDialog(
                             DropdownMenuItem(text = { Text("Управить виджетом") }, onClick = { actionType = "MQTT_CONTROL"; actionMenuOpen = false })
                         }
                     }
+
                     if (actionType == "MQTT_CONTROL") {
-                        val controls = devices.flatMap { d ->
-                            d.widgets.filter { it.type == WidgetState.Type.TOGGLE || it.type == WidgetState.Type.BUTTON }.map { d to it }
-                        }
                         if (controls.isEmpty()) {
                             Text("Нет переключателей или кнопок для управления.")
                         } else {
@@ -147,16 +199,18 @@ private fun ScenarioEditorDialog(
                                     Text("${target.first.id} / ${target.second.id}  ${target.second.title}")
                                 }
                                 DropdownMenu(expanded = targetMenuOpen, onDismissRequest = { targetMenuOpen = false }) {
-                                    controls.forEachIndexed { index, item ->
+                                    controls.forEachIndexed { itemIndex, item ->
                                         DropdownMenuItem(
                                             text = { Text("${item.first.id} / ${item.second.id}  ${item.second.title}") },
-                                            onClick = { actionIndex = index; targetMenuOpen = false }
+                                            onClick = { actionIndex = itemIndex; targetMenuOpen = false }
                                         )
                                     }
                                 }
                             }
                             Box {
-                                OutlinedButton(onClick = { valueMenuOpen = true }) { Text(if (actionValue == "1") "Включить / Нажать" else "Выключить") }
+                                OutlinedButton(onClick = { valueMenuOpen = true }) {
+                                    Text(if (actionValue == "1") "Включить / Нажать" else "Выключить")
+                                }
                                 DropdownMenu(expanded = valueMenuOpen, onDismissRequest = { valueMenuOpen = false }) {
                                     DropdownMenuItem(text = { Text("Включить / Нажать (1)") }, onClick = { actionValue = "1"; valueMenuOpen = false })
                                     DropdownMenuItem(text = { Text("Выключить (0)") }, onClick = { actionValue = "0"; valueMenuOpen = false })
@@ -170,20 +224,29 @@ private fun ScenarioEditorDialog(
         },
         confirmButton = {
             TextButton(onClick = {
-                val threshold = thresholdText.replace(',', '.').toDoubleOrNull()
-                if (numericWidgets.isNotEmpty() && threshold != null && threshold.isFinite()) {
-                    val pair = numericWidgets[selectedIndex.coerceIn(0, numericWidgets.lastIndex)]
-                    val controls = devices.flatMap { d -> d.widgets.filter { it.type == WidgetState.Type.TOGGLE || it.type == WidgetState.Type.BUTTON }.map { d to it } }
+                val parsed = drafts.mapNotNull { draft ->
+                    val threshold = draft.thresholdText.replace(',', '.').toDoubleOrNull()
+                    if (threshold == null || !threshold.isFinite() || numericWidgets.isEmpty()) null
+                    else {
+                        val pair = numericWidgets[draft.selectedIndex.coerceIn(0, numericWidgets.lastIndex)]
+                        ScenarioCondition(pair.first.id, pair.second.id, draft.operator, threshold, draft.connector)
+                    }
+                }
+                if (parsed.size == drafts.size && parsed.isNotEmpty()) {
+                    val first = parsed.first()
                     val target = if (controls.isNotEmpty()) controls[actionIndex.coerceIn(0, controls.lastIndex)] else null
                     onSave(Scenario(
-                        deviceId = pair.first.id, widgetId = pair.second.id,
+                        deviceId = first.deviceId,
+                        widgetId = first.widgetId,
                         title = title.trim().ifBlank { "Сценарий" },
-                        operator = operator, threshold = threshold,
+                        operator = first.operator,
+                        threshold = first.threshold,
                         message = message.trim().ifBlank { "{value}" },
                         actionType = actionType,
                         actionDeviceId = if (actionType == "MQTT_CONTROL") target?.first?.id.orEmpty() else "",
                         actionWidgetId = if (actionType == "MQTT_CONTROL") target?.second?.id.orEmpty() else "",
-                        actionValue = actionValue
+                        actionValue = actionValue,
+                        conditions = parsed
                     ))
                 }
             }) { Text("Сохранить") }
