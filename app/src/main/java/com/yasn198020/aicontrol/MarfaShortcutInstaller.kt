@@ -2,10 +2,10 @@ package com.yasn198020.aicontrol
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ShortcutInfo
+import android.content.pm.ShortcutManager
+import android.graphics.drawable.Icon
 import android.os.Build
-import androidx.core.content.pm.ShortcutInfoCompat
-import androidx.core.content.pm.ShortcutManagerCompat
-import androidx.core.graphics.drawable.IconCompat
 
 object MarfaShortcutInstaller {
     private const val SHORTCUT_ID = "marfa_voice"
@@ -21,78 +21,94 @@ object MarfaShortcutInstaller {
             return
         }
 
-        if (!ShortcutManagerCompat.isRequestPinShortcutSupported(context)) return
-
-        val intent = Intent(context, MarfaToggleActivity::class.java)
-
-        val shortcut = ShortcutInfoCompat.Builder(context, SHORTCUT_ID)
-            .setShortLabel("🎙 Марфа")
-            .setLongLabel("🎙 Марфа — включить/выключить микрофон")
-            .setIcon(IconCompat.createWithResource(context, inactiveIcon(context)))
-            .setIntent(intent)
-            .build()
-
-        prefs.edit().putBoolean(PREF_REQUESTED, true).apply()
-        ShortcutManagerCompat.requestPinShortcut(context, shortcut, null)
+        // Do not silently request a launcher dialog on every first start.
+        // The user can explicitly install it from the app menu.
+        if (isSupported(context)) {
+            prefs.edit().putBoolean(PREF_REQUESTED, true).apply()
+        }
     }
 
-    fun requestPinned(context: Context) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        if (!ShortcutManagerCompat.isRequestPinShortcutSupported(context)) return
+    /**
+     * Requests the launcher to pin the Marfa shortcut.
+     *
+     * Returns true when Android accepted the pin request.
+     * It does not mean that the user has already confirmed the dialog.
+     */
+    fun requestPinned(context: Context): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
 
-        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        prefs.edit().putBoolean(PREF_REQUESTED, true).apply()
+        val manager = context.getSystemService(ShortcutManager::class.java)
+            ?: return false
 
-        val active = prefs.getBoolean("marfa_voice_active", false)
-        val shortcut = ShortcutInfoCompat.Builder(context, SHORTCUT_ID)
-            .setShortLabel(if (active) "🎙 Марфа • ВКЛ" else "🎙 Марфа")
-            .setLongLabel(
-                if (active) "🎙 Марфа — микрофон включён"
-                else "🎙 Марфа — включить/выключить микрофон"
-            )
-            .setIcon(
-                IconCompat.createWithResource(
-                    context,
-                    if (active) R.drawable.ic_marfa_on else R.drawable.ic_marfa_off
-                )
-            )
-            .setIntent(Intent(context, MarfaToggleActivity::class.java))
-            .build()
+        if (!manager.isRequestPinShortcutSupported) return false
 
-        try {
-            ShortcutManagerCompat.requestPinShortcut(context, shortcut, null)
+        return try {
+            val pinned = manager.pinnedShortcuts.any { it.id == SHORTCUT_ID }
+
+            // Android requires only the ID when a shortcut with this ID
+            // already exists. For a new shortcut we provide all details.
+            val shortcut = if (pinned) {
+                ShortcutInfo.Builder(context, SHORTCUT_ID).build()
+            } else {
+                ShortcutInfo.Builder(context, SHORTCUT_ID)
+                    .setShortLabel("🎙 Марфа")
+                    .setLongLabel("🎙 Марфа — микрофон")
+                    .setIcon(
+                        Icon.createWithResource(
+                            context,
+                            if (context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                                    .getBoolean("marfa_voice_active", false)
+                            ) R.drawable.ic_marfa_on else R.drawable.ic_marfa_off
+                        )
+                    )
+                    .setIntent(Intent(context, MarfaToggleActivity::class.java))
+                    .build()
+            }
+
+            val accepted = manager.requestPinShortcut(shortcut, null)
+
+            if (accepted) {
+                context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                    .edit()
+                    .putBoolean(PREF_REQUESTED, true)
+                    .apply()
+            }
+
+            accepted
         } catch (_: Exception) {
+            false
         }
     }
 
     fun setActive(context: Context, active: Boolean) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
 
-        val shortcut = ShortcutInfoCompat.Builder(context, SHORTCUT_ID)
-            .setShortLabel(if (active) "🎙 Марфа • ВКЛ" else "🎙 Марфа")
-            .setLongLabel(
-                if (active) "🎙 Марфа — микрофон включён"
-                else "🎙 Марфа — микрофон выключен"
-            )
-            .setIcon(
-                IconCompat.createWithResource(
-                    context,
-                    if (active) R.drawable.ic_marfa_on else R.drawable.ic_marfa_off
-                )
-            )
-            .setIntent(Intent(context, MarfaToggleActivity::class.java))
-            .build()
+        val manager = context.getSystemService(ShortcutManager::class.java) ?: return
 
         try {
-            ShortcutManagerCompat.updateShortcuts(context, listOf(shortcut))
+            val pinned = manager.pinnedShortcuts.any { it.id == SHORTCUT_ID }
+            if (!pinned) return
+
+            val shortcut = ShortcutInfo.Builder(context, SHORTCUT_ID)
+                .setShortLabel(if (active) "🎙 ВКЛ" else "🎙 Марфа")
+                .setLongLabel(if (active) "Марфа — микрофон включён" else "Марфа — микрофон выключен")
+                .setIcon(
+                    Icon.createWithResource(
+                        context,
+                        if (active) R.drawable.ic_marfa_on else R.drawable.ic_marfa_off
+                    )
+                )
+                .setIntent(Intent(context, MarfaToggleActivity::class.java))
+                .build()
+
+            manager.updateShortcuts(listOf(shortcut))
         } catch (_: Exception) {
         }
     }
 
-    private fun inactiveIcon(context: Context): Int =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            R.drawable.ic_marfa_off
-        } else {
-            R.drawable.ic_marfa_off
-        }
+    private fun isSupported(context: Context): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
+        val manager = context.getSystemService(ShortcutManager::class.java) ?: return false
+        return manager.isRequestPinShortcutSupported
+    }
 }
