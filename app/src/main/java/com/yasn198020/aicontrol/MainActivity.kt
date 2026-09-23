@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.rememberScrollState
@@ -306,30 +308,14 @@ private fun App(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
-            voiceStatus = "Голосовая активация: скажите «Марфа»"
-            voiceManager.startWakeWord()
+            voiceStatus = "Микрофон готов — удерживайте кнопку"
         } else {
-            voiceStatus = "Нужно разрешение на микрофон для активации «Марфа»"
+            voiceStatus = "Нужно разрешение на микрофон"
         }
     }
 
-    LaunchedEffect(Unit) {
-        delay(700)
-        val marfaActive = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
-            .getBoolean("marfa_voice_active", false)
-        if (!marfaActive) {
-            if (ContextCompat.checkSelfPermission(
-                    context,
-                    Manifest.permission.RECORD_AUDIO
-                ) == PackageManager.PERMISSION_GRANTED
-            ) {
-                voiceStatus = "Голосовая активация: скажите «Марфа»"
-                voiceManager.startWakeWord()
-            } else {
-                requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
-            }
-        }
-    }
+    // Microphone is no longer started automatically. It is controlled only
+    // while the user holds the in-app Marfa button.
 
     val mqtt = remember {
         MqttManager(
@@ -434,28 +420,20 @@ private fun App(
         mqtt.connect(mqttHost, mqttPort.toIntOrNull() ?: 1883, mqttPrefix, username, password, mqttTls)
     }
 
-    // Keep the microphone tied to the visible activity. This prevents the speech
-    // recognizer from competing with Android background lifecycle changes.
+    // Safety: always release the microphone when the screen leaves the foreground.
     DisposableEffect(context, voiceManager) {
         val lifecycle = (context as? ComponentActivity)?.lifecycle
         val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_STOP -> voiceManager.stop()
-                Lifecycle.Event.ON_START -> {
-                    if (!context.getSharedPreferences("settings", Context.MODE_PRIVATE).getBoolean("marfa_voice_active", false)
-                        && ContextCompat.checkSelfPermission(
-                            context,
-                            Manifest.permission.RECORD_AUDIO
-                        ) == PackageManager.PERMISSION_GRANTED
-                    ) {
-                        voiceManager.startRussian()
-                    }
-                }
-                else -> Unit
+            if (event == Lifecycle.Event.ON_STOP) {
+                voiceManager.stop()
+                voiceStatus = "Микрофон выключен"
             }
         }
         lifecycle?.addObserver(observer)
-        onDispose { lifecycle?.removeObserver(observer) }
+        onDispose {
+            lifecycle?.removeObserver(observer)
+            voiceManager.stop()
+        }
     }
 
     // Keep MQTT alive in a foreground service while the app is not visible.
@@ -907,7 +885,18 @@ private fun App(
         when (tab) {
             0 -> DevicesScreen(Modifier.padding(padding), devices, selectedPage, voiceText, voiceStatus,
                 onTrain = ::openTraining,
-                onVoice = { if (androidx.core.content.ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) voiceManager.startRussian() else requestMicPermission.launch(Manifest.permission.RECORD_AUDIO) },
+                onVoiceStart = {
+                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                        voiceStatus = "🎙 Слушаю… отпустите кнопку для остановки"
+                        voiceManager.startRussian()
+                    } else {
+                        requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
+                    }
+                },
+                onVoiceStop = {
+                    voiceManager.stop()
+                    voiceStatus = "Микрофон выключен"
+                },
                 onSend = ::sendWidget)
             1 -> TrainedCommandsScreen(Modifier.padding(padding), trainedCommands, devices, onDelete = { command -> trainedStore.remove(command); trainedCommands = trainedStore.load() }, onClearAll = { trainedStore.clear(); trainedCommands = trainedStore.load() }, onAddVariant = { phrase -> variantPhraseTarget = phrase; variantPhraseText = "" })
             2 -> MqttScreen(Modifier.padding(padding), mqttHost, mqttPort, mqttPrefix, username, password, mqttTls, connected,
@@ -976,7 +965,8 @@ private fun DevicesScreen(
     voiceText: String,
     voiceStatus: String,
     onTrain: (String, WidgetState) -> Unit,
-    onVoice: () -> Unit,
+    onVoiceStart: () -> Unit,
+    onVoiceStop: () -> Unit,
     onSend: (String, String, String) -> Unit
 ) {
     val pages = devices
@@ -1015,11 +1005,24 @@ private fun DevicesScreen(
         item(key = "voice-hidden-access") {
             Spacer(Modifier.height(8.dp))
             OutlinedButton(
-                onClick = onVoice,
-                modifier = Modifier.fillMaxWidth(),
+                onClick = { },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onPress = {
+                                onVoiceStart()
+                                try {
+                                    tryAwaitRelease()
+                                } finally {
+                                    onVoiceStop()
+                                }
+                            }
+                        )
+                    },
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Text("🎤 Голосовая команда")
+                Text("🎙 Марфа — держите для разговора")
             }
             if (voiceText.isNotBlank()) {
                 Text(
