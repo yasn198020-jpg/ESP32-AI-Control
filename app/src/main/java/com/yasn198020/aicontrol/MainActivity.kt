@@ -818,22 +818,27 @@ private fun App(
                                 text = { Text("Установить ярлык «🎙 Марфа»") },
                                 onClick = {
                                     menuOpen = false
-                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-                                        androidx.core.content.pm.ShortcutManagerCompat.isRequestPinShortcutSupported(context)
-                                    ) {
-                                        MarfaShortcutInstaller.requestPinned(context)
+
+                                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
                                         android.widget.Toast.makeText(
                                             context,
-                                            "Добавьте ярлык «🎙 Марфа» на рабочий стол",
-                                            android.widget.Toast.LENGTH_LONG
-                                        ).show()
-                                    } else {
-                                        android.widget.Toast.makeText(
-                                            context,
-                                            "Телефон не поддерживает установку ярлыков",
+                                            "Для ярлыков нужен Android 8 или новее",
                                             android.widget.Toast.LENGTH_SHORT
                                         ).show()
+                                        return@DropdownMenuItem
                                     }
+
+                                    val installed = MarfaShortcutInstaller.requestPinned(context)
+
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        if (installed) {
+                                            "Запрос на установку отправлен. Подтвердите «Добавить» в окне лаунчера."
+                                        } else {
+                                            "Лаунчер не принял запрос на установку ярлыка."
+                                        },
+                                        android.widget.Toast.LENGTH_LONG
+                                    ).show()
                                 }
                             )
 
