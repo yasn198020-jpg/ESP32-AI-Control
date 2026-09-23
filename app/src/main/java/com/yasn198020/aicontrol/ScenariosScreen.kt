@@ -146,7 +146,8 @@ private fun ScenarioEditorDialog(
                 }.map { device to it }
             }
             .sortedWith(
-                compareBy<Pair<Device, WidgetState>> { it.second.order }
+                compareBy<Pair<Device, WidgetState>> { it.second.page.ifBlank { "Основная" } }
+                    .thenBy { it.second.order }
                     .thenBy { it.second.title }
                     .thenBy { it.first.id }
             )
