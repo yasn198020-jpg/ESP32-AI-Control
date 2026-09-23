@@ -82,10 +82,10 @@ fun ScenariosScreen(
 }
 
 private data class ConditionDraft(
-    var selectedIndex: Int = 0,
-    var operator: String = ">",
-    var thresholdText: String = "25",
-    var connector: String = "AND"
+    val selectedIndex: Int = 0,
+    val operator: String = ">",
+    val thresholdText: String = "25",
+    val connector: String = "AND"
 )
 
 @Composable
@@ -133,34 +133,34 @@ private fun ScenarioEditorDialog(
     onDismiss: () -> Unit,
     onSave: (Scenario) -> Unit
 ) {
-    // Порядок такой же, как на главном экране:
-    // сначала order, затем название виджета.
-    val conditionWidgets = devices
-        .flatMap { device ->
-            device.widgets.filter {
-                it.type == WidgetState.Type.VALUE ||
-                it.type == WidgetState.Type.STATUS ||
-                it.type == WidgetState.Type.TOGGLE ||
-                it.type == WidgetState.Type.BUTTON
-            }.map { device to it }
+    // Кэшируем списки: при выборе плитки не нужно заново фильтровать и сортировать
+    // все устройства и виджеты.
+    val conditionWidgets = remember(devices) {
+        devices
+            .flatMap { device ->
+                device.widgets.filter {
+                    it.type == WidgetState.Type.VALUE ||
+                    it.type == WidgetState.Type.STATUS ||
+                    it.type == WidgetState.Type.TOGGLE ||
+                    it.type == WidgetState.Type.BUTTON
+                }.map { device to it }
+            }
+            .sortedWith(
+                compareBy<Pair<Device, WidgetState>> { it.second.order }
+                    .thenBy { it.second.title }
+                    .thenBy { it.first.id }
+            )
+    }
+    val sensors = remember(conditionWidgets) {
+        conditionWidgets.filter {
+            it.second.type == WidgetState.Type.VALUE || it.second.type == WidgetState.Type.STATUS
         }
-        .sortedWith(
-            compareBy<Pair<Device, WidgetState>> { it.second.order }
-                .thenBy { it.second.title }
-                .thenBy { it.first.id }
-        )
-
-    val controls = devices
-        .flatMap { device ->
-            device.widgets
-                .filter { it.type == WidgetState.Type.TOGGLE || it.type == WidgetState.Type.BUTTON }
-                .map { device to it }
+    }
+    val controls = remember(conditionWidgets) {
+        conditionWidgets.filter {
+            it.second.type == WidgetState.Type.TOGGLE || it.second.type == WidgetState.Type.BUTTON
         }
-        .sortedWith(
-            compareBy<Pair<Device, WidgetState>> { it.second.order }
-                .thenBy { it.second.title }
-                .thenBy { it.first.id }
-        )
+    }
 
     val drafts = remember { mutableStateListOf(ConditionDraft()) }
     var title by remember { mutableStateOf("Температура высокая") }
@@ -193,7 +193,9 @@ private fun ScenarioEditorDialog(
                         if (index > 0) {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text("Связь:", modifier = Modifier.align(Alignment.CenterVertically))
-                                OutlinedButton(onClick = { draft.connector = if (draft.connector == "AND") "OR" else "AND" }) {
+                                OutlinedButton(onClick = {
+                            drafts[index] = draft.copy(connector = if (draft.connector == "AND") "OR" else "AND")
+                        }) {
                                     Text(if (draft.connector == "AND") "И" else "ИЛИ")
                                 }
                                 Spacer(Modifier.weight(1f))
@@ -202,17 +204,10 @@ private fun ScenarioEditorDialog(
                         }
 
                         val safeIndex = draft.selectedIndex.coerceIn(0, conditionWidgets.lastIndex)
-                        draft.selectedIndex = safeIndex
                         val pair = conditionWidgets[safeIndex]
 
                         // Выбор виджета показываем плитками — в том же визуальном стиле,
                         // что и элементы главного экрана.
-                        val sensors = conditionWidgets.filter {
-                            it.second.type == WidgetState.Type.VALUE || it.second.type == WidgetState.Type.STATUS
-                        }
-                        val controls = conditionWidgets.filter {
-                            it.second.type == WidgetState.Type.TOGGLE || it.second.type == WidgetState.Type.BUTTON
-                        }
 
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             if (sensors.isNotEmpty()) {
@@ -223,7 +218,7 @@ private fun ScenarioEditorDialog(
                                         device = item.first,
                                         widget = item.second,
                                         selected = safeIndex == itemIndex,
-                                        onClick = { draft.selectedIndex = itemIndex }
+                                        onClick = { drafts[index] = draft.copy(selectedIndex = itemIndex) }
                                     )
                                 }
                             }
@@ -246,14 +241,14 @@ private fun ScenarioEditorDialog(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             OutlinedButton(
-                                onClick = { draft.operator = operatorNext(draft.operator) },
+                                onClick = { drafts[index] = draft.copy(operator = operatorNext(draft.operator)) },
                                 modifier = Modifier.width(72.dp)
                             ) {
                                 Text(draft.operator)
                             }
                             OutlinedTextField(
                                 value = draft.thresholdText,
-                                onValueChange = { draft.thresholdText = it },
+                                onValueChange = { drafts[index] = draft.copy(thresholdText = it) },
                                 label = { Text("Порог") },
                                 singleLine = true,
                                 modifier = Modifier.weight(1f)
