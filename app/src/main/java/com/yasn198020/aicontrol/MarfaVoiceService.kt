@@ -159,7 +159,7 @@ class MarfaVoiceService : Service() {
                         ?.firstOrNull { it.id == action.widgetId }
 
                     if (widget != null && widget.value.isNotBlank() && widget.value != "—") {
-                        speak(LocalCommandManager.formatTemperatureForSpeech(widget.value, widget.unit))
+                        speak(formatTemperatureForSpeech(widget.value))
                     } else {
                         speak("Значение пока неизвестно")
                     }
@@ -209,6 +209,22 @@ class MarfaVoiceService : Service() {
 
     private fun synchronizedCopyDevices(): List<Device> =
         synchronized(devices) { devices.toList() }
+
+    private fun formatTemperatureForSpeech(raw: String): String {
+        val normalized = raw.trim().replace(',', '.')
+        val number = normalized.toBigDecimalOrNull() ?: return raw
+        val value = number.stripTrailingZeros().toPlainString().replace('.', ',')
+        val whole = number.abs().toInt()
+        val degreeWord = if (number.remainder(java.math.BigDecimal.ONE) == java.math.BigDecimal.ZERO) {
+            when {
+                whole % 100 in 11..14 -> "градусов"
+                whole % 10 == 1 -> "градус"
+                whole % 10 in 2..4 -> "градуса"
+                else -> "градусов"
+            }
+        } else "градуса"
+        return "$value $degreeWord"
+    }
 
     private fun speak(text: String) {
         if (text.isBlank()) return
