@@ -147,26 +147,46 @@ class MarfaVoiceService : Service() {
         val trained = TrainedCommandMatcher(TrainedCommandStore(prefs)).matchAll(command)
         android.util.Log.d("MARFA_TRAINED", "command=" + command + " matches=" + trained.size)
 
+        // Saved training has absolute priority. A trained read action answers
+        // from the exact widget selected during training.
+        val readActions = trained.filter { it.value == TRAINED_READ_VALUE }
+        if (readActions.isNotEmpty()) {
+            var answered = false
+
+            readActions.forEach { action ->
+                val widget = synchronizedCopyDevices()
+                    .firstOrNull { it.id == action.deviceId }
+                    ?.widgets
+                    ?.firstOrNull { it.id == action.widgetId }
+
+                if (widget != null) {
+                    val raw = widget.value.trim()
+                    val spoken = if (raw.isBlank() || raw == "—") {
+                        widget.title + ": значение пока неизвестно"
+                    } else {
+                        widget.title + ": " + formatTemperatureForSpeech(raw, widget.unit)
+                    }
+                    android.util.Log.d(
+                        "MARFA_TRAINED",
+                        "read phrase=" + command + " device=" + action.deviceId +
+                            " widget=" + action.widgetId + " value=" + raw
+                    )
+                    speak(spoken)
+                    answered = true
+                }
+            }
+
+            if (!answered) {
+                android.util.Log.w("MARFA_TRAINED", "trained read matched but widget is not loaded")
+                speak("Сохранённая команда найдена, но значение датчика пока не получено")
+            }
+            return
+        }
+
         if (trained.isNotEmpty()) {
             var sent = 0
-            var read = 0
 
             trained.forEach { action ->
-                if (action.value == TRAINED_READ_VALUE) {
-                    val widget = synchronizedCopyDevices()
-                        .firstOrNull { it.id == action.deviceId }
-                        ?.widgets
-                        ?.firstOrNull { it.id == action.widgetId }
-
-                    if (widget != null && widget.value.isNotBlank() && widget.value != "—") {
-                        speak(formatTemperatureForSpeech(widget.value))
-                    } else {
-                        speak("Значение пока неизвестно")
-                    }
-                    read++
-                    return@forEach
-                }
-
                 if (mqtt?.publishControl(action.deviceId, action.widgetId, action.value) == true) {
                     sent++
                 }
@@ -176,8 +196,6 @@ class MarfaVoiceService : Service() {
                 speak(if (sent == 1) "Готово" else "Выполнено")
                 return
             }
-
-            if (read > 0) return
 
             if (mqtt?.isConnected() != true) {
                 speak("MQTT ещё не подключён")
@@ -210,7 +228,7 @@ class MarfaVoiceService : Service() {
     private fun synchronizedCopyDevices(): List<Device> =
         synchronized(devices) { devices.toList() }
 
-    private fun formatTemperatureForSpeech(raw: String): String {
+    private fun formatTemperatureForSpeech(raw: String, unit: String = ""): String {
         val normalized = raw.trim().replace(',', '.')
         val number = normalized.toBigDecimalOrNull() ?: return raw
         val value = number.stripTrailingZeros().toPlainString().replace('.', ',')
@@ -223,7 +241,11 @@ class MarfaVoiceService : Service() {
                 else -> "градусов"
             }
         } else "градуса"
-        return "$value $degreeWord"
+        return if (unit.isBlank() || unit.equals("°C", true) || unit.equals("c", true) || unit.equals("с", true)) {
+            "$value $degreeWord"
+        } else {
+            "$value $unit"
+        }
     }
 
     private fun speak(text: String) {
