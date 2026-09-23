@@ -87,6 +87,46 @@ private data class ConditionDraft(
 )
 
 @Composable
+private fun ScenarioWidgetTile(
+    device: Device,
+    widget: WidgetState,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    val icon = when (widget.type) {
+        WidgetState.Type.VALUE, WidgetState.Type.STATUS -> "🌡"
+        WidgetState.Type.BUTTON, WidgetState.Type.TOGGLE -> "◉"
+        else -> ""
+    }
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer
+            else MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(icon, fontSize = 22.sp, modifier = Modifier.width(38.dp))
+            Column(Modifier.weight(1f)) {
+                Text(widget.title, fontSize = 17.sp, fontWeight = FontWeight.Medium)
+                Text(
+                    "${device.id} / ${widget.id}" +
+                        if (widget.value.isNotBlank()) "  •  ${widget.value}${widget.unit}" else "",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            if (selected) Text("✓", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
 private fun ScenarioEditorDialog(
     devices: List<Device>,
     onDismiss: () -> Unit,
@@ -127,7 +167,6 @@ private fun ScenarioEditorDialog(
     var actionType by remember { mutableStateOf("NOTIFICATION") }
     var actionIndex by remember { mutableIntStateOf(0) }
     var actionValue by remember { mutableStateOf("1") }
-    var openMenu by remember { mutableIntStateOf(-1) }
     var actionMenuOpen by remember { mutableStateOf(false) }
     var targetMenuOpen by remember { mutableStateOf(false) }
     var valueMenuOpen by remember { mutableStateOf(false) }
@@ -166,50 +205,43 @@ private fun ScenarioEditorDialog(
                         val pair = conditionWidgets[safeIndex]
                         Text(if (index == 0) "Условие 1" else "Условие ${index + 1}")
 
-                        Box {
-                            OutlinedButton(onClick = { openMenu = index }) {
-                                Text("${pair.first.id} / ${pair.second.id}  ${pair.second.title}")
-                            }
-                            DropdownMenu(expanded = openMenu == index, onDismissRequest = { openMenu = -1 }) {
-                                val sensors = conditionWidgets.filter {
-                                    it.second.type == WidgetState.Type.VALUE || it.second.type == WidgetState.Type.STATUS
-                                }
-                                val controls = conditionWidgets.filter {
-                                    it.second.type == WidgetState.Type.TOGGLE || it.second.type == WidgetState.Type.BUTTON
-                                }
+                        Text(if (index == 0) "Условие 1" else "Условие ${index + 1}")
 
-                                Text(
-                                    "Датчики",
-                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                                    style = MaterialTheme.typography.labelLarge
-                                )
+                        // Выбор виджета показываем плитками — в том же визуальном стиле,
+                        // что и элементы главного экрана.
+                        val sensors = conditionWidgets.filter {
+                            it.second.type == WidgetState.Type.VALUE || it.second.type == WidgetState.Type.STATUS
+                        }
+                        val controls = conditionWidgets.filter {
+                            it.second.type == WidgetState.Type.TOGGLE || it.second.type == WidgetState.Type.BUTTON
+                        }
+
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            if (sensors.isNotEmpty()) {
+                                Text("Датчики", fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
                                 sensors.forEach { item ->
                                     val itemIndex = conditionWidgets.indexOf(item)
-                                    DropdownMenuItem(
-                                        text = { Text("${item.first.id} / ${item.second.id}  ${item.second.title}") },
-                                        onClick = { draft.selectedIndex = itemIndex; openMenu = -1 }
+                                    ScenarioWidgetTile(
+                                        device = item.first,
+                                        widget = item.second,
+                                        selected = safeIndex == itemIndex,
+                                        onClick = { draft.selectedIndex = itemIndex }
                                     )
                                 }
-
-                                if (sensors.isNotEmpty() && controls.isNotEmpty()) {
-                                    HorizontalDivider()
-                                }
-
-                                Text(
-                                    "Кнопки и переключатели",
-                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                                    style = MaterialTheme.typography.labelLarge
-                                )
+                            }
+                            if (controls.isNotEmpty()) {
+                                Text("Кнопки и переключатели", fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
                                 controls.forEach { item ->
                                     val itemIndex = conditionWidgets.indexOf(item)
-                                    DropdownMenuItem(
-                                        text = { Text("${item.first.id} / ${item.second.id}  ${item.second.title}") },
-                                        onClick = { draft.selectedIndex = itemIndex; openMenu = -1 }
+                                    ScenarioWidgetTile(
+                                        device = item.first,
+                                        widget = item.second,
+                                        selected = safeIndex == itemIndex,
+                                        onClick = { draft.selectedIndex = itemIndex }
                                     )
                                 }
                             }
                         }
-
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedButton(onClick = { draft.operator = operatorNext(draft.operator) }) { Text(draft.operator) }
                             OutlinedTextField(
