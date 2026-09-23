@@ -41,10 +41,16 @@ class MqttBackgroundService : Service() {
         startAsForeground()
         val scenarioStore = ScenarioStore(getSharedPreferences("settings", Context.MODE_PRIVATE))
         scenarioActionExecutor = ScenarioActionExecutor()
-        scenarioEngine = ScenarioEngine(scenarioStore) { scenario, rawValue, _ ->
-            ScenarioNotifier.notify(this, scenario, rawValue)
-            scenarioActionExecutor.execute(scenario)
-        }
+        scenarioEngine = ScenarioEngine(
+            scenarioStore,
+            onTrigger = { scenario, rawValue, _ ->
+                ScenarioNotifier.notify(this, scenario, rawValue)
+                scenarioActionExecutor.execute(scenario)
+            },
+            onVerificationResult = { scenario, success, rawValue ->
+                ScenarioNotifier.notifyVerification(this, scenario, success, rawValue)
+            }
+        )
         mqtt = MqttManager(
             onLog = { message -> android.util.Log.d("MQTT_BG", message) },
             onConnected = { connected ->
