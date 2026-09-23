@@ -188,5 +188,10 @@ class VoiceCommandManager(
         lastPartialText = ""
         handler.removeCallbacksAndMessages(null)
         stopRecognizerOnly()
+        try {
+            recognizer?.destroy()
+        } catch (_: Exception) {
+        }
+        recognizer = null
     }
 }
