@@ -74,7 +74,6 @@ class VoiceCommandManager(
 
                 override fun onError(error: Int) {
                     stopRecognizerOnly()
-
                     if (wakeWordEnabled) {
                         val delay = if (commandMode) 350L else 900L
                         handler.postDelayed({ startRecognitionSession() }, delay)
@@ -86,16 +85,12 @@ class VoiceCommandManager(
                         ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                         .orEmpty()
 
-                    // Some Android speech services return a shorter final result than the
-                    // partial result. Keep the last partial so words after «Марфа» are not lost.
                     val candidates = buildList {
                         if (lastPartialText.isNotBlank()) add(lastPartialText)
                         addAll(resultsList)
                     }
 
-                    val best = candidates.firstOrNull().orEmpty().trim()
                     val detected = wakeWordDetected || candidates.any { containsWakeWord(it) }
-
                     stopRecognizerOnly()
 
                     if (!wakeWordEnabled) return
@@ -113,12 +108,9 @@ class VoiceCommandManager(
                             lastPartialText = ""
                             onStatus("Команда: $command")
                             onResult(command)
-
                             handler.removeCallbacksAndMessages(null)
                             handler.postDelayed({ startRecognitionSession() }, 450L)
                         } else {
-                            // «Марфа» was spoken without a command. Only now start a short
-                            // command session. This is the only intentional microphone handoff.
                             commandMode = true
                             wakeWordDetected = false
                             lastPartialText = ""
@@ -165,13 +157,11 @@ class VoiceCommandManager(
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
 
             if (commandMode) {
-                // Five seconds is enough to finish the command after «Марфа».
                 putExtra("android.speech.extra.SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS", 5000L)
                 putExtra("android.speech.extra.SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS", 5000L)
                 putExtra("android.speech.extra.SPEECH_INPUT_MINIMUM_LENGTH_MILLIS", 5000L)
                 putExtra(RecognizerIntent.EXTRA_PROMPT, "Говорите команду")
             } else {
-                // Keep wake-word sessions long to reduce microphone on/off cycling.
                 putExtra("android.speech.extra.SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS", 300000L)
                 putExtra("android.speech.extra.SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS", 300000L)
                 putExtra("android.speech.extra.SPEECH_INPUT_MINIMUM_LENGTH_MILLIS", 300000L)
@@ -192,8 +182,6 @@ class VoiceCommandManager(
     }
 
     fun startRussian() {
-        // Kept for compatibility with the existing UI. The actual command mode is now
-        // controlled internally, so MainActivity does not need to create a second session.
         wakeWordEnabled = true
         commandMode = true
         wakeWordDetected = false
