@@ -1,6 +1,5 @@
 package com.yasn198020.aicontrol
 
-import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -14,12 +13,15 @@ data class Scenario(
     val threshold: Double,
     val message: String,
     val enabled: Boolean = true,
-    val armed: Boolean = true
+    val armed: Boolean = true,
+    val actionType: String = "NOTIFICATION",
+    val actionDeviceId: String = "",
+    val actionWidgetId: String = "",
+    val actionValue: String = "1"
 )
 
 class ScenarioStore(private val prefs: android.content.SharedPreferences) {
     companion object { private const val KEY = "scenarios_v1" }
-
     fun load(): List<Scenario> {
         val raw = prefs.getString(KEY, "[]") ?: "[]"
         return runCatching {
@@ -29,61 +31,49 @@ class ScenarioStore(private val prefs: android.content.SharedPreferences) {
                     val o = array.getJSONObject(i)
                     add(Scenario(
                         id = o.optString("id").ifBlank { UUID.randomUUID().toString() },
-                        deviceId = o.optString("deviceId"),
-                        widgetId = o.optString("widgetId"),
-                        title = o.optString("title"),
-                        operator = o.optString("operator", ">"),
-                        threshold = o.optDouble("threshold", Double.NaN),
-                        message = o.optString("message"),
-                        enabled = o.optBoolean("enabled", true),
-                        armed = o.optBoolean("armed", true)
+                        deviceId = o.optString("deviceId"), widgetId = o.optString("widgetId"),
+                        title = o.optString("title"), operator = o.optString("operator", ">"),
+                        threshold = o.optDouble("threshold", Double.NaN), message = o.optString("message"),
+                        enabled = o.optBoolean("enabled", true), armed = o.optBoolean("armed", true),
+                        actionType = o.optString("actionType", "NOTIFICATION"),
+                        actionDeviceId = o.optString("actionDeviceId", ""),
+                        actionWidgetId = o.optString("actionWidgetId", ""),
+                        actionValue = o.optString("actionValue", "1")
                     ))
                 }
             }.filter { it.deviceId.isNotBlank() && it.widgetId.isNotBlank() && it.threshold.isFinite() }
         }.getOrDefault(emptyList())
     }
-
     fun save(items: List<Scenario>) {
         val array = JSONArray()
-        items.forEach { s ->
-            array.put(JSONObject().apply {
-                put("id", s.id); put("deviceId", s.deviceId); put("widgetId", s.widgetId)
-                put("title", s.title); put("operator", s.operator); put("threshold", s.threshold)
-                put("message", s.message); put("enabled", s.enabled); put("armed", s.armed)
-            })
-        }
+        items.forEach { s -> array.put(JSONObject().apply {
+            put("id", s.id); put("deviceId", s.deviceId); put("widgetId", s.widgetId)
+            put("title", s.title); put("operator", s.operator); put("threshold", s.threshold)
+            put("message", s.message); put("enabled", s.enabled); put("armed", s.armed)
+            put("actionType", s.actionType); put("actionDeviceId", s.actionDeviceId)
+            put("actionWidgetId", s.actionWidgetId); put("actionValue", s.actionValue)
+        }) }
         prefs.edit().putString(KEY, array.toString()).apply()
     }
-
     fun add(scenario: Scenario) = save(load() + scenario)
     fun update(scenario: Scenario) = save(load().map { if (it.id == scenario.id) scenario else it })
     fun delete(id: String) = save(load().filterNot { it.id == id })
     fun clear() = prefs.edit().remove(KEY).apply()
 }
 
-class ScenarioEngine(
-    private val store: ScenarioStore,
-    private val onTrigger: (Scenario, String, Double) -> Unit
-) {
-    @Synchronized
-    fun onValue(deviceId: String, widgetId: String, rawValue: String) {
+class ScenarioEngine(private val store: ScenarioStore, private val onTrigger: (Scenario, String, Double) -> Unit) {
+    @Synchronized fun onValue(deviceId: String, widgetId: String, rawValue: String) {
         val value = rawValue.trim().replace(',', '.').toDoubleOrNull() ?: return
         store.load().forEach { scenario ->
             if (!scenario.enabled || scenario.deviceId != deviceId || scenario.widgetId != widgetId) return@forEach
             val matched = when (scenario.operator) {
-                ">" -> value > scenario.threshold
-                ">=" -> value >= scenario.threshold
-                "<" -> value < scenario.threshold
-                "<=" -> value <= scenario.threshold
+                ">" -> value > scenario.threshold; ">=" -> value >= scenario.threshold
+                "<" -> value < scenario.threshold; "<=" -> value <= scenario.threshold
                 "=" -> kotlin.math.abs(value - scenario.threshold) < 0.000001
                 else -> false
             }
-            if (matched && scenario.armed) {
-                onTrigger(scenario, rawValue, value)
-                store.update(scenario.copy(armed = false))
-            } else if (!matched && !scenario.armed) {
-                store.update(scenario.copy(armed = true))
-            }
+            if (matched && scenario.armed) { onTrigger(scenario, rawValue, value); store.update(scenario.copy(armed = false)) }
+            else if (!matched && !scenario.armed) store.update(scenario.copy(armed = true))
         }
     }
 }
