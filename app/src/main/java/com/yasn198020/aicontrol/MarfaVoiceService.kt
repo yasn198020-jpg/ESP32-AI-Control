@@ -137,7 +137,10 @@ class MarfaVoiceService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         voiceManager?.startWakeWord()
-        return START_STICKY
+        // The microphone shortcut is explicitly user-controlled.
+        // Do not let Android resurrect the service after it was stopped or crashed,
+        // otherwise the shortcut can remain visually stuck in the ON state.
+        return START_NOT_STICKY
     }
 
     private fun handleCommand(text: String) {
