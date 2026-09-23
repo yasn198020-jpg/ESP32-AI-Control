@@ -90,6 +90,11 @@ private data class ConditionDraft(
     val connector: String = "AND"
 )
 
+private data class ActionDraft(
+    val selectedIndex: Int = 0,
+    val value: String = "1"
+)
+
 @Composable
 private fun ScenarioWidgetTile(
     device: Device,
@@ -170,8 +175,9 @@ private fun ScenarioEditorDialog(
     var message by remember { mutableStateOf("Условие выполнено: {value}") }
     var actionType by remember { mutableStateOf("NOTIFICATION") }
     var notificationEnabled by remember { mutableStateOf(true) }
-    var actionIndex by remember { mutableIntStateOf(0) }
-    var actionValue by remember { mutableStateOf("1") }
+    val actionDrafts = remember { mutableStateListOf(ActionDraft()) }
+    var actionSelectionOpenIndex by remember { mutableIntStateOf(-1) }
+    var actionValueMenuIndex by remember { mutableIntStateOf(-1) }
     var actionMenuOpen by remember { mutableStateOf(false) }
     var valueMenuOpen by remember { mutableStateOf(false) }
     var verifyEnabled by remember { mutableStateOf(false) }
@@ -327,54 +333,58 @@ private fun ScenarioEditorDialog(
                         if (controls.isEmpty()) {
                             Text("Нет переключателей или кнопок для управления.")
                         } else {
-                            val safeActionIndex = actionIndex.coerceIn(0, controls.lastIndex)
-                            val target = controls[safeActionIndex]
-
-                            Text("Управляемый виджет", fontWeight = FontWeight.Medium)
-                            val controlPages = controls
-                                .map { it.second.page.ifBlank { "Основная" } }
-                                .distinct()
-
-                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                controlPages.forEach { page ->
-                                    val pageControls = controls.filter {
-                                        it.second.page.ifBlank { "Основная" } == page
-                                    }
-                                    val visiblePageControls = pageControls.filter { item ->
-                                        val itemIndex = controls.indexOf(item)
-                                        !actionSelectionOpen || safeActionIndex == itemIndex
-                                    }
-                                    if (visiblePageControls.isNotEmpty()) {
-                                        Text(page, fontWeight = FontWeight.Medium)
-                                    }
-                                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        visiblePageControls.forEach { item ->
+                            Text("Действия", fontWeight = FontWeight.Medium)
+                            actionDrafts.forEachIndexed { actionNumber, actionDraft ->
+                                val safeActionIndex = actionDraft.selectedIndex.coerceIn(0, controls.lastIndex)
+                                Text("Действие " + (actionNumber + 1), fontWeight = FontWeight.SemiBold)
+                                val controlPages = controls.map { it.second.page.ifBlank { "Основная" } }.distinct()
+                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    controlPages.forEach { page ->
+                                        val pageControls = controls.filter { it.second.page.ifBlank { "Основная" } == page }
+                                        val visiblePageControls = pageControls.filter { item ->
                                             val itemIndex = controls.indexOf(item)
-                                            ScenarioWidgetTile(
-                                                device = item.first,
-                                                widget = item.second,
-                                                selected = safeActionIndex == itemIndex,
-                                                onClick = {
-                                                    if (safeActionIndex == itemIndex) {
-                                                        actionSelectionOpen = !actionSelectionOpen
-                                                    } else {
-                                                        actionIndex = itemIndex
-                                                        actionSelectionOpen = false
-                                                    }
+                                            actionSelectionOpenIndex != actionNumber || safeActionIndex == itemIndex
+                                        }
+                                        if (visiblePageControls.isNotEmpty()) {
+                                            Text(page, fontWeight = FontWeight.Medium)
+                                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                visiblePageControls.forEach { item ->
+                                                    val itemIndex = controls.indexOf(item)
+                                                    ScenarioWidgetTile(
+                                                        device = item.first,
+                                                        widget = item.second,
+                                                        selected = safeActionIndex == itemIndex,
+                                                        onClick = {
+                                                            if (safeActionIndex == itemIndex) {
+                                                                actionSelectionOpenIndex = if (actionSelectionOpenIndex == actionNumber) -1 else actionNumber
+                                                            } else {
+                                                                actionDrafts[actionNumber] = actionDraft.copy(selectedIndex = itemIndex)
+                                                                actionSelectionOpenIndex = -1
+                                                            }
+                                                        }
+                                                    )
                                                 }
-                                            )
+                                            }
                                         }
                                     }
                                 }
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Box {
+                                        OutlinedButton(onClick = { actionValueMenuIndex = actionNumber }) {
+                                            Text(if (actionDraft.value == "1") "Включить / Нажать" else "Выключить")
+                                        }
+                                        DropdownMenu(expanded = actionValueMenuIndex == actionNumber, onDismissRequest = { actionValueMenuIndex = -1 }) {
+                                            DropdownMenuItem(text = { Text("Включить / Нажать (1)") }, onClick = { actionDrafts[actionNumber] = actionDraft.copy(value = "1"); actionValueMenuIndex = -1 })
+                                            DropdownMenuItem(text = { Text("Выключить (0)") }, onClick = { actionDrafts[actionNumber] = actionDraft.copy(value = "0"); actionValueMenuIndex = -1 })
+                                        }
+                                    }
+                                    if (actionDrafts.size > 1) {
+                                        TextButton(onClick = { actionDrafts.removeAt(actionNumber); actionSelectionOpenIndex = -1; actionValueMenuIndex = -1 }) { Text("Удалить") }
+                                    }
+                                }
                             }
-                            Box {
-                                OutlinedButton(onClick = { valueMenuOpen = true }) {
-                                    Text(if (actionValue == "1") "Включить / Нажать" else "Выключить")
-                                }
-                                DropdownMenu(expanded = valueMenuOpen, onDismissRequest = { valueMenuOpen = false }) {
-                                    DropdownMenuItem(text = { Text("Включить / Нажать (1)") }, onClick = { actionValue = "1"; valueMenuOpen = false })
-                                    DropdownMenuItem(text = { Text("Выключить (0)") }, onClick = { actionValue = "0"; valueMenuOpen = false })
-                                }
+                            OutlinedButton(onClick = { actionDrafts.add(ActionDraft()); actionSelectionOpenIndex = -1; actionValueMenuIndex = -1 }, modifier = Modifier.fillMaxWidth()) {
+                                Text("+ Действие")
                             }
                         }
                     }
@@ -481,7 +491,15 @@ private fun ScenarioEditorDialog(
                 }
                 if (parsed.size == drafts.size && parsed.isNotEmpty()) {
                     val first = parsed.first()
-                    val target = if (controls.isNotEmpty()) controls[actionIndex.coerceIn(0, controls.lastIndex)] else null
+                    val actions = if (actionType == "MQTT_CONTROL") {
+                        actionDrafts.mapNotNull { draft ->
+                            if (controls.isEmpty()) null else {
+                                val target = controls[draft.selectedIndex.coerceIn(0, controls.lastIndex)]
+                                ScenarioAction(target.first.id, target.second.id, draft.value)
+                            }
+                        }
+                    } else emptyList()
+                    val firstAction = actions.firstOrNull()
                     onSave(Scenario(
                         deviceId = first.deviceId,
                         widgetId = first.widgetId,
@@ -490,9 +508,10 @@ private fun ScenarioEditorDialog(
                         threshold = first.threshold,
                         message = message.trim().ifBlank { "{value}" },
                         actionType = actionType,
-                        actionDeviceId = if (actionType == "MQTT_CONTROL") target?.first?.id.orEmpty() else "",
-                        actionWidgetId = if (actionType == "MQTT_CONTROL") target?.second?.id.orEmpty() else "",
-                        actionValue = actionValue,
+                        actionDeviceId = firstAction?.deviceId.orEmpty(),
+                        actionWidgetId = firstAction?.widgetId.orEmpty(),
+                        actionValue = firstAction?.value ?: "1",
+                        actions = actions,
                         notificationEnabled = notificationEnabled,
                         verifyEnabled = verifyEnabled,
                         verifyTimeoutSec = verifyTimeoutText.toIntOrNull()?.coerceIn(1, 300) ?: 30,
