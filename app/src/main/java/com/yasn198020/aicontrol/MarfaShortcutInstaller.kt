@@ -73,6 +73,14 @@ object MarfaShortcutInstaller {
     }
 
     fun setActive(context: Context, active: Boolean) {
+        // Persist the state here as well as updating the launcher shortcut.
+        // If Android kills the service before onDestroy(), the old implementation
+        // could leave marfa_voice_active=true forever and the shortcut would stay ON.
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean("marfa_voice_active", active)
+            .apply()
+
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = context.getSystemService(ShortcutManager::class.java) ?: return
 
