@@ -173,6 +173,13 @@ private fun ScenarioEditorDialog(
     var actionMenuOpen by remember { mutableStateOf(false) }
     var targetMenuOpen by remember { mutableStateOf(false) }
     var valueMenuOpen by remember { mutableStateOf(false) }
+    var verifyEnabled by remember { mutableStateOf(false) }
+    var verifyTargetMenuOpen by remember { mutableStateOf(false) }
+    var verifyTargetIndex by remember { mutableIntStateOf(0) }
+    var verifyTimeoutText by remember { mutableStateOf("30") }
+    var verifyValueText by remember { mutableStateOf("1") }
+    var verifySuccessMessage by remember { mutableStateOf("Подтверждение получено: {value}") }
+    var verifyFailureMessage by remember { mutableStateOf("Подтверждение не получено") }
     var textInputFocused by remember { mutableStateOf(false) }
 
     fun operatorNext(value: String) = when (value) {
@@ -333,6 +340,67 @@ private fun ScenarioEditorDialog(
                             }
                         }
                     }
+                    HorizontalDivider()
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(checked = verifyEnabled, onCheckedChange = { verifyEnabled = it })
+                        Column {
+                            Text("Проверять результат", fontWeight = FontWeight.SemiBold)
+                            Text("Ждать подтверждение максимум заданное время", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+
+                    if (verifyEnabled && conditionWidgets.isNotEmpty()) {
+                        val safeVerifyIndex = verifyTargetIndex.coerceIn(0, conditionWidgets.lastIndex)
+                        val verifyTarget = conditionWidgets[safeVerifyIndex]
+
+                        OutlinedButton(onClick = { verifyTargetMenuOpen = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text("Проверять: " + verifyTarget.first.id + " / " + verifyTarget.second.id + "  " + verifyTarget.second.title)
+                        }
+                        DropdownMenu(expanded = verifyTargetMenuOpen, onDismissRequest = { verifyTargetMenuOpen = false }) {
+                            conditionWidgets.forEachIndexed { itemIndex, item ->
+                                DropdownMenuItem(
+                                    text = { Text(item.first.id + " / " + item.second.id + "  " + item.second.title) },
+                                    onClick = { verifyTargetIndex = itemIndex; verifyTargetMenuOpen = false }
+                                )
+                            }
+                        }
+
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = verifyTimeoutText,
+                                onValueChange = { verifyTimeoutText = it },
+                                label = { Text("Макс. секунд") },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f).onFocusChanged { textInputFocused = it.isFocused }
+                            )
+                            OutlinedTextField(
+                                value = verifyValueText,
+                                onValueChange = { verifyValueText = it },
+                                label = { Text("Ожидаемое значение") },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f).onFocusChanged { textInputFocused = it.isFocused }
+                            )
+                        }
+
+                        OutlinedTextField(
+                            value = verifySuccessMessage,
+                            onValueChange = { verifySuccessMessage = it },
+                            label = { Text("Если подтверждено") },
+                            singleLine = true,
+                            modifier = Modifier.onFocusChanged { textInputFocused = it.isFocused }
+                        )
+                        OutlinedTextField(
+                            value = verifyFailureMessage,
+                            onValueChange = { verifyFailureMessage = it },
+                            label = { Text("Если не подтверждено") },
+                            singleLine = true,
+                            modifier = Modifier.onFocusChanged { textInputFocused = it.isFocused }
+                        )
+                    }
+
                     Text("Можно использовать {value}, {threshold}, {device}, {widget}.")
                 }
             }
@@ -361,6 +429,14 @@ private fun ScenarioEditorDialog(
                         actionDeviceId = if (actionType == "MQTT_CONTROL") target?.first?.id.orEmpty() else "",
                         actionWidgetId = if (actionType == "MQTT_CONTROL") target?.second?.id.orEmpty() else "",
                         actionValue = actionValue,
+                        verifyEnabled = verifyEnabled,
+                        verifyTimeoutSec = verifyTimeoutText.toIntOrNull()?.coerceIn(1, 300) ?: 30,
+                        verifyDeviceId = if (verifyEnabled && conditionWidgets.isNotEmpty()) conditionWidgets[verifyTargetIndex.coerceIn(0, conditionWidgets.lastIndex)].first.id else "",
+                        verifyWidgetId = if (verifyEnabled && conditionWidgets.isNotEmpty()) conditionWidgets[verifyTargetIndex.coerceIn(0, conditionWidgets.lastIndex)].second.id else "",
+                        verifyOperator = "=",
+                        verifyValue = verifyValueText.replace(',', '.').toDoubleOrNull() ?: 1.0,
+                        verifySuccessMessage = verifySuccessMessage.trim().ifBlank { "Подтверждение получено: {value}" },
+                        verifyFailureMessage = verifyFailureMessage.trim().ifBlank { "Подтверждение не получено" },
                         conditions = parsed
                     ))
                 }
