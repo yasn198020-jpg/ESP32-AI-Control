@@ -49,6 +49,11 @@ data class WidgetState(val id: String, val title: String, val type: Type, val va
 }
 
 class MainActivity : ComponentActivity() {
+
+    companion object {
+        const val ACTION_WIDGET_VOICE = "com.yasn198020.aicontrol.action.WIDGET_VOICE"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val prefs = getSharedPreferences("settings", Context.MODE_PRIVATE)
@@ -73,6 +78,14 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        if (intent?.action == ACTION_WIDGET_VOICE) {
+            setIntent(intent)
+            recreate()
         }
     }
 }
