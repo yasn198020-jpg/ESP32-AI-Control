@@ -18,6 +18,7 @@ class VoiceCommandManager(
 ) {
     private var recognizer: SpeechRecognizer? = null
     private var listening = false
+    private var restarting = false
     private var lastPartialText = ""
     private val handler = Handler(Looper.getMainLooper())
 
@@ -34,24 +35,8 @@ class VoiceCommandManager(
         startListening()
     }
 
-    private fun startListening() {
-        if (!available()) {
-            onStatus(
-                if (!hasMicrophonePermission()) {
-                    "Нужно разрешение на микрофон"
-                } else {
-                    "На телефоне нет доступного сервиса распознавания речи"
-                }
-            )
-            return
-        }
-
-        if (listening && recognizer != null) return
-
-        listening = true
-        handler.removeCallbacksAndMessages(null)
-        releaseRecognizer()
-        lastPartialText = ""
+    private fun createRecognizerIfNeeded() {
+        if (recognizer != null) return
 
         recognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
             setRecognitionListener(object : RecognitionListener {
@@ -63,15 +48,11 @@ class VoiceCommandManager(
                 override fun onRmsChanged(rmsdB: Float) = Unit
                 override fun onBufferReceived(buffer: ByteArray?) = Unit
 
-                override fun onEndOfSpeech() {
-                    onStatus("Обрабатываю…")
-                }
+                override fun onEndOfSpeech() = Unit
 
                 override fun onError(error: Int) {
-                    releaseRecognizer()
-                    if (listening) {
-                        handler.postDelayed({ startListening() }, 1500L)
-                    }
+                    if (!listening || restarting) return
+                    scheduleRestart(1200L)
                 }
 
                 override fun onPartialResults(partialResults: android.os.Bundle?) {
@@ -102,7 +83,6 @@ class VoiceCommandManager(
                         .firstOrNull { it.isNotBlank() }
                         .orEmpty()
 
-                    releaseRecognizer()
                     lastPartialText = ""
 
                     if (!listening) return
@@ -112,12 +92,32 @@ class VoiceCommandManager(
                         onResult(text)
                     }
 
-                    handler.postDelayed({ startListening() }, 1000L)
+                    scheduleRestart(300L)
                 }
 
                 override fun onEvent(eventType: Int, params: android.os.Bundle?) = Unit
             })
         }
+    }
+
+    private fun startListening() {
+        if (!available()) {
+            onStatus(
+                if (!hasMicrophonePermission()) {
+                    "Нужно разрешение на микрофон"
+                } else {
+                    "На телефоне нет доступного сервиса распознавания речи"
+                }
+            )
+            return
+        }
+
+        listening = true
+        if (restarting) return
+
+        handler.removeCallbacksAndMessages(null)
+        lastPartialText = ""
+        createRecognizerIfNeeded()
 
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
@@ -125,18 +125,9 @@ class VoiceCommandManager(
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "ru-RU")
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
-            putExtra(
-                "android.speech.extra.SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS",
-                30000L
-            )
-            putExtra(
-                "android.speech.extra.SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS",
-                30000L
-            )
-            putExtra(
-                "android.speech.extra.SPEECH_INPUT_MINIMUM_LENGTH_MILLIS",
-                1000L
-            )
+            putExtra("android.speech.extra.SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS", 30000L)
+            putExtra("android.speech.extra.SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS", 30000L)
+            putExtra("android.speech.extra.SPEECH_INPUT_MINIMUM_LENGTH_MILLIS", 1000L)
             putExtra(RecognizerIntent.EXTRA_PROMPT, "Говорите")
             putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
         }
@@ -144,11 +135,37 @@ class VoiceCommandManager(
         try {
             recognizer?.startListening(intent)
         } catch (_: Exception) {
-            releaseRecognizer()
-            if (listening) {
-                handler.postDelayed({ startListening() }, 1500L)
-            }
+            scheduleRestart(1500L)
         }
+    }
+
+    private fun scheduleRestart(delayMs: Long) {
+        if (!listening || restarting) return
+
+        restarting = true
+        handler.removeCallbacksAndMessages(null)
+        handler.postDelayed({
+            restarting = false
+            if (!listening) return@postDelayed
+
+            try {
+                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ru-RU")
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "ru-RU")
+                    putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                    putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+                    putExtra("android.speech.extra.SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS", 30000L)
+                    putExtra("android.speech.extra.SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS", 30000L)
+                    putExtra("android.speech.extra.SPEECH_INPUT_MINIMUM_LENGTH_MILLIS", 1000L)
+                    putExtra(RecognizerIntent.EXTRA_PROMPT, "Говорите")
+                    putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
+                }
+                recognizer?.startListening(intent)
+            } catch (_: Exception) {
+                if (listening) scheduleRestart(1500L)
+            }
+        }, delayMs)
     }
 
     fun startRussian() {
@@ -192,6 +209,7 @@ class VoiceCommandManager(
 
     fun stop() {
         listening = false
+        restarting = false
         lastPartialText = ""
         handler.removeCallbacksAndMessages(null)
         releaseRecognizer()
