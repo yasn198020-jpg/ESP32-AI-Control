@@ -222,15 +222,20 @@ private fun ScenarioEditorDialog(
                                     it.second.page.ifBlank { "Основная" } == page
                                 }
 
-                                Text(
-                                    page,
-                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
-                                )
+                                val visiblePageWidgets = pageWidgets.filter { item ->
+                                    val itemIndex = conditionWidgets.indexOf(item)
+                                    !textInputFocused || safeIndex == itemIndex
+                                }
 
-                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    pageWidgets.forEach { item ->
-                                        val itemIndex = conditionWidgets.indexOf(item)
-                                        if (!textInputFocused || safeIndex == itemIndex) {
+                                if (visiblePageWidgets.isNotEmpty()) {
+                                    Text(
+                                        page,
+                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
+                                    )
+
+                                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        visiblePageWidgets.forEach { item ->
+                                            val itemIndex = conditionWidgets.indexOf(item)
                                             ScenarioWidgetTile(
                                                 device = item.first,
                                                 widget = item.second,
