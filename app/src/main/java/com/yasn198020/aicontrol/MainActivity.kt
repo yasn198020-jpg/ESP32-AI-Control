@@ -56,6 +56,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        MarfaShortcutInstaller.ensurePinned(this)
         val prefs = getSharedPreferences("settings", Context.MODE_PRIVATE)
         setContent {
             val baseDensity = LocalDensity.current
