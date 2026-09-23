@@ -250,4 +250,6 @@ class TrainedCommandMatcher(private val store: TrainedCommandStore) {
             .replace(Regex("[^a-zа-я0-9]+"), " ")
             .trim()
             .replace(Regex("""\s+"""), " ")
-}
+            .replace(Regex("""^марф(а|у|е|ой)\\b\\s*"""), "")
+            .trim()
+            .replace(Regex("""\s+"""), " ")
