@@ -179,6 +179,9 @@ private fun ScenarioEditorDialog(
     var verifySuccessMessage by remember { mutableStateOf("Подтверждение получено: {value}") }
     var verifyFailureMessage by remember { mutableStateOf("Подтверждение не получено") }
     var textInputFocused by remember { mutableStateOf(false) }
+    var conditionSelectionOpen by remember { mutableStateOf(true) }
+    var actionSelectionOpen by remember { mutableStateOf(true) }
+    var verifySelectionOpen by remember { mutableStateOf(true) }
 
     fun operatorNext(value: String) = when (value) {
         ">" -> ">="
@@ -229,7 +232,7 @@ private fun ScenarioEditorDialog(
 
                                 val visiblePageWidgets = pageWidgets.filter { item ->
                                     val itemIndex = conditionWidgets.indexOf(item)
-                                    !textInputFocused || safeIndex == itemIndex
+                                    !conditionSelectionOpen || safeIndex == itemIndex
                                 }
 
                                 if (visiblePageWidgets.isNotEmpty()) {
@@ -247,10 +250,10 @@ private fun ScenarioEditorDialog(
                                                 selected = safeIndex == itemIndex,
                                                 onClick = {
                                                     if (safeIndex == itemIndex) {
-                                                        textInputFocused = !textInputFocused
+                                                        conditionSelectionOpen = !conditionSelectionOpen
                                                     } else {
                                                         drafts[index] = draft.copy(selectedIndex = itemIndex)
-                                                        textInputFocused = false
+                                                        conditionSelectionOpen = false
                                                     }
                                                 }
                                             )
@@ -332,7 +335,7 @@ private fun ScenarioEditorDialog(
                                     }
                                     val visiblePageControls = pageControls.filter { item ->
                                         val itemIndex = controls.indexOf(item)
-                                        !textInputFocused || safeActionIndex == itemIndex
+                                        !actionSelectionOpen || safeActionIndex == itemIndex
                                     }
                                     if (visiblePageControls.isNotEmpty()) {
                                         Text(page, fontWeight = FontWeight.Medium)
@@ -346,10 +349,10 @@ private fun ScenarioEditorDialog(
                                                 selected = safeActionIndex == itemIndex,
                                                 onClick = {
                                                     if (safeActionIndex == itemIndex) {
-                                                        textInputFocused = !textInputFocused
+                                                        conditionSelectionOpen = !conditionSelectionOpen
                                                     } else {
                                                         actionIndex = itemIndex
-                                                        textInputFocused = false
+                                                        conditionSelectionOpen = false
                                                     }
                                                 }
                                             )
@@ -396,7 +399,7 @@ private fun ScenarioEditorDialog(
                                 }
                                 val visiblePageWidgets = pageWidgets.filter { item ->
                                     val itemIndex = conditionWidgets.indexOf(item)
-                                    !textInputFocused || verifyTargetIndex.coerceIn(0, conditionWidgets.lastIndex) == itemIndex
+                                    !verifySelectionOpen || verifyTargetIndex.coerceIn(0, conditionWidgets.lastIndex) == itemIndex
                                 }
                                 if (visiblePageWidgets.isNotEmpty()) {
                                     Text(page, fontWeight = FontWeight.Medium)
@@ -410,10 +413,10 @@ private fun ScenarioEditorDialog(
                                             selected = verifyTargetIndex.coerceIn(0, conditionWidgets.lastIndex) == itemIndex,
                                             onClick = {
                                             if (verifyTargetIndex.coerceIn(0, conditionWidgets.lastIndex) == itemIndex) {
-                                                textInputFocused = !textInputFocused
+                                                conditionSelectionOpen = !conditionSelectionOpen
                                             } else {
                                                 verifyTargetIndex = itemIndex
-                                                textInputFocused = false
+                                                conditionSelectionOpen = false
                                             }
                                         }
                                         )
