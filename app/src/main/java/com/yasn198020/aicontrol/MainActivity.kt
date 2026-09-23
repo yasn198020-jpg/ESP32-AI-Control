@@ -56,6 +56,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        if (intent?.action == "com.yasn198020.aicontrol.action.MARFA_SHORTCUT"
+            && intent?.getBooleanExtra("marfa_shortcut_toggle", false) == true) {
+            toggleMarfaFromShortcut()
+            finish()
+            return
+        }
+
         MarfaShortcutInstaller.ensurePinned(this)
         val prefs = getSharedPreferences("settings", Context.MODE_PRIVATE)
         setContent {
@@ -84,9 +92,33 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        if (intent.action == "com.yasn198020.aicontrol.action.MARFA_SHORTCUT"
+            && intent.getBooleanExtra("marfa_shortcut_toggle", false)) {
+            toggleMarfaFromShortcut()
+            return
+        }
         if (intent.action == ACTION_WIDGET_VOICE) {
             setIntent(intent)
             recreate()
+        }
+    }
+
+    private fun toggleMarfaFromShortcut() {
+        val prefs = getSharedPreferences("settings", Context.MODE_PRIVATE)
+        val active = prefs.getBoolean("marfa_voice_active", false)
+
+        if (active) {
+            stopService(Intent(this, MarfaVoiceService::class.java))
+            MarfaShortcutInstaller.setActive(this, false)
+        } else {
+            try {
+                ContextCompat.startForegroundService(
+                    this,
+                    Intent(this, MarfaVoiceService::class.java)
+                )
+            } catch (_: Exception) {
+            }
+            MarfaShortcutInstaller.setActive(this, true)
         }
     }
 }
