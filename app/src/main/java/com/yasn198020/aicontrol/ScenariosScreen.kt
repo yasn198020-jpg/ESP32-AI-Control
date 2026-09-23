@@ -279,7 +279,7 @@ private fun ScenarioEditorDialog(
                                 singleLine = true,
                                 modifier = Modifier
                                     .weight(1f)
-                                    .onFocusChanged { conditionSelectionOpen = !it.isFocused }
+                                    .onFocusChanged { if (it.isFocused) conditionSelectionOpen = false }
                             )
                         }
                     }
@@ -301,7 +301,7 @@ private fun ScenarioEditorDialog(
                         onValueChange = { message = it },
                         label = { Text("Сообщение") },
                         minLines = 2,
-                        modifier = Modifier.onFocusChanged { verifySelectionOpen = !it.isFocused }
+                        
                     )
 
                     Text("Действие после условия", fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
@@ -430,7 +430,7 @@ private fun ScenarioEditorDialog(
                                 onValueChange = { verifyTimeoutText = it },
                                 label = { Text("Макс. секунд") },
                                 singleLine = true,
-                                modifier = Modifier.weight(1f).onFocusChanged { verifySelectionOpen = !it.isFocused }
+                                modifier = Modifier.weight(1f).onFocusChanged { if (it.isFocused) verifySelectionOpen = false }
                             )
                             OutlinedTextField(
                                 value = verifyValueText,
@@ -446,7 +446,7 @@ private fun ScenarioEditorDialog(
                             onValueChange = { verifySuccessMessage = it },
                             label = { Text("Если подтверждено") },
                             singleLine = true,
-                            modifier = Modifier.onFocusChanged { verifySelectionOpen = !it.isFocused }
+                            modifier = Modifier.onFocusChanged { if (it.isFocused) verifySelectionOpen = false }
                         )
                         OutlinedTextField(
                             value = verifyFailureMessage,
