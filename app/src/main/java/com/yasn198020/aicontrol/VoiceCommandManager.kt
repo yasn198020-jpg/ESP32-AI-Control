@@ -197,7 +197,7 @@ class VoiceCommandManager(
             .replace(Regex("[^а-яa-z0-9]+"), " ")
             .trim()
 
-        val words = normalized.split(Regex("\s+"))
+        val words = normalized.split(Regex("\\s+"))
         val index = words.indexOfFirst {
             it == "марфа" || it == "марфу" || it == "марфе" || it == "марфой"
         }
@@ -213,7 +213,7 @@ class VoiceCommandManager(
             .replace(Regex("[^а-яa-z0-9]+"), " ")
             .trim()
 
-        return normalized.split(Regex("\s+"))
+        return normalized.split(Regex("\\s+"))
             .any { it == "марфа" || it == "марфу" || it == "марфе" || it == "марфой" }
     }
 
