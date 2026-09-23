@@ -171,10 +171,8 @@ private fun ScenarioEditorDialog(
     var actionIndex by remember { mutableIntStateOf(0) }
     var actionValue by remember { mutableStateOf("1") }
     var actionMenuOpen by remember { mutableStateOf(false) }
-    var targetMenuOpen by remember { mutableStateOf(false) }
     var valueMenuOpen by remember { mutableStateOf(false) }
     var verifyEnabled by remember { mutableStateOf(false) }
-    var verifyTargetMenuOpen by remember { mutableStateOf(false) }
     var verifyTargetIndex by remember { mutableIntStateOf(0) }
     var verifyTimeoutText by remember { mutableStateOf("30") }
     var verifyValueText by remember { mutableStateOf("1") }
@@ -316,16 +314,28 @@ private fun ScenarioEditorDialog(
                         } else {
                             val safeActionIndex = actionIndex.coerceIn(0, controls.lastIndex)
                             val target = controls[safeActionIndex]
-                            Box {
-                                OutlinedButton(onClick = { targetMenuOpen = true }) {
-                                    Text("${target.first.id} / ${target.second.id}  ${target.second.title}")
-                                }
-                                DropdownMenu(expanded = targetMenuOpen, onDismissRequest = { targetMenuOpen = false }) {
-                                    controls.forEachIndexed { itemIndex, item ->
-                                        DropdownMenuItem(
-                                            text = { Text("${item.first.id} / ${item.second.id}  ${item.second.title}") },
-                                            onClick = { actionIndex = itemIndex; targetMenuOpen = false }
-                                        )
+
+                            Text("Управляемый виджет", fontWeight = FontWeight.Medium)
+                            val controlPages = controls
+                                .map { it.second.page.ifBlank { "Основная" } }
+                                .distinct()
+
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                controlPages.forEach { page ->
+                                    val pageControls = controls.filter {
+                                        it.second.page.ifBlank { "Основная" } == page
+                                    }
+                                    Text(page, fontWeight = FontWeight.Medium)
+                                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        pageControls.forEach { item ->
+                                            val itemIndex = controls.indexOf(item)
+                                            ScenarioWidgetTile(
+                                                device = item.first,
+                                                widget = item.second,
+                                                selected = safeActionIndex == itemIndex,
+                                                onClick = { actionIndex = itemIndex }
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -356,15 +366,28 @@ private fun ScenarioEditorDialog(
                         val safeVerifyIndex = verifyTargetIndex.coerceIn(0, conditionWidgets.lastIndex)
                         val verifyTarget = conditionWidgets[safeVerifyIndex]
 
-                        OutlinedButton(onClick = { verifyTargetMenuOpen = true }, modifier = Modifier.fillMaxWidth()) {
-                            Text("Проверять: " + verifyTarget.first.id + " / " + verifyTarget.second.id + "  " + verifyTarget.second.title)
-                        }
-                        DropdownMenu(expanded = verifyTargetMenuOpen, onDismissRequest = { verifyTargetMenuOpen = false }) {
-                            conditionWidgets.forEachIndexed { itemIndex, item ->
-                                DropdownMenuItem(
-                                    text = { Text(item.first.id + " / " + item.second.id + "  " + item.second.title) },
-                                    onClick = { verifyTargetIndex = itemIndex; verifyTargetMenuOpen = false }
-                                )
+                        Text("Проверять виджет", fontWeight = FontWeight.Medium)
+                        val verifyPages = conditionWidgets
+                            .map { it.second.page.ifBlank { "Основная" } }
+                            .distinct()
+
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            verifyPages.forEach { page ->
+                                val pageWidgets = conditionWidgets.filter {
+                                    it.second.page.ifBlank { "Основная" } == page
+                                }
+                                Text(page, fontWeight = FontWeight.Medium)
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    pageWidgets.forEach { item ->
+                                        val itemIndex = conditionWidgets.indexOf(item)
+                                        ScenarioWidgetTile(
+                                            device = item.first,
+                                            widget = item.second,
+                                            selected = verifyTargetIndex.coerceIn(0, conditionWidgets.lastIndex) == itemIndex,
+                                            onClick = { verifyTargetIndex = itemIndex }
+                                        )
+                                    }
+                                }
                             }
                         }
 
