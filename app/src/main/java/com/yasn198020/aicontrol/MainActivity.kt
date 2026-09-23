@@ -888,9 +888,9 @@ private fun App(
 
                 Box(
                     modifier = Modifier
-                        .weight(1f)
+                        .weight(0.7f)
                         .fillMaxHeight()
-                        .padding(horizontal = 8.dp, vertical = 8.dp)
+                        .padding(horizontal = 2.dp, vertical = 4.dp)
                         .pointerInput(Unit) {
                             detectTapGestures(
                                 onPress = {
@@ -924,7 +924,7 @@ private fun App(
                             modifier = Modifier.fillMaxSize(),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text("🎙", fontSize = 24.sp)
+                            Text("🎙", fontSize = 20.sp)
                         }
                     }
                 }
