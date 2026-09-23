@@ -181,9 +181,9 @@ private fun ScenarioEditorDialog(
     var verifyValueText by remember { mutableStateOf("1") }
     var verifySuccessMessage by remember { mutableStateOf("Подтверждение получено: {value}") }
     var verifyFailureMessage by remember { mutableStateOf("Подтверждение не получено") }
-    var conditionSelectionOpen by remember { mutableStateOf(true) }
-    var actionSelectionOpen by remember { mutableStateOf(true) }
-    var verifySelectionOpen by remember { mutableStateOf(true) }
+    var conditionSelectionOpen by remember { mutableStateOf(false) }
+    var actionSelectionOpen by remember { mutableStateOf(false) }
+    var verifySelectionOpen by remember { mutableStateOf(false) }
 
     fun operatorNext(value: String) = when (value) {
         ">" -> ">="
@@ -448,7 +448,7 @@ private fun ScenarioEditorDialog(
                                 onValueChange = { verifyValueText = it },
                                 label = { Text("Результат должен быть равен") },
                                 singleLine = true,
-                                modifier = Modifier.weight(1f).onFocusChanged { if (it.isFocused) verifySelectionOpen = true }
+                                modifier = Modifier.weight(1f).onFocusChanged { if (it.isFocused) verifySelectionOpen = false }
                             )
                         }
 
@@ -464,7 +464,7 @@ private fun ScenarioEditorDialog(
                             onValueChange = { verifyFailureMessage = it },
                             label = { Text("Если не подтверждено") },
                             singleLine = true,
-                            modifier = Modifier.onFocusChanged { if (it.isFocused) verifySelectionOpen = true }
+                            modifier = Modifier.onFocusChanged { if (it.isFocused) verifySelectionOpen = false }
                         )
                     }
 
