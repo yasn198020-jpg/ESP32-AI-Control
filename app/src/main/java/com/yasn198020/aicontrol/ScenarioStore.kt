@@ -12,6 +12,12 @@ data class ScenarioCondition(
     val connector: String = "AND"
 )
 
+data class ScenarioAction(
+    val deviceId: String,
+    val widgetId: String,
+    val value: String = "1"
+)
+
 data class Scenario(
     val id: String = UUID.randomUUID().toString(),
     val deviceId: String,
@@ -26,6 +32,7 @@ data class Scenario(
     val actionDeviceId: String = "",
     val actionWidgetId: String = "",
     val actionValue: String = "1",
+    val actions: List<ScenarioAction> = emptyList(),
     val notificationEnabled: Boolean = true,
     val verifyEnabled: Boolean = false,
     val verifyTimeoutSec: Int = 30,
@@ -92,6 +99,19 @@ class ScenarioStore(private val prefs: android.content.SharedPreferences) {
                             actionDeviceId = o.optString("actionDeviceId", ""),
                             actionWidgetId = o.optString("actionWidgetId", ""),
                             actionValue = o.optString("actionValue", "1"),
+                            actions = run {
+                                val aa = o.optJSONArray("actions")
+                                if (aa != null) buildList {
+                                    for (k in 0 until aa.length()) {
+                                        val a = aa.optJSONObject(k) ?: continue
+                                        val d = a.optString("deviceId")
+                                        val w = a.optString("widgetId")
+                                        if (d.isNotBlank() && w.isNotBlank()) add(ScenarioAction(d, w, a.optString("value", "1")))
+                                    }
+                                } else if (o.optString("actionType", "NOTIFICATION") == "MQTT_CONTROL" && o.optString("actionDeviceId").isNotBlank() && o.optString("actionWidgetId").isNotBlank()) {
+                                    listOf(ScenarioAction(o.optString("actionDeviceId"), o.optString("actionWidgetId"), o.optString("actionValue", "1")))
+                                } else emptyList()
+                            },
                             notificationEnabled = o.optBoolean("notificationEnabled", true),
                             verifyEnabled = o.optBoolean("verifyEnabled", false),
                             verifyTimeoutSec = o.optInt("verifyTimeoutSec", 30).coerceIn(1, 300),
@@ -126,6 +146,15 @@ class ScenarioStore(private val prefs: android.content.SharedPreferences) {
                 put("actionDeviceId", s.actionDeviceId)
                 put("actionWidgetId", s.actionWidgetId)
                 put("actionValue", s.actionValue)
+                val aa = JSONArray()
+                s.actions.forEach { a ->
+                    aa.put(JSONObject().apply {
+                        put("deviceId", a.deviceId)
+                        put("widgetId", a.widgetId)
+                        put("value", a.value)
+                    })
+                }
+                put("actions", aa)
                 put("notificationEnabled", s.notificationEnabled)
                 put("verifyEnabled", s.verifyEnabled)
                 put("verifyTimeoutSec", s.verifyTimeoutSec)
@@ -253,11 +282,18 @@ class ScenarioActionExecutor {
 
     fun execute(scenario: Scenario) {
         if (scenario.actionType != "MQTT_CONTROL") return
-        val deviceId = scenario.actionDeviceId
-        val widgetId = scenario.actionWidgetId
-        if (deviceId.isBlank() || widgetId.isBlank()) return
         val manager = mqtt ?: return
         if (!manager.isConnected()) return
-        manager.publishControl(deviceId, widgetId, scenario.actionValue.ifBlank { "1" })
+
+        val actions = scenario.actions.ifEmpty {
+            if (scenario.actionDeviceId.isNotBlank() && scenario.actionWidgetId.isNotBlank()) {
+                listOf(ScenarioAction(scenario.actionDeviceId, scenario.actionWidgetId, scenario.actionValue.ifBlank { "1" }))
+            } else emptyList()
+        }
+        actions.forEach { action ->
+            if (action.deviceId.isNotBlank() && action.widgetId.isNotBlank()) {
+                manager.publishControl(action.deviceId, action.widgetId, action.value.ifBlank { "1" })
+            }
+        }
     }
 }
