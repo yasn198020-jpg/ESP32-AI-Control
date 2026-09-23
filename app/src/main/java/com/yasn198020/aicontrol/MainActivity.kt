@@ -333,10 +333,16 @@ private fun App(
     val scenarioStore = remember { ScenarioStore(prefs) }
     val scenarioActionExecutor = remember { ScenarioActionExecutor() }
     val scenarioEngine = remember {
-        ScenarioEngine(scenarioStore) { scenario, rawValue, _ ->
-            ScenarioNotifier.notify(context, scenario, rawValue)
-            scenarioActionExecutor.execute(scenario)
-        }
+        ScenarioEngine(
+            scenarioStore,
+            onTrigger = { scenario, rawValue, _ ->
+                ScenarioNotifier.notify(context, scenario, rawValue)
+                scenarioActionExecutor.execute(scenario)
+            },
+            onVerificationResult = { scenario, success, rawValue ->
+                ScenarioNotifier.notifyVerification(context, scenario, success, rawValue)
+            }
+        )
     }
 
     val mqtt = remember {
