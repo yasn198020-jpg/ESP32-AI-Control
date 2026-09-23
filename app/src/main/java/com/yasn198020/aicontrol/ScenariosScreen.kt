@@ -454,6 +454,11 @@ private fun ScenarioEditorDialog(
                                                 actionSelectionOpenIndex = -1
                                                 actionValueMenuIndex = -1
                                             }) { Text("↑") }
+                                            TextButton(onClick = {
+                                                actionDrafts.add(actionNumber + 1, actionDrafts[actionNumber].copy())
+                                                actionSelectionOpenIndex = -1
+                                                actionValueMenuIndex = -1
+                                            }) { Text("Копировать") }
                                             TextButton(enabled = actionNumber < actionDrafts.lastIndex, onClick = {
                                                 val tmp = actionDrafts[actionNumber]
                                                 actionDrafts[actionNumber] = actionDrafts[actionNumber + 1]
