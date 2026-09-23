@@ -877,9 +877,65 @@ private fun App(
                 if (tab == 0) DashboardPageTabs(devices, selectedPage, onSelect = { selectedPage = it })
             }
         },
-        bottomBar = { NavigationBar(containerColor = Color(0xFF24252A), tonalElevation = 0.dp) {
-            NavigationBarItem(selected = tab == 0, onClick = { tab = 0 }, icon = { Text("▲", fontSize = 22.sp) }, label = { Text("Главная") })
-            NavigationBarItem(selected = tab == 1, onClick = { tab = 1 }, icon = { Text("🎤", fontSize = 22.sp) }, label = { Text("Команды") })
+        bottomBar = {
+            NavigationBar(containerColor = Color(0xFF24252A), tonalElevation = 0.dp) {
+                NavigationBarItem(
+                    selected = tab == 0,
+                    onClick = { tab = 0 },
+                    icon = { Text("▲", fontSize = 22.sp) },
+                    label = { Text("Главная") }
+                )
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .padding(horizontal = 8.dp, vertical = 8.dp)
+                        .pointerInput(Unit) {
+                            detectTapGestures(
+                                onPress = {
+                                    if (ContextCompat.checkSelfPermission(
+                                            context,
+                                            Manifest.permission.RECORD_AUDIO
+                                        ) == PackageManager.PERMISSION_GRANTED
+                                    ) {
+                                        voiceStatus = "🎙 Слушаю… отпустите кнопку для остановки"
+                                        voiceManager.startRussian()
+                                        try {
+                                            tryAwaitRelease()
+                                        } finally {
+                                            voiceManager.finishRussian()
+                                            voiceStatus = "Микрофон выключен"
+                                        }
+                                    } else {
+                                        requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
+                                    }
+                                }
+                            )
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        shape = RoundedCornerShape(12.dp),
+                        tonalElevation = 3.dp
+                    ) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("🎙", fontSize = 24.sp)
+                        }
+                    }
+                }
+
+                NavigationBarItem(
+                    selected = tab == 1,
+                    onClick = { tab = 1 },
+                    icon = { Text("🎤", fontSize = 22.sp) },
+                    label = { Text("Команды") }
+                )
+            }
         } }
     ) { padding ->
         when (tab) {
@@ -1002,40 +1058,7 @@ private fun DevicesScreen(
             DashboardWidgetRow(widget, onSend = { value -> onSend(deviceId, widget.id, value) }, onTrain = { onTrain(deviceId, widget) })
         }
 
-        item(key = "voice-hidden-access") {
-            Spacer(Modifier.height(8.dp))
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp)
-                    .pointerInput(Unit) {
-                        detectTapGestures(
-                            onPress = {
-                                onVoiceStart()
-                                try {
-                                    tryAwaitRelease()
-                                } finally {
-                                    onVoiceStop()
-                                }
-                            }
-                        )
-                    }
-                    .then(Modifier)
-            ) {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    shape = RoundedCornerShape(12.dp),
-                    tonalElevation = 2.dp,
-                    border = ButtonDefaults.outlinedButtonBorder
-                ) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("🎙 Марфа — держите для разговора")
-                    }
-                }
-            }
+        item(key = "voice-status") {
             if (voiceText.isNotBlank()) {
                 Text(
                     "«$voiceText»  •  $voiceStatus",
