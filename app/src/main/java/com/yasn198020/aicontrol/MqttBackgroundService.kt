@@ -22,6 +22,7 @@ class MqttBackgroundService : Service() {
 
     private val handler = Handler(Looper.getMainLooper())
     private var mqtt: MqttManager? = null
+    private lateinit var historyStore: HistoryStore
     private lateinit var scenarioEngine: ScenarioEngine
     private lateinit var scenarioActionExecutor: ScenarioActionExecutor
 
@@ -39,7 +40,9 @@ class MqttBackgroundService : Service() {
         super.onCreate()
         createNotificationChannel()
         startAsForeground()
-        val scenarioStore = ScenarioStore(getSharedPreferences("settings", Context.MODE_PRIVATE))
+        val prefs = getSharedPreferences("settings", Context.MODE_PRIVATE)
+        historyStore = HistoryStore(prefs)
+        val scenarioStore = ScenarioStore(prefs)
         scenarioActionExecutor = ScenarioActionExecutor()
         scenarioEngine = ScenarioEngine(
             scenarioStore,
@@ -62,6 +65,7 @@ class MqttBackgroundService : Service() {
             },
             onStatus = { deviceId, widgetId, value ->
                 android.util.Log.d("MQTT_BG", "status $deviceId/$widgetId=$value")
+                historyStore.add(deviceId, widgetId, value)
                 scenarioEngine.onValue(deviceId, widgetId, value)
             },
             onConfig = { deviceId, widgetId, label, type, page, topic, order, raw ->
