@@ -43,12 +43,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import org.json.JSONObject
+import com.yasn198020.aicontrol.core.Device
+import com.yasn198020.aicontrol.core.WidgetState
+import com.yasn198020.aicontrol.devices.DeviceManager
 
-data class Device(val id: String, val name: String, val online: Boolean, val widgets: List<WidgetState>)
 data class TrainingTarget(val deviceId: String, val widgetId: String, val title: String)
-data class WidgetState(val id: String, val title: String, val type: Type, val value: String, val page: String = "Основная", val topic: String = "", val order: Int = 0, val unit: String = "") {
-    enum class Type { TOGGLE, BUTTON, INPUT, VALUE, STATUS }
-}
 
 class MainActivity : ComponentActivity() {
 
@@ -149,7 +148,6 @@ private fun App(
     var devices by remember { mutableStateOf(emptyList<Device>()) }
     var voiceText by remember { mutableStateOf("") }
     var voiceStatus by remember { mutableStateOf("Нажмите 🎤 и скажите команду") }
-    val pendingValues = remember { mutableStateMapOf<String, String>() }
     val localCommandManager = remember { LocalCommandManager() }
     val speech = remember { TextToSpeech(context, null) }
     val trainedStore = remember { TrainedCommandStore(prefs) }
@@ -269,6 +267,15 @@ private fun App(
     }
 
     fun addLog(message: String) { log = (log + message).takeLast(100) }
+
+    val deviceManager = remember {
+        DeviceManager(
+            onDevicesChanged = { devices = it },
+            onPendingValueStored = { key, value ->
+                addLog("MQTT state stored until CONFIG: " + key + " = " + value)
+            }
+        )
+    }
     DisposableEffect(Unit) {
         val receiver = object : android.content.BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
@@ -305,121 +312,12 @@ private fun App(
                     voiceStatus = "Команда распознана"
                 }
             },
-            onStatus = { status -> voiceStatus = status }
-        )
-    }
-
-    val requestMicPermission = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) {
-            voiceStatus = "Микрофон готов — удерживайте кнопку"
-        } else {
-            voiceStatus = "Нужно разрешение на микрофон"
-        }
-    }
-
-    var pendingNotificationAction by remember { mutableStateOf<(() -> Unit)?>(null) }
-    val requestNotificationPermission = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) pendingNotificationAction?.invoke()
-        pendingNotificationAction = null
-    }
-
-    // Microphone is no longer started automatically. It is controlled only
-    // while the user holds the in-app Marfa button.
-
-    val scenarioStore = remember { ScenarioStore(prefs) }
-    val scenarioActionExecutor = remember { ScenarioActionExecutor() }
-    val scenarioEngine = remember {
-        ScenarioEngine(
-            scenarioStore,
-            onTrigger = { scenario, rawValue, _ ->
-                if (scenario.notificationEnabled) {
-                    ScenarioNotifier.notify(context, scenario, rawValue)
-                }
-                scenarioActionExecutor.execute(scenario)
-            },
-            onVerificationResult = { scenario, success, rawValue ->
-                if (scenario.notificationEnabled) {
-                    ScenarioNotifier.notifyVerification(context, scenario, success, rawValue)
-                }
-            }
-        )
-    }
-
-    val mqtt = remember {
-        MqttManager(
-            onLog = ::addLog,
-            onConnected = { value -> connected = value },
             onStatus = { deviceId, widgetId, value ->
                 scenarioEngine.onValue(deviceId, widgetId, value)
-                val key = "$deviceId/$widgetId"
-                val existingDevice = devices.firstOrNull { it.id == deviceId }
-                val existingWidget = existingDevice?.widgets?.any { it.id == widgetId } == true
-
-                if (!existingWidget) {
-                    pendingValues[key] = value
-                    addLog("MQTT state stored until CONFIG: " + key + " = " + value)
-                }
-
-                if (existingDevice != null && existingWidget) {
-                    devices = devices.map { device ->
-                        if (device.id != deviceId) device else device.copy(
-                            online = true,
-                            widgets = device.widgets.map { widget ->
-                                if (widget.id == widgetId) widget.copy(value = value) else widget
-                            }
-                        )
-                    }
-                } else if (existingDevice != null) {
-                    devices = devices.map { device ->
-                        if (device.id == deviceId) device.copy(online = true) else device
-                    }
-                }
+                deviceManager.onStatus(deviceId, widgetId, value)
             },
             onConfig = { deviceId, widgetId, label, widgetType, page, topic, order, raw ->
-                val json = try { JSONObject(raw) } catch (_: Exception) { JSONObject() }
-                val type = when (widgetType.lowercase()) {
-                    "toggle" -> WidgetState.Type.TOGGLE
-                    "button", "vbtn", "btn" -> WidgetState.Type.BUTTON
-                    "input", "text", "number", "slider" -> WidgetState.Type.INPUT
-                    "anydata", "anydatavlt", "value" -> WidgetState.Type.VALUE
-                    else -> WidgetState.Type.STATUS
-                }
-                val newPage = page.ifBlank { "Основная" }
-                val newUnit = json.optString("after").trim()
-                val key = "$deviceId/$widgetId"
-                val pendingValue = pendingValues[key]
-                val existing = devices.firstOrNull { it.id == deviceId }
-                val existingWidget = existing?.widgets?.firstOrNull { it.id == widgetId }
-                val newWidget = WidgetState(
-                    widgetId,
-                    label.ifBlank { widgetId },
-                    type,
-                    pendingValue ?: existingWidget?.value ?: "",
-                    newPage,
-                    topic,
-                    order,
-                    newUnit
-                )
-                if (existing == null) {
-                    devices = devices + Device(deviceId, deviceId, true, listOf(newWidget))
-                } else {
-                    devices = devices.map { device ->
-                        if (device.id != deviceId) device else {
-                            val exists = device.widgets.any { it.id == widgetId }
-                            device.copy(
-                                online = true,
-                                widgets = if (exists) device.widgets.map { w ->
-                                    if (w.id == widgetId) newWidget else w
-                                } else device.widgets + newWidget
-                            )
-                        }
-                    }
-                }
-                if (pendingValue != null) pendingValues.remove(key)
+                deviceManager.onConfig(deviceId, widgetId, label, widgetType, page, topic, order, raw)
             }
         )
     }
