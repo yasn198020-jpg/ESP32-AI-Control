@@ -46,9 +46,6 @@ class VoiceCommandManager(
             return
         }
 
-        // Ignore duplicate starts from Compose/lifecycle/buttons while a session
-        // is already active. This prevents the microphone from being repeatedly
-        // cancelled and recreated.
         if (listening && recognizer != null) return
 
         listening = true
@@ -73,9 +70,6 @@ class VoiceCommandManager(
                 override fun onError(error: Int) {
                     releaseRecognizer()
                     if (listening) {
-                        // Android SpeechRecognizer ends a session after silence
-                        // or a recognition error. Restart only after the old
-                        // recognizer is fully released.
                         handler.postDelayed({ startListening() }, 1500L)
                     }
                 }
