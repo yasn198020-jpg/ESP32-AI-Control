@@ -171,7 +171,37 @@ private fun ScenarioEditorDialog(
                                 Text("${pair.first.id} / ${pair.second.id}  ${pair.second.title}")
                             }
                             DropdownMenu(expanded = openMenu == index, onDismissRequest = { openMenu = -1 }) {
-                                conditionWidgets.forEachIndexed { itemIndex, item ->
+                                val sensors = conditionWidgets.filter {
+                                    it.second.type == WidgetState.Type.VALUE || it.second.type == WidgetState.Type.STATUS
+                                }
+                                val controls = conditionWidgets.filter {
+                                    it.second.type == WidgetState.Type.TOGGLE || it.second.type == WidgetState.Type.BUTTON
+                                }
+
+                                Text(
+                                    "Датчики",
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                    style = MaterialTheme.typography.labelLarge
+                                )
+                                sensors.forEach { item ->
+                                    val itemIndex = conditionWidgets.indexOf(item)
+                                    DropdownMenuItem(
+                                        text = { Text("${item.first.id} / ${item.second.id}  ${item.second.title}") },
+                                        onClick = { draft.selectedIndex = itemIndex; openMenu = -1 }
+                                    )
+                                }
+
+                                if (sensors.isNotEmpty() && controls.isNotEmpty()) {
+                                    HorizontalDivider()
+                                }
+
+                                Text(
+                                    "Кнопки и переключатели",
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                    style = MaterialTheme.typography.labelLarge
+                                )
+                                controls.forEach { item ->
+                                    val itemIndex = conditionWidgets.indexOf(item)
                                     DropdownMenuItem(
                                         text = { Text("${item.first.id} / ${item.second.id}  ${item.second.title}") },
                                         onClick = { draft.selectedIndex = itemIndex; openMenu = -1 }
