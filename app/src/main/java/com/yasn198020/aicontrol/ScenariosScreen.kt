@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.focus.onFocusChanged
 
 @Composable
 fun ScenariosScreen(
@@ -172,6 +173,7 @@ private fun ScenarioEditorDialog(
     var actionMenuOpen by remember { mutableStateOf(false) }
     var targetMenuOpen by remember { mutableStateOf(false) }
     var valueMenuOpen by remember { mutableStateOf(false) }
+    var textInputFocused by remember { mutableStateOf(false) }
 
     fun operatorNext(value: String) = when (value) {
         ">" -> ">="
@@ -228,14 +230,16 @@ private fun ScenarioEditorDialog(
                                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                     pageWidgets.forEach { item ->
                                         val itemIndex = conditionWidgets.indexOf(item)
-                                        ScenarioWidgetTile(
-                                            device = item.first,
-                                            widget = item.second,
-                                            selected = safeIndex == itemIndex,
-                                            onClick = {
-                                                drafts[index] = draft.copy(selectedIndex = itemIndex)
-                                            }
-                                        )
+                                        if (!textInputFocused || safeIndex == itemIndex) {
+                                            ScenarioWidgetTile(
+                                                device = item.first,
+                                                widget = item.second,
+                                                selected = safeIndex == itemIndex,
+                                                onClick = {
+                                                    drafts[index] = draft.copy(selectedIndex = itemIndex)
+                                                }
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -266,8 +270,20 @@ private fun ScenarioEditorDialog(
                     }
                     Text("В условиях можно использовать датчики, кнопки и переключатели. Для кнопок обычно используйте = 1 или = 0.")
 
-                    OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Заголовок") }, singleLine = true)
-                    OutlinedTextField(value = message, onValueChange = { message = it }, label = { Text("Сообщение") }, minLines = 2)
+                    OutlinedTextField(
+                        value = title,
+                        onValueChange = { title = it },
+                        label = { Text("Заголовок") },
+                        singleLine = true,
+                        modifier = Modifier.onFocusChanged { textInputFocused = it.isFocused }
+                    )
+                    OutlinedTextField(
+                        value = message,
+                        onValueChange = { message = it },
+                        label = { Text("Сообщение") },
+                        minLines = 2,
+                        modifier = Modifier.onFocusChanged { textInputFocused = it.isFocused }
+                    )
 
                     Text("Действие после условия", fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
                     Box {
