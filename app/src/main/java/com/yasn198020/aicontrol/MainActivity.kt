@@ -483,7 +483,7 @@ private fun App(
                                 val spoken = if (raw.isBlank() || raw == "—") {
                                     "${widget.title}: значение пока неизвестно"
                                 } else {
-                                    "${widget.title}: $raw${if (unit.isNotBlank()) " $unit" else ""}"
+                                    "${widget.title}: ${formatTemperatureForSpeech(raw, unit)}"
                                 }
                                 voiceStatus = spoken
                                 speech.speak(spoken, if (sent == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD, null, "trained-value-$sent")
@@ -1240,7 +1240,7 @@ private fun VoiceSettingsScreen(
         Slider(value = pitch, onValueChange = onPitch, valueRange = 0.85f..1.25f)
 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { onPreview("Температура для помидоров: 24.5 градуса") }, modifier = Modifier.weight(1f)) {
+            OutlinedButton(onClick = { onPreview("Температура для помидоров: ${formatTemperatureForSpeech("24.5", "°C")}") }, modifier = Modifier.weight(1f)) {
                 Text("▶ Проверить")
             }
             Button(onClick = onSave, modifier = Modifier.weight(1f)) { Text("Сохранить") }
