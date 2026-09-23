@@ -226,7 +226,10 @@ private fun App(
                 voiceText = text
                 voiceStatus = "Команда распознана"
             },
-            onStatus = { status -> voiceStatus = status }
+            onStatus = { status -> voiceStatus = status },
+            onWakeWord = {
+                voiceStatus = "Марфа активирована — говорите команду"
+            }
         )
     }
 
@@ -234,9 +237,24 @@ private fun App(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
-            voiceManager.startRussian()
+            voiceStatus = "Голосовая активация: скажите «Марфа»"
+            voiceManager.startWakeWord()
         } else {
-            voiceStatus = "Нужно разрешение на микрофон"
+            voiceStatus = "Нужно разрешение на микрофон для активации «Марфа»"
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        delay(700)
+        if (ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.RECORD_AUDIO
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            voiceStatus = "Голосовая активация: скажите «Марфа»"
+            voiceManager.startWakeWord()
+        } else {
+            requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
 
