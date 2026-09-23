@@ -286,6 +286,22 @@ private fun App(
         pendingNotificationAction = null
     }
 
+    val voiceManager = remember {
+        VoiceCommandManager(
+            context = context,
+            onResult = { text ->
+                voiceText = text
+                if (trainingTarget != null) {
+                    trainingPhrase = text
+                    voiceStatus = "Фраза распознана: $text"
+                } else {
+                    voiceStatus = "Команда распознана"
+                }
+            },
+            onStatus = { status -> voiceStatus = status }
+        )
+    }
+
     val scenarioStore = remember { ScenarioStore(prefs) }
     val scenarioActionExecutor = remember { ScenarioActionExecutor() }
     val scenarioEngine = remember {
