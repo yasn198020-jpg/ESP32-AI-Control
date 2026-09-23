@@ -147,7 +147,8 @@ class MarfaVoiceService : Service() {
         val command = text.trim()
         if (command.isBlank()) return
 
-        val trained = TrainedCommandMatcher(TrainedCommandStore(prefs)).matchAll(command)
+        try {
+            val trained = TrainedCommandMatcher(TrainedCommandStore(prefs)).matchAll(command)
         android.util.Log.d("MARFA_TRAINED", "command=" + command + " matches=" + trained.size)
 
         // Saved training has absolute priority. A trained read action answers
@@ -221,11 +222,18 @@ class MarfaVoiceService : Service() {
             }
         }
 
-        sendBroadcast(
-            Intent(ACTION_VOICE_RESULT)
-                .setPackage(packageName)
-                .putExtra(EXTRA_TEXT, command)
-        )
+            sendBroadcast(
+                Intent(ACTION_VOICE_RESULT)
+                    .setPackage(packageName)
+                    .putExtra(EXTRA_TEXT, command)
+            )
+        } finally {
+            // The shortcut is a one-command trigger: after executing the
+            // command, stop listening and return the shortcut to OFF state.
+            voiceManager?.stop()
+            prefs.edit().putBoolean("marfa_voice_active", false).apply()
+            MarfaShortcutInstaller.setActive(this, false)
+        }
     }
 
     private fun synchronizedCopyDevices(): List<Device> =
