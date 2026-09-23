@@ -61,7 +61,7 @@ fun ScenariosScreen(
                                     "Действие: ${scenario.actionDeviceId}/${scenario.actionWidgetId} → ${scenario.actionValue}"
                                 else "Действие: уведомление"
                             )
-                            Text(if (scenario.enabled) "Включён" else "Выключен")
+                            Text((if (scenario.enabled) "Включён" else "Выключен") + "  •  " + (if (scenario.notificationEnabled) "уведомления включены" else "без уведомлений"))
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 OutlinedButton(onClick = {
                                     store.update(scenario.copy(enabled = !scenario.enabled, armed = true))
@@ -168,6 +168,7 @@ private fun ScenarioEditorDialog(
     var title by remember { mutableStateOf("Температура высокая") }
     var message by remember { mutableStateOf("Условие выполнено: {value}") }
     var actionType by remember { mutableStateOf("NOTIFICATION") }
+    var notificationEnabled by remember { mutableStateOf(true) }
     var actionIndex by remember { mutableIntStateOf(0) }
     var actionValue by remember { mutableStateOf("1") }
     var actionMenuOpen by remember { mutableStateOf(false) }
@@ -303,6 +304,14 @@ private fun ScenarioEditorDialog(
                         minLines = 2,
                         
                     )
+
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = notificationEnabled, onCheckedChange = { notificationEnabled = it })
+                        Column {
+                            Text("Показывать уведомление", fontWeight = FontWeight.Medium)
+                            Text("Можно отключить уведомления для этого сценария", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
 
                     Text("Действие после условия", fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
                     Box {
@@ -485,6 +494,7 @@ private fun ScenarioEditorDialog(
                         actionDeviceId = if (actionType == "MQTT_CONTROL") target?.first?.id.orEmpty() else "",
                         actionWidgetId = if (actionType == "MQTT_CONTROL") target?.second?.id.orEmpty() else "",
                         actionValue = actionValue,
+                        notificationEnabled = notificationEnabled,
                         verifyEnabled = verifyEnabled,
                         verifyTimeoutSec = verifyTimeoutText.toIntOrNull()?.coerceIn(1, 300) ?: 30,
                         verifyDeviceId = if (verifyEnabled && conditionWidgets.isNotEmpty()) conditionWidgets[verifyTargetIndex.coerceIn(0, conditionWidgets.lastIndex)].first.id else "",
