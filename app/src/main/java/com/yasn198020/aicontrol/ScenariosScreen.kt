@@ -355,6 +355,35 @@ private fun ScenarioEditorDialog(
                                 modifier = Modifier.weight(1f)
                             )
                         }
+                        if (drafts.size > 1) {
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                TextButton(enabled = index > 0, onClick = {
+                                    val tmp = drafts[index]
+                                    drafts[index] = drafts[index - 1]
+                                    drafts[index - 1] = tmp
+                                    conditionSelectionOpen = false
+                                }) { Text("↑") }
+                                TextButton(onClick = {
+                                    drafts.add(index + 1, draft.copy())
+                                    conditionSelectionOpen = false
+                                }) { Text("Копировать") }
+                                TextButton(enabled = index < drafts.lastIndex, onClick = {
+                                    val tmp = drafts[index]
+                                    drafts[index] = drafts[index + 1]
+                                    drafts[index + 1] = tmp
+                                    conditionSelectionOpen = false
+                                }) { Text("↓") }
+                                if (index > 0) {
+                                    TextButton(onClick = {
+                                        drafts.removeAt(index)
+                                        conditionSelectionOpen = false
+                                    }) { Text("Удалить") }
+                                }
+                            }
+                        }
                     }
 
                     OutlinedButton(onClick = { drafts.add(ConditionDraft()) }, modifier = Modifier.fillMaxWidth()) {
@@ -609,7 +638,7 @@ private fun ScenarioEditorDialog(
                         verifyDeviceId = if (verifyEnabled && conditionWidgets.isNotEmpty()) conditionWidgets[verifyTargetIndex.coerceIn(0, conditionWidgets.lastIndex)].first.id else "",
                         verifyWidgetId = if (verifyEnabled && conditionWidgets.isNotEmpty()) conditionWidgets[verifyTargetIndex.coerceIn(0, conditionWidgets.lastIndex)].second.id else "",
                         verifyOperator = "=",
-                        verifyValue = verifyValueText.replace(',', '.').toDoubleOrNull() ?: 1.0,
+                        verifyValue = verifyValueText.replace(',', '.').toDoubleOrNull()?.takeIf { it.isFinite() } ?: 1.0,
                         verifySuccessMessage = verifySuccessMessage.trim().ifBlank { "Подтверждение получено: {value}" },
                         verifyFailureMessage = verifyFailureMessage.trim().ifBlank { "Подтверждение не получено" },
                         conditions = parsed
