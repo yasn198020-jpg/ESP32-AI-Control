@@ -319,9 +319,13 @@ private fun App(
         }
     }
 
+    var pendingNotificationAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     val requestNotificationPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { }
+    ) { granted ->
+        if (granted) pendingNotificationAction?.invoke()
+        pendingNotificationAction = null
+    }
 
     // Microphone is no longer started automatically. It is controlled only
     // while the user holds the in-app Marfa button.
@@ -986,11 +990,14 @@ private fun App(
                 Modifier.padding(padding),
                 devices,
                 scenarioStore,
-                onRequestNotifications = {
+                onRequestNotifications = { action ->
                     if (Build.VERSION.SDK_INT >= 33 &&
                         ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
                     ) {
+                        pendingNotificationAction = action
                         requestNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    } else {
+                        action()
                     }
                 }
             )
