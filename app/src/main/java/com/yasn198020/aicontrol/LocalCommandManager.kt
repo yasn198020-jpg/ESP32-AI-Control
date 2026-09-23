@@ -19,7 +19,12 @@ fun formatTemperatureForSpeech(raw: String, unit: String = "°C"): String {
     val parts = text.split(".")
     val whole = parts[0].toLongOrNull() ?: return "$raw ${unit.ifBlank { "°C" }}"
     val fractionText = parts.getOrNull(1)?.take(2).orEmpty()
-    fun fractionWord(value: Int, digits: Int): String =\n        if (digits == 1) {\n            if (value == 1) "десятая" else "десятых"\n        } else {\n            if (value == 1) "сотая" else "сотых"\n        }
+    fun fractionWord(value: Int, digits: Int): String =
+        if (digits == 1) {
+            if (value == 1) "десятая" else "десятых"
+        } else {
+            if (value == 1) "сотая" else "сотых"
+        }
     val degreeWord = when {
         whole % 100 in 11..14 -> "градусов"
         whole % 10 == 1L -> "градус"
