@@ -298,7 +298,12 @@ private fun App(
             context = context,
             onResult = { text ->
                 voiceText = text
-                voiceStatus = "Команда распознана"
+                if (trainingTarget != null) {
+                    trainingPhrase = text
+                    voiceStatus = "Фраза распознана: $text"
+                } else {
+                    voiceStatus = "Команда распознана"
+                }
             },
             onStatus = { status -> voiceStatus = status }
         )
