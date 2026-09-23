@@ -178,7 +178,6 @@ private fun ScenarioEditorDialog(
     var verifyValueText by remember { mutableStateOf("1") }
     var verifySuccessMessage by remember { mutableStateOf("Подтверждение получено: {value}") }
     var verifyFailureMessage by remember { mutableStateOf("Подтверждение не получено") }
-    var textInputFocused by remember { mutableStateOf(false) }
     var conditionSelectionOpen by remember { mutableStateOf(true) }
     var actionSelectionOpen by remember { mutableStateOf(true) }
     var verifySelectionOpen by remember { mutableStateOf(true) }
@@ -280,7 +279,7 @@ private fun ScenarioEditorDialog(
                                 singleLine = true,
                                 modifier = Modifier
                                     .weight(1f)
-                                    .onFocusChanged { textInputFocused = it.isFocused }
+                                    .onFocusChanged { conditionSelectionOpen = !it.isFocused }
                             )
                         }
                     }
@@ -295,14 +294,14 @@ private fun ScenarioEditorDialog(
                         onValueChange = { title = it },
                         label = { Text("Заголовок") },
                         singleLine = true,
-                        modifier = Modifier.onFocusChanged { textInputFocused = it.isFocused }
+                        
                     )
                     OutlinedTextField(
                         value = message,
                         onValueChange = { message = it },
                         label = { Text("Сообщение") },
                         minLines = 2,
-                        modifier = Modifier.onFocusChanged { textInputFocused = it.isFocused }
+                        modifier = Modifier.onFocusChanged { verifySelectionOpen = !it.isFocused }
                     )
 
                     Text("Действие после условия", fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
@@ -349,10 +348,10 @@ private fun ScenarioEditorDialog(
                                                 selected = safeActionIndex == itemIndex,
                                                 onClick = {
                                                     if (safeActionIndex == itemIndex) {
-                                                        conditionSelectionOpen = !conditionSelectionOpen
+                                                        actionSelectionOpen = !actionSelectionOpen
                                                     } else {
                                                         actionIndex = itemIndex
-                                                        conditionSelectionOpen = false
+                                                        actionSelectionOpen = false
                                                     }
                                                 }
                                             )
@@ -413,10 +412,10 @@ private fun ScenarioEditorDialog(
                                             selected = verifyTargetIndex.coerceIn(0, conditionWidgets.lastIndex) == itemIndex,
                                             onClick = {
                                             if (verifyTargetIndex.coerceIn(0, conditionWidgets.lastIndex) == itemIndex) {
-                                                conditionSelectionOpen = !conditionSelectionOpen
+                                                verifySelectionOpen = !verifySelectionOpen
                                             } else {
                                                 verifyTargetIndex = itemIndex
-                                                conditionSelectionOpen = false
+                                                verifySelectionOpen = false
                                             }
                                         }
                                         )
@@ -431,14 +430,14 @@ private fun ScenarioEditorDialog(
                                 onValueChange = { verifyTimeoutText = it },
                                 label = { Text("Макс. секунд") },
                                 singleLine = true,
-                                modifier = Modifier.weight(1f).onFocusChanged { textInputFocused = it.isFocused }
+                                modifier = Modifier.weight(1f).onFocusChanged { verifySelectionOpen = !it.isFocused }
                             )
                             OutlinedTextField(
                                 value = verifyValueText,
                                 onValueChange = { verifyValueText = it },
                                 label = { Text("Ожидаемое значение") },
                                 singleLine = true,
-                                modifier = Modifier.weight(1f).onFocusChanged { textInputFocused = it.isFocused }
+                                modifier = Modifier.weight(1f).onFocusChanged { verifySelectionOpen = !it.isFocused }
                             )
                         }
 
@@ -447,14 +446,14 @@ private fun ScenarioEditorDialog(
                             onValueChange = { verifySuccessMessage = it },
                             label = { Text("Если подтверждено") },
                             singleLine = true,
-                            modifier = Modifier.onFocusChanged { textInputFocused = it.isFocused }
+                            modifier = Modifier.onFocusChanged { verifySelectionOpen = !it.isFocused }
                         )
                         OutlinedTextField(
                             value = verifyFailureMessage,
                             onValueChange = { verifyFailureMessage = it },
                             label = { Text("Если не подтверждено") },
                             singleLine = true,
-                            modifier = Modifier.onFocusChanged { textInputFocused = it.isFocused }
+                            modifier = Modifier.onFocusChanged { verifySelectionOpen = !it.isFocused }
                         )
                     }
 
