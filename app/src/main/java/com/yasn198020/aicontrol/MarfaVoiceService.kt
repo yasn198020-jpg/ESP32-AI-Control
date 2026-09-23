@@ -145,16 +145,42 @@ class MarfaVoiceService : Service() {
         if (command.isBlank()) return
 
         val trained = TrainedCommandMatcher(TrainedCommandStore(prefs)).matchAll(command)
+        android.util.Log.d("MARFA_TRAINED", "command=" + command + " matches=" + trained.size)
+
         if (trained.isNotEmpty()) {
             var sent = 0
+            var read = 0
+
             trained.forEach { action ->
-                if (action.value == TRAINED_READ_VALUE) return@forEach
+                if (action.value == TRAINED_READ_VALUE) {
+                    val widget = synchronizedCopyDevices()
+                        .firstOrNull { it.id == action.deviceId }
+                        ?.widgets
+                        ?.firstOrNull { it.id == action.widgetId }
+
+                    if (widget != null && widget.value.isNotBlank() && widget.value != "—") {
+                        speak(LocalCommandManager.formatTemperatureForSpeech(widget.value, widget.unit))
+                    } else {
+                        speak("Значение пока неизвестно")
+                    }
+                    read++
+                    return@forEach
+                }
+
                 if (mqtt?.publishControl(action.deviceId, action.widgetId, action.value) == true) {
                     sent++
                 }
             }
+
             if (sent > 0) {
                 speak(if (sent == 1) "Готово" else "Выполнено")
+                return
+            }
+
+            if (read > 0) return
+
+            if (mqtt?.isConnected() != true) {
+                speak("MQTT ещё не подключён")
                 return
             }
         }
