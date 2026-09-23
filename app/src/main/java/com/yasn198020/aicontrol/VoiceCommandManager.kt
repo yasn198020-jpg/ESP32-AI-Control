@@ -73,13 +73,15 @@ class VoiceCommandManager(
                 }
 
                 override fun onResults(results: android.os.Bundle?) {
+                    val finalCandidates = results
+                        ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                        .orEmpty()
+
+                    // Prefer the final recognition result. A partial result can
+                    // contain only the first word of a longer phrase.
                     val candidates = buildList {
+                        addAll(finalCandidates)
                         if (lastPartialText.isNotBlank()) add(lastPartialText)
-                        addAll(
-                            results
-                                ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                                .orEmpty()
-                        )
                     }
 
                     val text = candidates
