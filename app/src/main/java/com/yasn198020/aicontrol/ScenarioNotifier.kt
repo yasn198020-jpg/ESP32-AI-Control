@@ -10,12 +10,17 @@ import androidx.core.app.NotificationManagerCompat
 
 object ScenarioNotifier {
     private const val CHANNEL_ID = "scenario_alerts"
+    private const val TAG = "SCENARIO_NOTIFY"
 
     fun notify(context: Context, scenario: Scenario, rawValue: String) {
+        android.util.Log.d(TAG, "TRIGGER id=${scenario.id} value=$rawValue threshold=${scenario.threshold}")
         createChannel(context)
         if (android.os.Build.VERSION.SDK_INT >= 33 &&
             androidx.core.content.ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) return
+        ) {
+            android.util.Log.w(TAG, "POST_NOTIFICATIONS permission missing")
+            return
+        }
 
         val text = scenario.message
             .replace("{value}", rawValue)
@@ -24,7 +29,7 @@ object ScenarioNotifier {
             .replace("{widget}", scenario.widgetId)
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.app_icon)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle(scenario.title.ifBlank { "Сценарий" })
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
@@ -32,6 +37,7 @@ object ScenarioNotifier {
             .setAutoCancel(true)
             .build()
 
+        android.util.Log.d(TAG, "SHOW notification text=$text")
         NotificationManagerCompat.from(context).notify(
             scenario.id.hashCode() and 0x7fffffff,
             notification
