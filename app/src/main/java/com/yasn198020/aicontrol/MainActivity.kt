@@ -936,7 +936,7 @@ private fun App(
                     label = { Text("Команды") }
                 )
             }
-        } }
+        }
     ) { padding ->
         when (tab) {
             0 -> DevicesScreen(Modifier.padding(padding), devices, selectedPage, voiceText, voiceStatus,
