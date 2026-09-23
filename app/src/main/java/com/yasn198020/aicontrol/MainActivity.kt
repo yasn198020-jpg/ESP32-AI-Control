@@ -268,6 +268,43 @@ private fun App(
 
     fun addLog(message: String) { log = (log + message).takeLast(100) }
 
+    val requestMicPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        voiceStatus = if (granted) {
+            "Микрофон готов — удерживайте кнопку"
+        } else {
+            "Нужно разрешение на микрофон"
+        }
+    }
+
+    var pendingNotificationAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val requestNotificationPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) pendingNotificationAction?.invoke()
+        pendingNotificationAction = null
+    }
+
+    val scenarioStore = remember { ScenarioStore(prefs) }
+    val scenarioActionExecutor = remember { ScenarioActionExecutor() }
+    val scenarioEngine = remember {
+        ScenarioEngine(
+            scenarioStore,
+            onTrigger = { scenario, rawValue, _ ->
+                if (scenario.notificationEnabled) {
+                    ScenarioNotifier.notify(context, scenario, rawValue)
+                }
+                scenarioActionExecutor.execute(scenario)
+            },
+            onVerificationResult = { scenario, success, rawValue ->
+                if (scenario.notificationEnabled) {
+                    ScenarioNotifier.notifyVerification(context, scenario, success, rawValue)
+                }
+            }
+        )
+    }
+
     val deviceManager = remember {
         DeviceManager(
             onDevicesChanged = { devices = it },
@@ -276,51 +313,30 @@ private fun App(
             }
         )
     }
-    DisposableEffect(Unit) {
-        val receiver = object : android.content.BroadcastReceiver() {
-            override fun onReceive(context: Context, intent: Intent) {
-                if (intent.action == MarfaVoiceService.ACTION_VOICE_RESULT) {
-                    val text = intent.getStringExtra(MarfaVoiceService.EXTRA_TEXT).orEmpty()
-                    if (text.isNotBlank()) {
-                        voiceText = text
-                        voiceStatus = "Команда распознана"
-                    }
-                }
-            }
-        }
-        val filter = android.content.IntentFilter(MarfaVoiceService.ACTION_VOICE_RESULT)
-        androidx.core.content.ContextCompat.registerReceiver(
-            context,
-            receiver,
-            filter,
-            androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED
-        )
-        onDispose {
-            runCatching { context.unregisterReceiver(receiver) }
-        }
-    }
 
-    val voiceManager = remember {
-        VoiceCommandManager(
-            context = context,
-            onResult = { text ->
-                voiceText = text
-                if (trainingTarget != null) {
-                    trainingPhrase = text
-                    voiceStatus = "Фраза распознана: $text"
-                } else {
-                    voiceStatus = "Команда распознана"
-                }
-            },
+    val mqtt = remember {
+        MqttManager(
+            onLog = ::addLog,
+            onConnected = { value -> connected = value },
             onStatus = { deviceId, widgetId, value ->
                 scenarioEngine.onValue(deviceId, widgetId, value)
                 deviceManager.onStatus(deviceId, widgetId, value)
             },
             onConfig = { deviceId, widgetId, label, widgetType, page, topic, order, raw ->
-                deviceManager.onConfig(deviceId, widgetId, label, widgetType, page, topic, order, raw)
+                deviceManager.onConfig(
+                    deviceId,
+                    widgetId,
+                    label,
+                    widgetType,
+                    page,
+                    topic,
+                    order,
+                    raw
+                )
             }
         )
     }
+
     scenarioActionExecutor.mqtt = mqtt
 
     DisposableEffect(mqtt, voiceManager, speech) {
