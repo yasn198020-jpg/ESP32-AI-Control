@@ -260,7 +260,9 @@ private fun ScenarioEditorDialog(
                                 onValueChange = { drafts[index] = draft.copy(thresholdText = it) },
                                 label = { Text("Порог") },
                                 singleLine = true,
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .onFocusChanged { textInputFocused = it.isFocused }
                             )
                         }
                     }
