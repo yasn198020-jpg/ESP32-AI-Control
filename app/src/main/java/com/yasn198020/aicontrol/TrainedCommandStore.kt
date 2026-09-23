@@ -114,12 +114,14 @@ class TrainedCommandMatcher(private val store: TrainedCommandStore) {
         val commands = store.load()
         if (commands.isEmpty()) return emptyList()
 
+        // First priority: exact saved phrase or variant.
         val exact = commands.filter { command ->
             command.variants.any { normalize(it) == normalized } ||
                 normalize(command.phrase) == normalized
         }
         if (exact.isNotEmpty()) return exact
 
+        // Second priority: a saved phrase contained in a longer spoken sentence.
         val contained = commands
             .filter { command ->
                 command.variants.any { variant ->
@@ -131,6 +133,31 @@ class TrainedCommandMatcher(private val store: TrainedCommandStore) {
 
         if (contained.isNotEmpty()) {
             return contained.values.flatten()
+        }
+
+        // Third priority: when speech is shorter but contains all meaningful
+        // words of a trained phrase, for example:
+        // saved: "какая температура в теплице"
+        // spoken: "какая температура".
+        val partial = commands
+            .filter { command ->
+                command.variants.any { variant ->
+                    val v = normalize(variant)
+                    v.isNotBlank() && phraseWordsContainedInText(normalized, v)
+                }
+            }
+            .groupBy { normalize(it.phrase) }
+
+        if (partial.isNotEmpty()) {
+            val best = partial.values
+                .flatten()
+                .groupBy { normalize(it.phrase) }
+                .maxByOrNull { (_, group) ->
+                    group.maxOfOrNull { action ->
+                        action.variants.maxOfOrNull { similarityAgainstText(normalized, normalize(it)) } ?: 0.0
+                    } ?: 0.0
+                }
+            if (best != null) return best.value
         }
 
         val candidates = commands
@@ -149,8 +176,6 @@ class TrainedCommandMatcher(private val store: TrainedCommandStore) {
         if (candidates.isEmpty()) return emptyList()
 
         val bestScore = candidates.maxOf { it.second }
-        if (bestScore < 0.78) return emptyList()
-
         val bestGroups = candidates
             .filter { it.second >= bestScore - 0.04 }
             .map { it.first }
@@ -162,6 +187,14 @@ class TrainedCommandMatcher(private val store: TrainedCommandStore) {
     private fun containsPhrase(text: String, phrase: String): Boolean {
         if (text == phrase) return true
         return (" $text ").contains(" $phrase ")
+    }
+
+    private fun phraseWordsContainedInText(text: String, phrase: String): Boolean {
+        val textWords = text.split(" ").filter { it.isNotBlank() }.map(::stem).toSet()
+        val phraseWords = phrase.split(" ").filter { it.isNotBlank() }.map(::stem).toSet()
+        if (textWords.isEmpty() || phraseWords.isEmpty()) return false
+        if (!textWords.all { it.length >= 3 }) return false
+        return textWords.all { spokenWord -> phraseWords.any { savedWord -> savedWord == spokenWord } }
     }
 
     private fun similarityAgainstText(text: String, phrase: String): Double {
@@ -181,9 +214,7 @@ class TrainedCommandMatcher(private val store: TrainedCommandStore) {
         }
 
         return windows.maxOfOrNull { window ->
-            val charScore = normalizedEditSimilarity(window, phrase)
-            val tokenScore = tokenSimilarity(window, phrase)
-            maxOf(charScore, tokenScore)
+            maxOf(normalizedEditSimilarity(window, phrase), tokenSimilarity(window, phrase))
         } ?: 0.0
     }
 
@@ -243,8 +274,8 @@ class TrainedCommandMatcher(private val store: TrainedCommandStore) {
             .replace('ё', 'е')
             .replace(Regex("[^a-zа-я0-9]+"), " ")
             .trim()
-            .replace(Regex("""\s+"""), " ")
-            .replace(Regex("""^марф(а|у|е|ой)\b\s*"""), "")
+            .replace(Regex("""s+"""), " ")
+            .replace(Regex("""^марф(а|у|е|ой)s*"""), "")
             .trim()
-            .replace(Regex("""\s+"""), " ")
+            .replace(Regex("""s+"""), " ")
 }
