@@ -90,6 +90,7 @@ private fun ScenarioEditorDialog(
     var actionValue by remember { mutableStateOf("1") }
     var menuOpen by remember { mutableStateOf(false) }
     var actionMenuOpen by remember { mutableStateOf(false) }
+    var targetMenuOpen by remember { mutableStateOf(false) }
     var valueMenuOpen by remember { mutableStateOf(false) }
 
     AlertDialog(
@@ -142,14 +143,14 @@ private fun ScenarioEditorDialog(
                             val safeActionIndex = actionIndex.coerceIn(0, controls.lastIndex)
                             val target = controls[safeActionIndex]
                             Box {
-                                OutlinedButton(onClick = { actionMenuOpen = true }) {
+                                OutlinedButton(onClick = { targetMenuOpen = true }) {
                                     Text("${target.first.id} / ${target.second.id}  ${target.second.title}")
                                 }
-                                DropdownMenu(expanded = actionMenuOpen, onDismissRequest = { actionMenuOpen = false }) {
+                                DropdownMenu(expanded = targetMenuOpen, onDismissRequest = { targetMenuOpen = false }) {
                                     controls.forEachIndexed { index, item ->
                                         DropdownMenuItem(
                                             text = { Text("${item.first.id} / ${item.second.id}  ${item.second.title}") },
-                                            onClick = { actionIndex = index; actionMenuOpen = false }
+                                            onClick = { actionIndex = index; targetMenuOpen = false }
                                         )
                                     }
                                 }
