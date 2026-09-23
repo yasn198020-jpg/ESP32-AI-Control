@@ -44,11 +44,15 @@ class MqttBackgroundService : Service() {
         scenarioEngine = ScenarioEngine(
             scenarioStore,
             onTrigger = { scenario, rawValue, _ ->
-                ScenarioNotifier.notify(this, scenario, rawValue)
+                if (scenario.notificationEnabled) {
+                    ScenarioNotifier.notify(this, scenario, rawValue)
+                }
                 scenarioActionExecutor.execute(scenario)
             },
             onVerificationResult = { scenario, success, rawValue ->
-                ScenarioNotifier.notifyVerification(this, scenario, success, rawValue)
+                if (scenario.notificationEnabled) {
+                    ScenarioNotifier.notifyVerification(this, scenario, success, rawValue)
+                }
             }
         )
         mqtt = MqttManager(
