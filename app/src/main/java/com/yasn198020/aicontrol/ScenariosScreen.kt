@@ -280,7 +280,7 @@ private fun ScenarioEditorDialog(
                                 singleLine = true,
                                 modifier = Modifier
                                     .weight(1f)
-                                    .onFocusChanged { if (it.isFocused) conditionSelectionOpen = false }
+                                    .onFocusChanged { if (it.isFocused) conditionSelectionOpen = true }
                             )
                         }
                     }
@@ -439,14 +439,14 @@ private fun ScenarioEditorDialog(
                                 onValueChange = { verifyTimeoutText = it },
                                 label = { Text("Макс. секунд") },
                                 singleLine = true,
-                                modifier = Modifier.weight(1f).onFocusChanged { if (it.isFocused) verifySelectionOpen = false }
+                                modifier = Modifier.weight(1f).onFocusChanged { if (it.isFocused) verifySelectionOpen = true }
                             )
                             OutlinedTextField(
                                 value = verifyValueText,
                                 onValueChange = { verifyValueText = it },
                                 label = { Text("Ожидаемое значение") },
                                 singleLine = true,
-                                modifier = Modifier.weight(1f).onFocusChanged { if (it.isFocused) verifySelectionOpen = false }
+                                modifier = Modifier.weight(1f).onFocusChanged { if (it.isFocused) verifySelectionOpen = true }
                             )
                         }
 
@@ -455,14 +455,14 @@ private fun ScenarioEditorDialog(
                             onValueChange = { verifySuccessMessage = it },
                             label = { Text("Если подтверждено") },
                             singleLine = true,
-                            modifier = Modifier.onFocusChanged { if (it.isFocused) verifySelectionOpen = false }
+                            modifier = Modifier.onFocusChanged { if (it.isFocused) verifySelectionOpen = true }
                         )
                         OutlinedTextField(
                             value = verifyFailureMessage,
                             onValueChange = { verifyFailureMessage = it },
                             label = { Text("Если не подтверждено") },
                             singleLine = true,
-                            modifier = Modifier.onFocusChanged { if (it.isFocused) verifySelectionOpen = false }
+                            modifier = Modifier.onFocusChanged { if (it.isFocused) verifySelectionOpen = true }
                         )
                     }
 
