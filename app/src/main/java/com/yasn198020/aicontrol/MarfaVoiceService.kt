@@ -123,9 +123,7 @@ class MarfaVoiceService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (mqtt?.isConnected() == true) {
-            voiceManager?.startWakeWord()
-        }
+        voiceManager?.startWakeWord()
         return START_STICKY
     }
 
