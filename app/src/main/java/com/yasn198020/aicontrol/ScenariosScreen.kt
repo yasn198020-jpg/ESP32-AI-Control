@@ -92,17 +92,34 @@ private fun ScenarioEditorDialog(
     onDismiss: () -> Unit,
     onSave: (Scenario) -> Unit
 ) {
-    val conditionWidgets = devices.flatMap { device ->
-        device.widgets.filter {
-            it.type == WidgetState.Type.VALUE ||
-            it.type == WidgetState.Type.STATUS ||
-            it.type == WidgetState.Type.TOGGLE ||
-            it.type == WidgetState.Type.BUTTON
-        }.map { device to it }
-    }
-    val controls = devices.flatMap { d ->
-        d.widgets.filter { it.type == WidgetState.Type.TOGGLE || it.type == WidgetState.Type.BUTTON }.map { d to it }
-    }
+    // Порядок такой же, как на главном экране:
+    // сначала order, затем название виджета.
+    val conditionWidgets = devices
+        .flatMap { device ->
+            device.widgets.filter {
+                it.type == WidgetState.Type.VALUE ||
+                it.type == WidgetState.Type.STATUS ||
+                it.type == WidgetState.Type.TOGGLE ||
+                it.type == WidgetState.Type.BUTTON
+            }.map { device to it }
+        }
+        .sortedWith(
+            compareBy<Pair<Device, WidgetState>> { it.second.order }
+                .thenBy { it.second.title }
+                .thenBy { it.first.id }
+        )
+
+    val controls = devices
+        .flatMap { device ->
+            device.widgets
+                .filter { it.type == WidgetState.Type.TOGGLE || it.type == WidgetState.Type.BUTTON }
+                .map { device to it }
+        }
+        .sortedWith(
+            compareBy<Pair<Device, WidgetState>> { it.second.order }
+                .thenBy { it.second.title }
+                .thenBy { it.first.id }
+        )
 
     val drafts = remember { mutableStateListOf(ConditionDraft()) }
     var title by remember { mutableStateOf("Температура высокая") }
