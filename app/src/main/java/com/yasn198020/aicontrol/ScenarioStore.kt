@@ -163,7 +163,7 @@ class ScenarioEngine(
     private val verificationTasks = mutableMapOf<String, java.util.concurrent.ScheduledFuture<*>>()
     private val scheduler = java.util.concurrent.Executors.newSingleThreadScheduledExecutor()
 
-    private fun key(deviceId: String, widgetId: String) = "$deviceId/$widgetId"
+    private fun key(deviceId: String, widgetId: String) = "\$deviceId/\$widgetId"
 
     private fun conditionMatches(condition: ScenarioCondition): Boolean? {
         val value = values[key(condition.deviceId, condition.widgetId)] ?: return null
@@ -197,14 +197,9 @@ class ScenarioEngine(
         }
     }
 
-    private fun startVerification(scenario: Scenario, triggerRawValue: String) {
-        if (!scenario.verifyEnabled ||
-            scenario.verifyDeviceId.isBlank() ||
-            scenario.verifyWidgetId.isBlank()
-        ) return
-
+    private fun startVerification(scenario: Scenario) {
+        if (!scenario.verifyEnabled || scenario.verifyDeviceId.isBlank() || scenario.verifyWidgetId.isBlank()) return
         verificationTasks.remove(scenario.id)?.cancel(false)
-
         verificationTasks[scenario.id] = scheduler.schedule({
             synchronized(this) {
                 verificationTasks.remove(scenario.id)
@@ -242,7 +237,7 @@ class ScenarioEngine(
             if (matched && scenario.armed) {
                 onTrigger(scenario, rawValue, value)
                 store.update(scenario.copy(armed = false))
-                startVerification(scenario, rawValue)
+                startVerification(scenario)
             } else if (!matched && !scenario.armed) {
                 store.update(scenario.copy(armed = true))
             }
