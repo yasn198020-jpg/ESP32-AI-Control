@@ -38,7 +38,7 @@
             android:foregroundServiceType="microphone" />
         <activity
             android:name=".MarfaToggleActivity"
-            android:exported="false"
+            android:exported="true"
             android:noHistory="true"
             android:excludeFromRecents="true"
             android:theme="@style/Theme.App.NoActionBar" />
