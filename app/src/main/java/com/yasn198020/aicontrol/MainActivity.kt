@@ -82,9 +82,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onNewIntent(intent: Intent?) {
+    override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        if (intent?.action == ACTION_WIDGET_VOICE) {
+        if (intent.action == ACTION_WIDGET_VOICE) {
             setIntent(intent)
             recreate()
         }
