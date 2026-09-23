@@ -25,6 +25,7 @@ class MarfaVoiceService : Service() {
     private var mqtt: MqttManager? = null
     private var tts: TextToSpeech? = null
     private val devices = mutableListOf<Device>()
+    private val pendingValues = mutableMapOf<String, String>()
     private lateinit var prefs: android.content.SharedPreferences
 
     override fun onCreate() {
@@ -58,13 +59,22 @@ class MarfaVoiceService : Service() {
             },
             onStatus = { deviceId, widgetId, value ->
                 synchronized(devices) {
-                    val device = devices.firstOrNull { it.id == deviceId }
-                    if (device != null) {
-                        val widgets = device.widgets.map {
-                            if (it.id == widgetId) it.copy(value = value) else it
+                    val key = "$deviceId/$widgetId"
+                    val deviceIndex = devices.indexOfFirst { it.id == deviceId }
+                    if (deviceIndex < 0) {
+                        pendingValues[key] = value
+                    } else {
+                        val device = devices[deviceIndex]
+                        val widgetIndex = device.widgets.indexOfFirst { it.id == widgetId }
+                        if (widgetIndex < 0) {
+                            pendingValues[key] = value
+                            devices[deviceIndex] = device.copy(online = true)
+                        } else {
+                            val widgets = device.widgets.map {
+                                if (it.id == widgetId) it.copy(value = value) else it
+                            }
+                            devices[deviceIndex] = device.copy(online = true, widgets = widgets)
                         }
-                        val index = devices.indexOf(device)
-                        devices[index] = device.copy(online = true, widgets = widgets)
                     }
                 }
             },
@@ -80,11 +90,13 @@ class MarfaVoiceService : Service() {
                     val index = devices.indexOfFirst { it.id == deviceId }
                     val device = if (index >= 0) devices[index] else Device(deviceId, deviceId, true, emptyList())
                     val existing = device.widgets.firstOrNull { it.id == widgetId }
+                    val key = "$deviceId/$widgetId"
+                    val pendingValue = pendingValues[key]
                     val widget = WidgetState(
                         id = widgetId,
                         title = label.ifBlank { widgetId },
                         type = type,
-                        value = existing?.value ?: "",
+                        value = pendingValue ?: existing?.value ?: "",
                         page = page.ifBlank { "Основная" },
                         topic = topic,
                         order = order,
@@ -97,6 +109,7 @@ class MarfaVoiceService : Service() {
                     }
                     val updated = device.copy(online = true, widgets = widgets)
                     if (index >= 0) devices[index] = updated else devices.add(updated)
+                    if (pendingValue != null) pendingValues.remove(key)
                 }
             }
         )
