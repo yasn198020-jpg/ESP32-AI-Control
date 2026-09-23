@@ -282,7 +282,7 @@ private fun ScenarioEditorDialog(
                                 singleLine = true,
                                 modifier = Modifier
                                     .weight(1f)
-                                    .onFocusChanged { if (it.isFocused) conditionSelectionOpen = true }
+                                    .onFocusChanged { if (it.isFocused) conditionSelectionOpen = false }
                             )
                         }
                     }
@@ -441,7 +441,7 @@ private fun ScenarioEditorDialog(
                                 onValueChange = { verifyTimeoutText = it },
                                 label = { Text("Макс. секунд") },
                                 singleLine = true,
-                                modifier = Modifier.weight(1f).onFocusChanged { if (it.isFocused) verifySelectionOpen = true }
+                                modifier = Modifier.weight(1f).onFocusChanged { if (it.isFocused) verifySelectionOpen = false }
                             )
                             OutlinedTextField(
                                 value = verifyValueText,
@@ -457,7 +457,7 @@ private fun ScenarioEditorDialog(
                             onValueChange = { verifySuccessMessage = it },
                             label = { Text("Если подтверждено") },
                             singleLine = true,
-                            modifier = Modifier.onFocusChanged { if (it.isFocused) verifySelectionOpen = true }
+                            modifier = Modifier.onFocusChanged { if (it.isFocused) verifySelectionOpen = false }
                         )
                         OutlinedTextField(
                             value = verifyFailureMessage,
