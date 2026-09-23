@@ -116,7 +116,9 @@ private fun App(
     var variantPhraseText by remember { mutableStateOf("") }
     var updateStatus by remember { mutableStateOf<String?>(null) }
     var latestReleaseUrl by remember { mutableStateOf<String?>(null) }
+    var latestApkUrl by remember { mutableStateOf<String?>(null) }
     var updateDialogOpen by remember { mutableStateOf(false) }
+    var updateDownloading by remember { mutableStateOf(false) }
     var voicePreset by remember { mutableStateOf(prefs.getString("voice_preset", "friendly") ?: "friendly") }
     var voiceRate by remember { mutableFloatStateOf(prefs.getFloat("voice_rate", 0.92f)) }
     var voicePitch by remember { mutableFloatStateOf(prefs.getFloat("voice_pitch", 1.05f)) }
@@ -543,21 +545,29 @@ private fun App(
 
     if (updateDialogOpen && updateStatus != null) {
         AlertDialog(
-            onDismissRequest = { updateDialogOpen = false },
+            onDismissRequest = { if (!updateDownloading) updateDialogOpen = false },
             title = { Text("Обновление приложения") },
             text = { Text(updateStatus.orEmpty()) },
             confirmButton = {
-                if (latestReleaseUrl != null) {
-                    TextButton(onClick = {
+                when {
+                    updateDownloading -> TextButton(onClick = { }) { Text("Скачивание…") }
+                    latestApkUrl != null -> TextButton(onClick = {
+                        updateDownloading = true
+                        updateStatus = "Скачиваю новую версию…"
+                        UpdateManager.downloadAndInstall(context, latestApkUrl!!) { message ->
+                            updateDownloading = false
+                            updateStatus = message
+                        }
+                    }) { Text("Обновить") }
+                    latestReleaseUrl != null -> TextButton(onClick = {
                         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(latestReleaseUrl)))
                         updateDialogOpen = false
                     }) { Text("Открыть загрузку") }
-                } else {
-                    TextButton(onClick = { updateDialogOpen = false }) { Text("OK") }
+                    else -> TextButton(onClick = { updateDialogOpen = false }) { Text("OK") }
                 }
             },
             dismissButton = {
-                TextButton(onClick = { updateDialogOpen = false }) { Text("Закрыть") }
+                if (!updateDownloading) TextButton(onClick = { updateDialogOpen = false }) { Text("Закрыть") }
             }
         )
     }
@@ -762,10 +772,13 @@ private fun App(
                                     menuOpen = false
                                     updateStatus = "Проверяю последнюю версию…"
                                     latestReleaseUrl = null
+                                    latestApkUrl = null
+                                    updateDownloading = false
                                     updateDialogOpen = true
                                     UpdateManager.checkLatest(BuildConfig.VERSION_NAME) { result ->
                                         updateStatus = result.message
                                         latestReleaseUrl = result.url
+                                        latestApkUrl = result.apkUrl
                                     }
                                 }
                             )
