@@ -55,6 +55,33 @@ object ScenarioNotifier {
         )
     }
 
+    fun notifyVerification(context: Context, scenario: Scenario, success: Boolean, rawValue: String) {
+        createChannel(context)
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            androidx.core.content.ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) return
+
+        val template = if (success) scenario.verifySuccessMessage else scenario.verifyFailureMessage
+        val text = template
+            .replace("{value}", rawValue)
+            .replace("{threshold}", scenario.verifyValue.toString().removeSuffix(".0"))
+            .replace("{device}", scenario.verifyDeviceId)
+            .replace("{widget}", scenario.verifyWidgetId)
+
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle(if (success) "Подтверждение: ${scenario.title}" else "Не подтверждено: ${scenario.title}")
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .build()
+
+        NotificationManagerCompat.from(context).notify(
+            (scenario.id.hashCode() + if (success) 1001 else 1002) and 0x7fffffff,
+            notification
+        )
+    }
     private fun createChannel(context: Context) {
         if (android.os.Build.VERSION.SDK_INT >= 26) {
             val manager = context.getSystemService(NotificationManager::class.java)
