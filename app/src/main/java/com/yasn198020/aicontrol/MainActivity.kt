@@ -336,11 +336,15 @@ private fun App(
         ScenarioEngine(
             scenarioStore,
             onTrigger = { scenario, rawValue, _ ->
-                ScenarioNotifier.notify(context, scenario, rawValue)
+                if (scenario.notificationEnabled) {
+                    ScenarioNotifier.notify(context, scenario, rawValue)
+                }
                 scenarioActionExecutor.execute(scenario)
             },
             onVerificationResult = { scenario, success, rawValue ->
-                ScenarioNotifier.notifyVerification(context, scenario, success, rawValue)
+                if (scenario.notificationEnabled) {
+                    ScenarioNotifier.notifyVerification(context, scenario, success, rawValue)
+                }
             }
         )
     }
