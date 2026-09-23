@@ -18,7 +18,9 @@ class VoiceCommandManager(
 ) {
     private var recognizer: SpeechRecognizer? = null
     private var wakeWordEnabled = false
+    private var commandMode = false
     private var wakeWordDetected = false
+    private var lastPartialText = ""
     private val handler = Handler(Looper.getMainLooper())
 
     private fun hasMicrophonePermission(): Boolean =
@@ -32,7 +34,9 @@ class VoiceCommandManager(
 
     fun startWakeWord() {
         wakeWordEnabled = true
+        commandMode = false
         wakeWordDetected = false
+        lastPartialText = ""
 
         if (!hasMicrophonePermission()) {
             onStatus("Нужно разрешение на микрофон")
@@ -44,129 +48,23 @@ class VoiceCommandManager(
             return
         }
 
-        startWakeRecognizer()
+        startRecognitionSession()
     }
 
-    private fun startWakeRecognizer() {
+    private fun startRecognitionSession() {
         if (!wakeWordEnabled || !available()) return
 
         stopRecognizerOnly()
         wakeWordDetected = false
+        lastPartialText = ""
 
         recognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
             setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(params: android.os.Bundle?) {
-                    onStatus("Слушаю: «Марфа»")
+                    onStatus(if (commandMode) "Говорите команду…" else "Слушаю: «Марфа»")
                 }
 
                 override fun onBeginningOfSpeech() = Unit
-                override fun onRmsChanged(rmsdB: Float) = Unit
-                override fun onBufferReceived(buffer: ByteArray?) = Unit
-                override fun onEndOfSpeech() {
-                    if (wakeWordDetected) onStatus("Обрабатываю команду…")
-                }
-
-                override fun onError(error: Int) {
-                    stopRecognizerOnly()
-                    if (wakeWordEnabled) {
-                        handler.postDelayed({ startWakeRecognizer() }, 1200L)
-                    }
-                }
-
-                override fun onResults(results: android.os.Bundle?) {
-                    val resultsList = results
-                        ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                        .orEmpty()
-
-                    val best = resultsList.firstOrNull().orEmpty().trim()
-                    val detected = wakeWordDetected || resultsList.any { containsWakeWord(it) }
-
-                    stopRecognizerOnly()
-
-                    if (detected) {
-                        val command = extractCommandAfterWakeWord(best)
-                        wakeWordEnabled = false
-                        wakeWordDetected = false
-                        handler.removeCallbacksAndMessages(null)
-
-                        if (command.isNotBlank()) {
-                            onStatus("Команда: $command")
-                            onResult(command)
-                            handler.postDelayed({ startWakeWord() }, 500L)
-                        } else {
-                            onStatus("Марфа услышала. Говорите команду…")
-                            onWakeWord()
-                        }
-                    } else if (wakeWordEnabled) {
-                        handler.postDelayed({ startWakeRecognizer() }, 500L)
-                    }
-                }
-
-                override fun onPartialResults(partialResults: android.os.Bundle?) {
-                    val partials = partialResults
-                        ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                        .orEmpty()
-
-                    if (wakeWordEnabled && partials.any { containsWakeWord(it) }) {
-                        wakeWordDetected = true
-                        onStatus("Марфа услышала. Продолжайте…")
-                    }
-                }
-
-                override fun onEvent(eventType: Int, params: android.os.Bundle?) = Unit
-            })
-        }
-
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ru-RU")
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "ru-RU")
-            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
-            // Keep the wake-word recognition session open longer so the microphone does not
-            // repeatedly turn on/off while waiting for «Марфа».
-            putExtra("android.speech.extra.SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS", 300000L)
-            putExtra("android.speech.extra.SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS", 300000L)
-            putExtra("android.speech.extra.SPEECH_INPUT_MINIMUM_LENGTH_MILLIS", 300000L)
-            putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
-            putExtra(RecognizerIntent.EXTRA_PROMPT, "Скажите «Марфа»")
-        }
-
-        try {
-            recognizer?.startListening(intent)
-        } catch (_: Exception) {
-            stopRecognizerOnly()
-            if (wakeWordEnabled) {
-                handler.postDelayed({ startWakeRecognizer() }, 800L)
-            }
-        }
-    }
-
-    fun startRussian() {
-        wakeWordEnabled = false
-
-        if (!hasMicrophonePermission()) {
-            onStatus("Нет разрешения на микрофон")
-            return
-        }
-
-        if (!SpeechRecognizer.isRecognitionAvailable(context)) {
-            onStatus("На телефоне нет доступного сервиса распознавания речи")
-            return
-        }
-
-        stopRecognizerOnly()
-
-        recognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
-            setRecognitionListener(object : RecognitionListener {
-                override fun onReadyForSpeech(params: android.os.Bundle?) {
-                    onStatus("Говорите…")
-                }
-
-                override fun onBeginningOfSpeech() {
-                    onStatus("Слушаю…")
-                }
-
                 override fun onRmsChanged(rmsdB: Float) = Unit
                 override fun onBufferReceived(buffer: ByteArray?) = Unit
 
@@ -175,44 +73,82 @@ class VoiceCommandManager(
                 }
 
                 override fun onError(error: Int) {
-                    onStatus(
-                        when (error) {
-                            SpeechRecognizer.ERROR_NO_MATCH -> "Не удалось распознать команду"
-                            SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Не услышал команду"
-                            SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Нет разрешения на микрофон"
-                            else -> "Ошибка распознавания: $error"
-                        }
-                    )
                     stopRecognizerOnly()
-                    startWakeWord()
+
+                    if (wakeWordEnabled) {
+                        val delay = if (commandMode) 350L else 900L
+                        handler.postDelayed({ startRecognitionSession() }, delay)
+                    }
                 }
 
                 override fun onResults(results: android.os.Bundle?) {
-                    val text = results
+                    val resultsList = results
                         ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                        ?.firstOrNull()
-                        ?.trim()
                         .orEmpty()
 
-                    if (text.isBlank()) {
-                        onStatus("Команда не распознана")
-                    } else {
-                        onResult(text)
-                        onStatus("Команда распознана")
+                    // Some Android speech services return a shorter final result than the
+                    // partial result. Keep the last partial so words after «Марфа» are not lost.
+                    val candidates = buildList {
+                        if (lastPartialText.isNotBlank()) add(lastPartialText)
+                        addAll(resultsList)
                     }
 
+                    val best = candidates.firstOrNull().orEmpty().trim()
+                    val detected = wakeWordDetected || candidates.any { containsWakeWord(it) }
+
                     stopRecognizerOnly()
-                    startWakeWord()
+
+                    if (!wakeWordEnabled) return
+
+                    if (detected) {
+                        val command = candidates
+                            .asSequence()
+                            .map { extractCommandAfterWakeWord(it) }
+                            .firstOrNull { it.isNotBlank() }
+                            .orEmpty()
+
+                        if (command.isNotBlank()) {
+                            commandMode = false
+                            wakeWordDetected = false
+                            lastPartialText = ""
+                            onStatus("Команда: $command")
+                            onResult(command)
+
+                            handler.removeCallbacksAndMessages(null)
+                            handler.postDelayed({ startRecognitionSession() }, 450L)
+                        } else {
+                            // «Марфа» was spoken without a command. Only now start a short
+                            // command session. This is the only intentional microphone handoff.
+                            commandMode = true
+                            wakeWordDetected = false
+                            lastPartialText = ""
+                            onStatus("Марфа услышала. Говорите команду…")
+                            onWakeWord()
+                            handler.removeCallbacksAndMessages(null)
+                            handler.postDelayed({ startRecognitionSession() }, 120L)
+                        }
+                    } else {
+                        commandMode = false
+                        wakeWordDetected = false
+                        lastPartialText = ""
+                        handler.postDelayed({ startRecognitionSession() }, 350L)
+                    }
                 }
 
                 override fun onPartialResults(partialResults: android.os.Bundle?) {
-                    val partial = partialResults
+                    val partials = partialResults
                         ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                        ?.firstOrNull()
-                        ?.trim()
                         .orEmpty()
 
-                    if (partial.isNotBlank()) {
+                    val partial = partials.firstOrNull()?.trim().orEmpty()
+                    if (partial.isBlank()) return
+
+                    lastPartialText = partial
+
+                    if (!commandMode && containsWakeWord(partial)) {
+                        wakeWordDetected = true
+                        onStatus("Марфа услышала. Продолжайте…")
+                    } else if (commandMode) {
                         onStatus("Слышу: $partial")
                     }
                 }
@@ -227,21 +163,43 @@ class VoiceCommandManager(
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "ru-RU")
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
-            // Give enough time to say the command after «Марфа».
-            putExtra("android.speech.extra.SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS", 5000L)
-            putExtra("android.speech.extra.SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS", 5000L)
-            putExtra("android.speech.extra.SPEECH_INPUT_MINIMUM_LENGTH_MILLIS", 5000L)
+
+            if (commandMode) {
+                // Five seconds is enough to finish the command after «Марфа».
+                putExtra("android.speech.extra.SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS", 5000L)
+                putExtra("android.speech.extra.SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS", 5000L)
+                putExtra("android.speech.extra.SPEECH_INPUT_MINIMUM_LENGTH_MILLIS", 5000L)
+                putExtra(RecognizerIntent.EXTRA_PROMPT, "Говорите команду")
+            } else {
+                // Keep wake-word sessions long to reduce microphone on/off cycling.
+                putExtra("android.speech.extra.SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS", 300000L)
+                putExtra("android.speech.extra.SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS", 300000L)
+                putExtra("android.speech.extra.SPEECH_INPUT_MINIMUM_LENGTH_MILLIS", 300000L)
+                putExtra(RecognizerIntent.EXTRA_PROMPT, "Скажите «Марфа»")
+            }
+
             putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
-            putExtra(RecognizerIntent.EXTRA_PROMPT, "Говорите команду")
         }
 
         try {
             recognizer?.startListening(intent)
-        } catch (e: Exception) {
-            onStatus("Не удалось запустить микрофон: " + (e.message ?: "ошибка"))
+        } catch (_: Exception) {
             stopRecognizerOnly()
-            startWakeWord()
+            if (wakeWordEnabled) {
+                handler.postDelayed({ startRecognitionSession() }, 800L)
+            }
         }
+    }
+
+    fun startRussian() {
+        // Kept for compatibility with the existing UI. The actual command mode is now
+        // controlled internally, so MainActivity does not need to create a second session.
+        wakeWordEnabled = true
+        commandMode = true
+        wakeWordDetected = false
+        lastPartialText = ""
+        handler.removeCallbacksAndMessages(null)
+        startRecognitionSession()
     }
 
     private fun extractCommandAfterWakeWord(text: String): String {
@@ -251,7 +209,7 @@ class VoiceCommandManager(
             .replace(Regex("[^а-яa-z0-9]+"), " ")
             .trim()
 
-        val words = normalized.split(Regex("\\s+"))
+        val words = normalized.split(Regex("\s+"))
         val index = words.indexOfFirst {
             it == "марфа" || it == "марфу" || it == "марфе" || it == "марфой"
         }
@@ -267,7 +225,7 @@ class VoiceCommandManager(
             .replace(Regex("[^а-яa-z0-9]+"), " ")
             .trim()
 
-        return normalized.split(Regex("\\s+"))
+        return normalized.split(Regex("\s+"))
             .any { it == "марфа" || it == "марфу" || it == "марфе" || it == "марфой" }
     }
 
@@ -283,7 +241,9 @@ class VoiceCommandManager(
 
     fun stop() {
         wakeWordEnabled = false
+        commandMode = false
         wakeWordDetected = false
+        lastPartialText = ""
         handler.removeCallbacksAndMessages(null)
         stopRecognizerOnly()
     }
