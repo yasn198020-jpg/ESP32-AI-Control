@@ -163,7 +163,7 @@ class ScenarioEngine(
     private val verificationTasks = mutableMapOf<String, java.util.concurrent.ScheduledFuture<*>>()
     private val scheduler = java.util.concurrent.Executors.newSingleThreadScheduledExecutor()
 
-    private fun key(deviceId: String, widgetId: String) = "\$deviceId/\$widgetId"
+    private fun key(deviceId: String, widgetId: String) = "$deviceId/$widgetId"
 
     private fun conditionMatches(condition: ScenarioCondition): Boolean? {
         val value = values[key(condition.deviceId, condition.widgetId)] ?: return null
