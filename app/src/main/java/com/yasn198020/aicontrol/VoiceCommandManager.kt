@@ -18,6 +18,7 @@ class VoiceCommandManager(
 ) {
     private var recognizer: SpeechRecognizer? = null
     private var wakeWordEnabled = false
+    private var wakeWordDetected = false
     private val handler = Handler(Looper.getMainLooper())
 
     private fun hasMicrophonePermission(): Boolean =
@@ -31,6 +32,7 @@ class VoiceCommandManager(
 
     fun startWakeWord() {
         wakeWordEnabled = true
+        wakeWordDetected = false
 
         if (!hasMicrophonePermission()) {
             onStatus("Нужно разрешение на микрофон")
@@ -49,6 +51,7 @@ class VoiceCommandManager(
         if (!wakeWordEnabled || !available()) return
 
         stopRecognizerOnly()
+        wakeWordDetected = false
 
         recognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
             setRecognitionListener(object : RecognitionListener {
@@ -59,7 +62,9 @@ class VoiceCommandManager(
                 override fun onBeginningOfSpeech() = Unit
                 override fun onRmsChanged(rmsdB: Float) = Unit
                 override fun onBufferReceived(buffer: ByteArray?) = Unit
-                override fun onEndOfSpeech() = Unit
+                override fun onEndOfSpeech() {
+                    if (wakeWordDetected) onStatus("Обрабатываю команду…")
+                }
 
                 override fun onError(error: Int) {
                     stopRecognizerOnly()
@@ -73,19 +78,27 @@ class VoiceCommandManager(
                         ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                         .orEmpty()
 
-                    val wakeDetected = resultsList.any { containsWakeWord(it) }
+                    val best = resultsList.firstOrNull().orEmpty().trim()
+                    val detected = wakeWordDetected || resultsList.any { containsWakeWord(it) }
 
                     stopRecognizerOnly()
 
-                    if (wakeDetected && wakeWordEnabled) {
-                        // Hand the microphone directly to command recognition.
-                        // Do not start another wake session after the wake word.
+                    if (detected) {
+                        val command = extractCommandAfterWakeWord(best)
                         wakeWordEnabled = false
+                        wakeWordDetected = false
                         handler.removeCallbacksAndMessages(null)
-                        onStatus("Марфа услышала. Говорите команду…")
-                        onWakeWord()
+
+                        if (command.isNotBlank()) {
+                            onStatus("Команда: $command")
+                            onResult(command)
+                            handler.postDelayed({ startWakeWord() }, 500L)
+                        } else {
+                            onStatus("Марфа услышала. Говорите команду…")
+                            onWakeWord()
+                        }
                     } else if (wakeWordEnabled) {
-                        handler.postDelayed({ startWakeRecognizer() }, 700L)
+                        handler.postDelayed({ startWakeRecognizer() }, 500L)
                     }
                 }
 
@@ -95,13 +108,8 @@ class VoiceCommandManager(
                         .orEmpty()
 
                     if (wakeWordEnabled && partials.any { containsWakeWord(it) }) {
-                        // Do not restart the wake recognizer here. The UI immediately
-                        // switches to command recognition after onWakeWord().
-                        wakeWordEnabled = false
-                        handler.removeCallbacksAndMessages(null)
-                        stopRecognizerOnly()
-                        onStatus("Марфа услышала. Говорите команду…")
-                        onWakeWord()
+                        wakeWordDetected = true
+                        onStatus("Марфа услышала. Продолжайте…")
                     }
                 }
 
@@ -236,6 +244,22 @@ class VoiceCommandManager(
         }
     }
 
+    private fun extractCommandAfterWakeWord(text: String): String {
+        val normalized = text
+            .lowercase()
+            .replace('ё', 'е')
+            .replace(Regex("[^а-яa-z0-9]+"), " ")
+            .trim()
+
+        val words = normalized.split(Regex("\\s+"))
+        val index = words.indexOfFirst {
+            it == "марфа" || it == "марфу" || it == "марфе" || it == "марфой"
+        }
+
+        if (index < 0 || index + 1 >= words.size) return ""
+        return words.drop(index + 1).joinToString(" ").trim()
+    }
+
     private fun containsWakeWord(text: String): Boolean {
         val normalized = text
             .lowercase()
@@ -259,6 +283,7 @@ class VoiceCommandManager(
 
     fun stop() {
         wakeWordEnabled = false
+        wakeWordDetected = false
         handler.removeCallbacksAndMessages(null)
         stopRecognizerOnly()
     }
