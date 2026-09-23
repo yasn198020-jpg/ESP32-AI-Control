@@ -87,8 +87,14 @@ jobs:
           VERSION_NAME="1.0.$VERSION_CODE"
           TAG="v$VERSION_NAME"
           gh release create "$TAG" \
-            "dist/ESP32-AI-Control-$VERSION_CODE.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "ESP32-AI-Control $VERSION_NAME" \
             --notes "Signed APK build $VERSION_NAME. Install over the previous version using the same signing key."
+
+          # Explicitly upload the APK after creating the release.
+          # This guarantees the binary is visible in the GitHub Releases page.
+          gh release upload "$TAG" \
+            "dist/ESP32-AI-Control-$VERSION_CODE.apk" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
