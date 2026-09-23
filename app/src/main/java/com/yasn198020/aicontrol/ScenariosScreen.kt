@@ -247,9 +247,10 @@ private fun ScenarioEditorDialog(
                                                 selected = safeIndex == itemIndex,
                                                 onClick = {
                                                     if (safeIndex == itemIndex) {
-                                                        textInputFocused = false
+                                                        textInputFocused = !textInputFocused
                                                     } else {
                                                         drafts[index] = draft.copy(selectedIndex = itemIndex)
+                                                        textInputFocused = false
                                                     }
                                                 }
                                             )
@@ -345,9 +346,10 @@ private fun ScenarioEditorDialog(
                                                 selected = safeActionIndex == itemIndex,
                                                 onClick = {
                                                     if (safeActionIndex == itemIndex) {
-                                                        textInputFocused = false
+                                                        textInputFocused = !textInputFocused
                                                     } else {
                                                         actionIndex = itemIndex
+                                                        textInputFocused = false
                                                     }
                                                 }
                                             )
@@ -408,9 +410,10 @@ private fun ScenarioEditorDialog(
                                             selected = verifyTargetIndex.coerceIn(0, conditionWidgets.lastIndex) == itemIndex,
                                             onClick = {
                                             if (verifyTargetIndex.coerceIn(0, conditionWidgets.lastIndex) == itemIndex) {
-                                                textInputFocused = false
+                                                textInputFocused = !textInputFocused
                                             } else {
                                                 verifyTargetIndex = itemIndex
+                                                textInputFocused = false
                                             }
                                         }
                                         )
