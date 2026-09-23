@@ -26,6 +26,7 @@ data class Scenario(
     val actionDeviceId: String = "",
     val actionWidgetId: String = "",
     val actionValue: String = "1",
+    val notificationEnabled: Boolean = true,
     val verifyEnabled: Boolean = false,
     val verifyTimeoutSec: Int = 30,
     val verifyDeviceId: String = "",
@@ -91,6 +92,7 @@ class ScenarioStore(private val prefs: android.content.SharedPreferences) {
                             actionDeviceId = o.optString("actionDeviceId", ""),
                             actionWidgetId = o.optString("actionWidgetId", ""),
                             actionValue = o.optString("actionValue", "1"),
+                            notificationEnabled = o.optBoolean("notificationEnabled", true),
                             verifyEnabled = o.optBoolean("verifyEnabled", false),
                             verifyTimeoutSec = o.optInt("verifyTimeoutSec", 30).coerceIn(1, 300),
                             verifyDeviceId = o.optString("verifyDeviceId", ""),
@@ -124,6 +126,7 @@ class ScenarioStore(private val prefs: android.content.SharedPreferences) {
                 put("actionDeviceId", s.actionDeviceId)
                 put("actionWidgetId", s.actionWidgetId)
                 put("actionValue", s.actionValue)
+                put("notificationEnabled", s.notificationEnabled)
                 put("verifyEnabled", s.verifyEnabled)
                 put("verifyTimeoutSec", s.verifyTimeoutSec)
                 put("verifyDeviceId", s.verifyDeviceId)
