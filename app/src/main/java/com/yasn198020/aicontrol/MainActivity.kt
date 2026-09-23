@@ -319,14 +319,26 @@ private fun App(
         }
     }
 
+    val requestNotificationPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { }
+
     // Microphone is no longer started automatically. It is controlled only
     // while the user holds the in-app Marfa button.
+
+    val scenarioStore = remember { ScenarioStore(prefs) }
+    val scenarioEngine = remember {
+        ScenarioEngine(scenarioStore) { scenario, rawValue, _ ->
+            ScenarioNotifier.notify(context, scenario, rawValue)
+        }
+    }
 
     val mqtt = remember {
         MqttManager(
             onLog = ::addLog,
             onConnected = { value -> connected = value },
             onStatus = { deviceId, widgetId, value ->
+                scenarioEngine.onValue(deviceId, widgetId, value)
                 val key = "$deviceId/$widgetId"
                 val existingDevice = devices.firstOrNull { it.id == deviceId }
                 val existingWidget = existingDevice?.widgets?.any { it.id == widgetId } == true
@@ -827,7 +839,8 @@ private fun App(
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                             DropdownMenuItem(text = { Text("MQTT подключение") }, onClick = { menuOpen = false; tab = 2 })
                             DropdownMenuItem(text = { Text("Журнал") }, onClick = { menuOpen = false; tab = 3 })
-                            DropdownMenuItem(text = { Text("Голос") }, onClick = { menuOpen = false; tab = 4 })
+                            DropdownMenuItem(text = { Text("Сценарии") }, onClick = { menuOpen = false; tab = 4 })
+                            DropdownMenuItem(text = { Text("Голос") }, onClick = { menuOpen = false; tab = 5 })
                             DropdownMenuItem(text = { Text("Размер текста") }, onClick = { menuOpen = false; textSizeDialogOpen = true })
                             DropdownMenuItem(
                                 text = { Text("Установить ярлык «🎙 Марфа»") },
@@ -876,7 +889,7 @@ private fun App(
                         }
                     }
                     Text("?", fontSize = 22.sp, modifier = Modifier.padding(end = 18.dp))
-                    Text(when (tab) { 0 -> "Dashboard"; 1 -> "Обученные команды"; 2 -> "MQTT"; 3 -> "Log"; else -> "Голос" }, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    Text(when (tab) { 0 -> "Dashboard"; 1 -> "Обученные команды"; 2 -> "MQTT"; 3 -> "Log"; 4 -> "Сценарии"; else -> "Голос" }, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                     Text("ⓘ", fontSize = 22.sp, modifier = Modifier.padding(horizontal = 10.dp)); Text("☁", fontSize = 27.sp)
                 }
                 if (tab == 0) DashboardPageTabs(devices, selectedPage, onSelect = { selectedPage = it })
@@ -931,6 +944,13 @@ private fun App(
                     icon = { Text("🎤", fontSize = 22.sp) },
                     label = { Text("Команды") }
                 )
+                
+                NavigationBarItem(
+                    selected = tab == 4,
+                    onClick = { tab = 4 },
+                    icon = { Text("🔔", fontSize = 22.sp) },
+                    label = { Text("Сценарии") }
+                )
             }
         }
     ) { padding ->
@@ -962,6 +982,18 @@ private fun App(
                     }
                 }, { mqtt.publishHello() })
             3 -> LogScreen(Modifier.padding(padding), log) { log = emptyList() }
+            4 -> ScenariosScreen(
+                Modifier.padding(padding),
+                devices,
+                scenarioStore,
+                onRequestNotifications = {
+                    if (Build.VERSION.SDK_INT >= 33 &&
+                        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                    ) {
+                        requestNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                }
+            )
             else -> VoiceSettingsScreen(
                 Modifier.padding(padding), voicePreset, voiceRate, voicePitch,
                 availableVoices, selectedVoiceName,
