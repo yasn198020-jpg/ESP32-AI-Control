@@ -22,6 +22,7 @@ class MqttBackgroundService : Service() {
 
     private val handler = Handler(Looper.getMainLooper())
     private var mqtt: MqttManager? = null
+    private lateinit var scenarioEngine: ScenarioEngine
 
     private val reconnectTask = object : Runnable {
         override fun run() {
@@ -37,6 +38,10 @@ class MqttBackgroundService : Service() {
         super.onCreate()
         createNotificationChannel()
         startAsForeground()
+        val scenarioStore = ScenarioStore(getSharedPreferences("settings", Context.MODE_PRIVATE))
+        scenarioEngine = ScenarioEngine(scenarioStore) { scenario, rawValue, _ ->
+            ScenarioNotifier.notify(this, scenario, rawValue)
+        }
         mqtt = MqttManager(
             onLog = { message -> android.util.Log.d("MQTT_BG", message) },
             onConnected = { connected ->
@@ -44,6 +49,7 @@ class MqttBackgroundService : Service() {
             },
             onStatus = { deviceId, widgetId, value ->
                 android.util.Log.d("MQTT_BG", "status $deviceId/$widgetId=$value")
+                scenarioEngine.onValue(deviceId, widgetId, value)
             },
             onConfig = { deviceId, widgetId, label, type, page, topic, order, raw ->
                 android.util.Log.d("MQTT_BG", "config $deviceId/$widgetId type=$type topic=$topic")
