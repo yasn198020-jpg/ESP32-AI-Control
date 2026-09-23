@@ -210,29 +210,33 @@ private fun ScenarioEditorDialog(
                         // Выбор виджета показываем плитками — в том же визуальном стиле,
                         // что и элементы главного экрана.
 
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            if (sensors.isNotEmpty()) {
-                                Text("Датчики", fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
-                                sensors.forEach { item ->
-                                    val itemIndex = conditionWidgets.indexOf(item)
-                                    ScenarioWidgetTile(
-                                        device = item.first,
-                                        widget = item.second,
-                                        selected = safeIndex == itemIndex,
-                                        onClick = { drafts[index] = draft.copy(selectedIndex = itemIndex) }
-                                    )
+                        val pages = conditionWidgets
+                            .map { it.second.page.ifBlank { "Основная" } }
+                            .distinct()
+
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            pages.forEach { page ->
+                                val pageWidgets = conditionWidgets.filter {
+                                    it.second.page.ifBlank { "Основная" } == page
                                 }
-                            }
-                            if (controls.isNotEmpty()) {
-                                Text("Кнопки и переключатели", fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
-                                controls.forEach { item ->
-                                    val itemIndex = conditionWidgets.indexOf(item)
-                                    ScenarioWidgetTile(
-                                        device = item.first,
-                                        widget = item.second,
-                                        selected = safeIndex == itemIndex,
-                                        onClick = { drafts[index] = draft.copy(selectedIndex = itemIndex) }
-                                    )
+
+                                Text(
+                                    page,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
+                                )
+
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    pageWidgets.forEach { item ->
+                                        val itemIndex = conditionWidgets.indexOf(item)
+                                        ScenarioWidgetTile(
+                                            device = item.first,
+                                            widget = item.second,
+                                            selected = safeIndex == itemIndex,
+                                            onClick = {
+                                                drafts[index] = draft.copy(selectedIndex = itemIndex)
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }
