@@ -890,26 +890,31 @@ private fun App(
                     selected = false,
                     onClick = { },
                     modifier = Modifier.pointerInput(Unit) {
-                        detectTapGestures(
-                            onPress = {
-                                if (ContextCompat.checkSelfPermission(
-                                        context,
-                                        Manifest.permission.RECORD_AUDIO
-                                    ) == PackageManager.PERMISSION_GRANTED
-                                ) {
-                                    voiceStatus = "🎙 Слушаю… отпустите кнопку для остановки"
-                                    voiceManager.startRussian()
-                                    try {
-                                        tryAwaitRelease()
-                                    } finally {
+                        awaitPointerEventScope {
+                            var pressed = false
+                            while (true) {
+                                val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                                event.changes.forEach { change ->
+                                    if (change.pressed && !pressed) {
+                                        pressed = true
+                                        if (ContextCompat.checkSelfPermission(
+                                                context,
+                                                Manifest.permission.RECORD_AUDIO
+                                            ) == PackageManager.PERMISSION_GRANTED
+                                        ) {
+                                            voiceStatus = "🎙 Слушаю… отпустите кнопку для остановки"
+                                            voiceManager.startRussian()
+                                        } else {
+                                            requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
+                                        }
+                                    } else if (!change.pressed && pressed) {
+                                        pressed = false
                                         voiceManager.finishRussian()
                                         voiceStatus = "Микрофон выключен"
                                     }
-                                } else {
-                                    requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
                                 }
                             }
-                        )
+                        }
                     },
                     icon = { Text("🎙", fontSize = 22.sp) },
                     label = { Text("Марфа") }
