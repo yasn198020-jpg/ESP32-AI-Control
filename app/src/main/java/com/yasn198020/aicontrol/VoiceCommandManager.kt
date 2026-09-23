@@ -46,9 +46,14 @@ class VoiceCommandManager(
             return
         }
 
+        // Ignore duplicate starts from Compose/lifecycle/buttons while a session
+        // is already active. This prevents the microphone from being repeatedly
+        // cancelled and recreated.
+        if (listening && recognizer != null) return
+
         listening = true
         handler.removeCallbacksAndMessages(null)
-        stopRecognizerOnly()
+        releaseRecognizer()
         lastPartialText = ""
 
         recognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
@@ -66,9 +71,12 @@ class VoiceCommandManager(
                 }
 
                 override fun onError(error: Int) {
-                    stopRecognizerOnly()
+                    releaseRecognizer()
                     if (listening) {
-                        handler.postDelayed({ startListening() }, 1000L)
+                        // Android SpeechRecognizer ends a session after silence
+                        // or a recognition error. Restart only after the old
+                        // recognizer is fully released.
+                        handler.postDelayed({ startListening() }, 1500L)
                     }
                 }
 
@@ -100,7 +108,7 @@ class VoiceCommandManager(
                         .firstOrNull { it.isNotBlank() }
                         .orEmpty()
 
-                    stopRecognizerOnly()
+                    releaseRecognizer()
                     lastPartialText = ""
 
                     if (!listening) return
@@ -142,9 +150,9 @@ class VoiceCommandManager(
         try {
             recognizer?.startListening(intent)
         } catch (_: Exception) {
-            stopRecognizerOnly()
+            releaseRecognizer()
             if (listening) {
-                handler.postDelayed({ startListening() }, 800L)
+                handler.postDelayed({ startListening() }, 1500L)
             }
         }
     }
@@ -162,7 +170,7 @@ class VoiceCommandManager(
 
         if (normalized.isBlank()) return ""
 
-        val words = normalized.split(Regex("\\s+"))
+        val words = normalized.split(Regex("\s+"))
         val wakeIndex = words.indexOfFirst {
             it == "марфа" || it == "марфу" || it == "марфе" || it == "марфой"
         }
@@ -174,24 +182,24 @@ class VoiceCommandManager(
         }
     }
 
-    private fun stopRecognizerOnly() {
+    private fun releaseRecognizer() {
+        val current = recognizer ?: return
+        recognizer = null
         try {
-            recognizer?.stopListening()
-            recognizer?.cancel()
+            current.stopListening()
+            current.cancel()
+        } catch (_: Exception) {
+        }
+        try {
+            current.destroy()
         } catch (_: Exception) {
         }
     }
-
 
     fun stop() {
         listening = false
         lastPartialText = ""
         handler.removeCallbacksAndMessages(null)
-        stopRecognizerOnly()
-        try {
-            recognizer?.destroy()
-        } catch (_: Exception) {
-        }
-        recognizer = null
+        releaseRecognizer()
     }
 }
