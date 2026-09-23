@@ -446,7 +446,23 @@ private fun ScenarioEditorDialog(
                                         }
                                     }
                                     if (actionDrafts.size > 1) {
-                                        TextButton(onClick = { actionDrafts.removeAt(actionNumber); actionSelectionOpenIndex = -1; actionValueMenuIndex = -1 }) { Text("Удалить") }
+                                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            TextButton(enabled = actionNumber > 0, onClick = {
+                                                val tmp = actionDrafts[actionNumber]
+                                                actionDrafts[actionNumber] = actionDrafts[actionNumber - 1]
+                                                actionDrafts[actionNumber - 1] = tmp
+                                                actionSelectionOpenIndex = -1
+                                                actionValueMenuIndex = -1
+                                            }) { Text("↑") }
+                                            TextButton(enabled = actionNumber < actionDrafts.lastIndex, onClick = {
+                                                val tmp = actionDrafts[actionNumber]
+                                                actionDrafts[actionNumber] = actionDrafts[actionNumber + 1]
+                                                actionDrafts[actionNumber + 1] = tmp
+                                                actionSelectionOpenIndex = -1
+                                                actionValueMenuIndex = -1
+                                            }) { Text("↓") }
+                                            TextButton(onClick = { actionDrafts.removeAt(actionNumber); actionSelectionOpenIndex = -1; actionValueMenuIndex = -1 }) { Text("Удалить") }
+                                        }
                                     }
                                 }
                             }
