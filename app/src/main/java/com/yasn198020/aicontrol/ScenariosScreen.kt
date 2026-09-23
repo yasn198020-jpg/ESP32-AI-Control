@@ -50,6 +50,7 @@ fun ScenariosScreen(
                             Text(scenario.title, fontSize = 18.sp)
                             Text("${scenario.deviceId} / ${scenario.widgetId}  ${scenario.operator}  ${scenario.threshold}")
                             Text(scenario.message)
+                            Text(if (scenario.actionType == "MQTT_CONTROL") "Действие: ${scenario.actionDeviceId}/${scenario.actionWidgetId} → ${scenario.actionValue}" else "Действие: уведомление")
                             Text(if (scenario.enabled) "Включён" else "Выключен")
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 OutlinedButton(onClick = {
@@ -84,7 +85,12 @@ private fun ScenarioEditorDialog(
     var thresholdText by remember { mutableStateOf("25") }
     var title by remember { mutableStateOf("Температура высокая") }
     var message by remember { mutableStateOf("Температура выше {threshold}°C: {value}°C") }
+    var actionType by remember { mutableStateOf("NOTIFICATION") }
+    var actionIndex by remember { mutableIntStateOf(0) }
+    var actionValue by remember { mutableStateOf("1") }
     var menuOpen by remember { mutableStateOf(false) }
+    var actionMenuOpen by remember { mutableStateOf(false) }
+    var valueMenuOpen by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -116,6 +122,47 @@ private fun ScenarioEditorDialog(
                     }
                     OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Заголовок") }, singleLine = true)
                     OutlinedTextField(value = message, onValueChange = { message = it }, label = { Text("Сообщение") }, minLines = 2)
+                    Text("Действие после условия", fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                    Box {
+                        OutlinedButton(onClick = { actionMenuOpen = true }) {
+                            Text(if (actionType == "MQTT_CONTROL") "Управить виджетом" else "Только уведомление")
+                        }
+                        DropdownMenu(expanded = actionMenuOpen, onDismissRequest = { actionMenuOpen = false }) {
+                            DropdownMenuItem(text = { Text("Только уведомление") }, onClick = { actionType = "NOTIFICATION"; actionMenuOpen = false })
+                            DropdownMenuItem(text = { Text("Управить виджетом") }, onClick = { actionType = "MQTT_CONTROL"; actionMenuOpen = false })
+                        }
+                    }
+                    if (actionType == "MQTT_CONTROL") {
+                        val controls = devices.flatMap { d ->
+                            d.widgets.filter { it.type == WidgetState.Type.TOGGLE || it.type == WidgetState.Type.BUTTON }.map { d to it }
+                        }
+                        if (controls.isEmpty()) {
+                            Text("Нет переключателей или кнопок для управления.")
+                        } else {
+                            val safeActionIndex = actionIndex.coerceIn(0, controls.lastIndex)
+                            val target = controls[safeActionIndex]
+                            Box {
+                                OutlinedButton(onClick = { actionMenuOpen = true }) {
+                                    Text("${target.first.id} / ${target.second.id}  ${target.second.title}")
+                                }
+                                DropdownMenu(expanded = actionMenuOpen, onDismissRequest = { actionMenuOpen = false }) {
+                                    controls.forEachIndexed { index, item ->
+                                        DropdownMenuItem(
+                                            text = { Text("${item.first.id} / ${item.second.id}  ${item.second.title}") },
+                                            onClick = { actionIndex = index; actionMenuOpen = false }
+                                        )
+                                    }
+                                }
+                            }
+                            Box {
+                                OutlinedButton(onClick = { valueMenuOpen = true }) { Text(if (actionValue == "1") "Включить / Нажать" else "Выключить") }
+                                DropdownMenu(expanded = valueMenuOpen, onDismissRequest = { valueMenuOpen = false }) {
+                                    DropdownMenuItem(text = { Text("Включить / Нажать (1)") }, onClick = { actionValue = "1"; valueMenuOpen = false })
+                                    DropdownMenuItem(text = { Text("Выключить (0)") }, onClick = { actionValue = "0"; valueMenuOpen = false })
+                                }
+                            }
+                        }
+                    }
                     Text("Можно использовать {value}, {threshold}, {device}, {widget}.")
                 }
             }
@@ -125,11 +172,17 @@ private fun ScenarioEditorDialog(
                 val threshold = thresholdText.replace(',', '.').toDoubleOrNull()
                 if (numericWidgets.isNotEmpty() && threshold != null && threshold.isFinite()) {
                     val pair = numericWidgets[selectedIndex.coerceIn(0, numericWidgets.lastIndex)]
+                    val controls = devices.flatMap { d -> d.widgets.filter { it.type == WidgetState.Type.TOGGLE || it.type == WidgetState.Type.BUTTON }.map { d to it } }
+                    val target = if (controls.isNotEmpty()) controls[actionIndex.coerceIn(0, controls.lastIndex)] else null
                     onSave(Scenario(
                         deviceId = pair.first.id, widgetId = pair.second.id,
                         title = title.trim().ifBlank { "Сценарий" },
                         operator = operator, threshold = threshold,
-                        message = message.trim().ifBlank { "{value}" }
+                        message = message.trim().ifBlank { "{value}" },
+                        actionType = actionType,
+                        actionDeviceId = if (actionType == "MQTT_CONTROL") target?.first?.id.orEmpty() else "",
+                        actionWidgetId = if (actionType == "MQTT_CONTROL") target?.second?.id.orEmpty() else "",
+                        actionValue = actionValue
                     ))
                 }
             }) { Text("Сохранить") }
