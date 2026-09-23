@@ -92,8 +92,13 @@ private fun ScenarioEditorDialog(
     onDismiss: () -> Unit,
     onSave: (Scenario) -> Unit
 ) {
-    val numericWidgets = devices.flatMap { device ->
-        device.widgets.filter { it.type == WidgetState.Type.VALUE || it.type == WidgetState.Type.STATUS }.map { device to it }
+    val conditionWidgets = devices.flatMap { device ->
+        device.widgets.filter {
+            it.type == WidgetState.Type.VALUE ||
+            it.type == WidgetState.Type.STATUS ||
+            it.type == WidgetState.Type.TOGGLE ||
+            it.type == WidgetState.Type.BUTTON
+        }.map { device to it }
     }
     val controls = devices.flatMap { d ->
         d.widgets.filter { it.type == WidgetState.Type.TOGGLE || it.type == WidgetState.Type.BUTTON }.map { d to it }
@@ -123,8 +128,8 @@ private fun ScenarioEditorDialog(
         title = { Text("Новый сценарий") },
         text = {
             Column(modifier = Modifier.heightIn(max = 560.dp).verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (numericWidgets.isEmpty()) {
-                    Text("Пока нет датчиков со значением. Сначала дождитесь CONFIG от устройства.")
+                if (conditionWidgets.isEmpty()) {
+                    Text("Пока нет датчиков, кнопок или переключателей для проверки.")
                 } else {
                     Text("Условия", fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
                     drafts.forEachIndexed { index, draft ->
@@ -139,9 +144,9 @@ private fun ScenarioEditorDialog(
                             }
                         }
 
-                        val safeIndex = draft.selectedIndex.coerceIn(0, numericWidgets.lastIndex)
+                        val safeIndex = draft.selectedIndex.coerceIn(0, conditionWidgets.lastIndex)
                         draft.selectedIndex = safeIndex
-                        val pair = numericWidgets[safeIndex]
+                        val pair = conditionWidgets[safeIndex]
                         Text(if (index == 0) "Условие 1" else "Условие ${index + 1}")
 
                         Box {
@@ -149,7 +154,7 @@ private fun ScenarioEditorDialog(
                                 Text("${pair.first.id} / ${pair.second.id}  ${pair.second.title}")
                             }
                             DropdownMenu(expanded = openMenu == index, onDismissRequest = { openMenu = -1 }) {
-                                numericWidgets.forEachIndexed { itemIndex, item ->
+                                conditionWidgets.forEachIndexed { itemIndex, item ->
                                     DropdownMenuItem(
                                         text = { Text("${item.first.id} / ${item.second.id}  ${item.second.title}") },
                                         onClick = { draft.selectedIndex = itemIndex; openMenu = -1 }
@@ -173,7 +178,7 @@ private fun ScenarioEditorDialog(
                     OutlinedButton(onClick = { drafts.add(ConditionDraft()) }, modifier = Modifier.fillMaxWidth()) {
                         Text("+ Условие")
                     }
-                    Text("Условия проверяются слева направо. Например: t > 1 И d < 10.")
+                    Text("В условиях можно использовать датчики, кнопки и переключатели. Для кнопок обычно используйте = 1 или = 0.")
 
                     OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Заголовок") }, singleLine = true)
                     OutlinedTextField(value = message, onValueChange = { message = it }, label = { Text("Сообщение") }, minLines = 2)
@@ -227,9 +232,9 @@ private fun ScenarioEditorDialog(
             TextButton(onClick = {
                 val parsed = drafts.mapNotNull { draft ->
                     val threshold = draft.thresholdText.replace(',', '.').toDoubleOrNull()
-                    if (threshold == null || !threshold.isFinite() || numericWidgets.isEmpty()) null
+                    if (threshold == null || !threshold.isFinite() || conditionWidgets.isEmpty()) null
                     else {
-                        val pair = numericWidgets[draft.selectedIndex.coerceIn(0, numericWidgets.lastIndex)]
+                        val pair = conditionWidgets[draft.selectedIndex.coerceIn(0, conditionWidgets.lastIndex)]
                         ScenarioCondition(pair.first.id, pair.second.id, draft.operator, threshold, draft.connector)
                     }
                 }
