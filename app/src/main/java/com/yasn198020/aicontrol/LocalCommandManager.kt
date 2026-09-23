@@ -1,4 +1,6 @@
 package com.yasn198020.aicontrol
+import com.yasn198020.aicontrol.core.Device
+import com.yasn198020.aicontrol.core.WidgetState
 
 enum class LocalCommandAction { CONTROL, READ_VALUE, CLARIFY, NOT_FOUND }
 
