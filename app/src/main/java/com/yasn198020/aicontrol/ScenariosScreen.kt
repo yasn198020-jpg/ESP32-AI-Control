@@ -444,7 +444,7 @@ private fun ScenarioEditorDialog(
                             OutlinedTextField(
                                 value = verifyValueText,
                                 onValueChange = { verifyValueText = it },
-                                label = { Text("Ожидаемое значение") },
+                                label = { Text("Результат должен быть равен") },
                                 singleLine = true,
                                 modifier = Modifier.weight(1f).onFocusChanged { if (it.isFocused) verifySelectionOpen = true }
                             )
