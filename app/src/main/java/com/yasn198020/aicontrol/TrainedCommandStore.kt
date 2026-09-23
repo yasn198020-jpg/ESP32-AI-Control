@@ -115,11 +115,21 @@ class TrainedCommandMatcher(private val store: TrainedCommandStore) {
         if (commands.isEmpty()) return emptyList()
 
         // First priority: exact saved phrase or variant.
-        val exact = commands.filter { command ->
-            command.variants.any { normalize(it) == normalized } ||
-                normalize(command.phrase) == normalized
+        val exactPhraseKeys = commands
+            .filter { command ->
+                command.variants.any { normalize(it) == normalized } ||
+                    normalize(command.phrase) == normalized
+            }
+            .map { normalize(it.phrase) }
+            .filter { it.isNotBlank() }
+            .toSet()
+
+        // One phrase may have several saved actions (for example several
+        // widgets/sensors). If the phrase matches, return ALL actions
+        // belonging to that phrase, not only the action whose variant matched.
+        if (exactPhraseKeys.isNotEmpty()) {
+            return commands.filter { normalize(it.phrase) in exactPhraseKeys }
         }
-        if (exact.isNotEmpty()) return exact
 
         // Second priority: a saved phrase contained in a longer spoken sentence.
         val contained = commands
@@ -132,7 +142,8 @@ class TrainedCommandMatcher(private val store: TrainedCommandStore) {
             .groupBy { normalize(it.phrase) }
 
         if (contained.isNotEmpty()) {
-            return contained.values.flatten()
+            val phraseKeys = contained.keys
+            return commands.filter { normalize(it.phrase) in phraseKeys }
         }
 
         // Third priority: when speech is shorter but contains all meaningful
@@ -157,7 +168,9 @@ class TrainedCommandMatcher(private val store: TrainedCommandStore) {
                         action.variants.maxOfOrNull { similarityAgainstText(normalized, normalize(it)) } ?: 0.0
                     } ?: 0.0
                 }
-            if (best != null) return best.value
+            if (best != null) {
+                return commands.filter { normalize(it.phrase) == best.key }
+            }
         }
 
         val candidates = commands
@@ -274,7 +287,7 @@ class TrainedCommandMatcher(private val store: TrainedCommandStore) {
             .replace('ё', 'е')
             .replace(Regex("[^a-zа-я0-9]+"), " ")
             .trim()
-            .replace(Regex("""s+"""), " ")
+            .replace(Regex("""\s+"""), " ")
             .replace(Regex("""^марф(а|у|е|ой)s*"""), "")
             .trim()
             .replace(Regex("""s+"""), " ")
