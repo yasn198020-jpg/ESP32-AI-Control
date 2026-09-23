@@ -14,7 +14,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.focus.onFocusChanged
 
 @Composable
 fun ScenariosScreen(
@@ -280,9 +279,7 @@ private fun ScenarioEditorDialog(
                                 onValueChange = { drafts[index] = draft.copy(thresholdText = it) },
                                 label = { Text("Порог") },
                                 singleLine = true,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .onFocusChanged { if (it.isFocused) conditionSelectionOpen = false }
+                                modifier = Modifier.weight(1f)
                             )
                         }
                     }
@@ -441,7 +438,7 @@ private fun ScenarioEditorDialog(
                                 onValueChange = { verifyTimeoutText = it },
                                 label = { Text("Макс. секунд") },
                                 singleLine = true,
-                                modifier = Modifier.weight(1f).onFocusChanged { if (it.isFocused) verifySelectionOpen = false }
+                                modifier = Modifier.weight(1f)
                             )
                             OutlinedTextField(
                                 value = verifyValueText,
@@ -457,7 +454,7 @@ private fun ScenarioEditorDialog(
                             onValueChange = { verifySuccessMessage = it },
                             label = { Text("Если подтверждено") },
                             singleLine = true,
-                            modifier = Modifier.onFocusChanged { if (it.isFocused) verifySelectionOpen = false }
+                            modifier = Modifier
                         )
                         OutlinedTextField(
                             value = verifyFailureMessage,
