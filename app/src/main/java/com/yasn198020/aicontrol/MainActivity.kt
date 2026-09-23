@@ -302,6 +302,7 @@ private fun App(
         )
     }
 
+    val historyStore = remember { HistoryStore(prefs) }
     val scenarioStore = remember { ScenarioStore(prefs) }
     val scenarioActionExecutor = remember { ScenarioActionExecutor() }
     val scenarioEngine = remember {
@@ -335,6 +336,7 @@ private fun App(
             onLog = ::addLog,
             onConnected = { value -> connected = value },
             onStatus = { deviceId, widgetId, value ->
+                historyStore.add(deviceId, widgetId, value)
                 scenarioEngine.onValue(deviceId, widgetId, value)
                 deviceManager.onStatus(deviceId, widgetId, value)
             },
@@ -786,6 +788,7 @@ private fun App(
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                             DropdownMenuItem(text = { Text("MQTT подключение") }, onClick = { menuOpen = false; tab = 2 })
                             DropdownMenuItem(text = { Text("Журнал") }, onClick = { menuOpen = false; tab = 3 })
+                            DropdownMenuItem(text = { Text("История и графики") }, onClick = { menuOpen = false; tab = 6 })
                             DropdownMenuItem(text = { Text("Сценарии") }, onClick = { menuOpen = false; tab = 4 })
                             DropdownMenuItem(text = { Text("Голос") }, onClick = { menuOpen = false; tab = 5 })
                             DropdownMenuItem(text = { Text("Размер текста") }, onClick = { menuOpen = false; textSizeDialogOpen = true })
@@ -836,7 +839,7 @@ private fun App(
                         }
                     }
                     Text("?", fontSize = 22.sp, modifier = Modifier.padding(end = 18.dp))
-                    Text(when (tab) { 0 -> "Dashboard"; 1 -> "Обученные команды"; 2 -> "MQTT"; 3 -> "Log"; 4 -> "Сценарии"; else -> "Голос" }, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    Text(when (tab) { 0 -> "Dashboard"; 1 -> "Обученные команды"; 2 -> "MQTT"; 3 -> "Log"; 4 -> "Сценарии"; 5 -> "Голос"; else -> "История и графики" }, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                     Text("ⓘ", fontSize = 22.sp, modifier = Modifier.padding(horizontal = 10.dp)); Text("☁", fontSize = 27.sp)
                 }
                 if (tab == 0) DashboardPageTabs(devices, selectedPage, onSelect = { selectedPage = it })
@@ -944,6 +947,7 @@ private fun App(
                     }
                 }
             )
+            6 -> HistoryScreen(Modifier.padding(padding), devices, historyStore)
             else -> VoiceSettingsScreen(
                 Modifier.padding(padding), voicePreset, voiceRate, voicePitch,
                 availableVoices, selectedVoiceName,
