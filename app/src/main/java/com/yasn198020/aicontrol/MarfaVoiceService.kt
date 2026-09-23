@@ -1,4 +1,6 @@
 package com.yasn198020.aicontrol
+import com.yasn198020.aicontrol.core.Device
+import com.yasn198020.aicontrol.core.WidgetState
 
 import android.app.Notification
 import android.app.NotificationChannel
