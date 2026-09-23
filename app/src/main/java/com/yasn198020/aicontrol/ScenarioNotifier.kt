@@ -10,6 +10,17 @@ import androidx.core.app.NotificationManagerCompat
 
 object ScenarioNotifier {
     private const val CHANNEL_ID = "scenario_alerts"
+    
+    fun test(context: Context) {
+        val testScenario = Scenario(
+            title = "Тест уведомления",
+            deviceId = "test",
+            widgetId = "notification",
+            threshold = 25.0,
+            message = "Уведомления работают. Тестовое значение: {value}°C"
+        )
+        notify(context, testScenario, "25.0")
+    }
     private const val TAG = "SCENARIO_NOTIFY"
 
     fun notify(context: Context, scenario: Scenario, rawValue: String) {
