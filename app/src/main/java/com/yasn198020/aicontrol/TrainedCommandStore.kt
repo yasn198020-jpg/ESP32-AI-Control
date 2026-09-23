@@ -114,15 +114,12 @@ class TrainedCommandMatcher(private val store: TrainedCommandStore) {
         val commands = store.load()
         if (commands.isEmpty()) return emptyList()
 
-        // 1. Exact phrase/variant match.
         val exact = commands.filter { command ->
             command.variants.any { normalize(it) == normalized } ||
                 normalize(command.phrase) == normalized
         }
         if (exact.isNotEmpty()) return exact
 
-        // 2. A spoken sentence may contain several trained commands.
-        // Collect every distinct phrase group instead of selecting only the longest one.
         val contained = commands
             .filter { command ->
                 command.variants.any { variant ->
@@ -136,9 +133,6 @@ class TrainedCommandMatcher(private val store: TrainedCommandStore) {
             return contained.values.flatten()
         }
 
-        // 3. Fuzzy matching for speech-recognition errors.
-        // We compare each trained variant with the spoken text and also with
-        // individual windows of the same number of words.
         val candidates = commands
             .groupBy { normalize(it.phrase) }
             .mapNotNull { (phraseKey, group) ->
@@ -250,6 +244,7 @@ class TrainedCommandMatcher(private val store: TrainedCommandStore) {
             .replace(Regex("[^a-zа-я0-9]+"), " ")
             .trim()
             .replace(Regex("""\s+"""), " ")
-            .replace(Regex("""^марф(а|у|е|ой)\\b\\s*"""), "")
+            .replace(Regex("""^марф(а|у|е|ой)\b\s*"""), "")
             .trim()
             .replace(Regex("""\s+"""), " ")
+}
