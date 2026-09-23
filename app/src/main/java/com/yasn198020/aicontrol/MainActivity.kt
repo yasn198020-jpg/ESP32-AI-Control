@@ -218,7 +218,7 @@ private fun App(
         selectedExistingPhrase = null
     }
 
-    fun addLog(message: String) { log = (log + message).takeLast(300) }
+    fun addLog(message: String) { log = (log + message).takeLast(100) }
     val voiceManager = remember {
         VoiceCommandManager(
             context = context,
@@ -354,6 +354,29 @@ private fun App(
         manualMqttDisconnect = false
         saveSettings()
         mqtt.connect(mqttHost, mqttPort.toIntOrNull() ?: 1883, mqttPrefix, username, password, mqttTls)
+    }
+
+    // Keep the microphone tied to the visible activity. This prevents the speech
+    // recognizer from competing with Android background lifecycle changes.
+    DisposableEffect(context, voiceManager) {
+        val lifecycle = (context as? ComponentActivity)?.lifecycle
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_STOP -> voiceManager.stop()
+                Lifecycle.Event.ON_START -> {
+                    if (ContextCompat.checkSelfPermission(
+                            context,
+                            Manifest.permission.RECORD_AUDIO
+                        ) == PackageManager.PERMISSION_GRANTED
+                    ) {
+                        voiceManager.startRussian()
+                    }
+                }
+                else -> Unit
+            }
+        }
+        lifecycle?.addObserver(observer)
+        onDispose { lifecycle?.removeObserver(observer) }
     }
 
     // Keep MQTT alive in a foreground service while the app is not visible.
