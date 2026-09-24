@@ -72,11 +72,11 @@ class ScenarioStore(private val prefs: android.content.SharedPreferences) {
                                 val widgetId = item.optString("widgetId").trim()
                                 if (deviceId.isNotBlank() && widgetId.isNotBlank() && threshold.isFinite()) {
                                     conditions += ScenarioCondition(
-                                        deviceId = deviceId,
-                                        widgetId = widgetId,
-                                        operator = normalizeOperator(item.optString("operator", ">")),
-                                        threshold = threshold,
-                                        connector = if (j == 0) "AND" else normalizeConnector(item.optString("connector", "AND"))
+                                        deviceId,
+                                        widgetId,
+                                        normalizeOperator(item.optString("operator", ">")),
+                                        threshold,
+                                        if (j == 0) "AND" else normalizeConnector(item.optString("connector", "AND"))
                                     )
                                 }
                             }
@@ -86,11 +86,7 @@ class ScenarioStore(private val prefs: android.content.SharedPreferences) {
                         }
                         if (conditions.isEmpty()) return@runCatching null
 
-                        val actionType = if (o.optString("actionType", "NOTIFICATION") == "MQTT_CONTROL") {
-                            "MQTT_CONTROL"
-                        } else {
-                            "NOTIFICATION"
-                        }
+                        val actionType = if (o.optString("actionType", "NOTIFICATION") == "MQTT_CONTROL") "MQTT_CONTROL" else "NOTIFICATION"
                         val actions = buildList {
                             val aa = o.optJSONArray("actions")
                             if (aa != null) {
@@ -98,21 +94,12 @@ class ScenarioStore(private val prefs: android.content.SharedPreferences) {
                                     val a = aa.optJSONObject(k) ?: continue
                                     val d = a.optString("deviceId").trim()
                                     val w = a.optString("widgetId").trim()
-                                    if (d.isNotBlank() && w.isNotBlank()) {
-                                        add(ScenarioAction(d, w, a.optString("value", "1")))
-                                    }
+                                    if (d.isNotBlank() && w.isNotBlank()) add(ScenarioAction(d, w, a.optString("value", "1")))
                                 }
                             } else if (actionType == "MQTT_CONTROL" &&
                                 o.optString("actionDeviceId").isNotBlank() &&
-                                o.optString("actionWidgetId").isNotBlank()
-                            ) {
-                                add(
-                                    ScenarioAction(
-                                        o.optString("actionDeviceId"),
-                                        o.optString("actionWidgetId"),
-                                        o.optString("actionValue", "1")
-                                    )
-                                )
+                                o.optString("actionWidgetId").isNotBlank()) {
+                                add(ScenarioAction(o.optString("actionDeviceId"), o.optString("actionWidgetId"), o.optString("actionValue", "1")))
                             }
                         }
 
@@ -143,7 +130,6 @@ class ScenarioStore(private val prefs: android.content.SharedPreferences) {
                             conditions = conditions
                         )
                     }.getOrNull()
-
                     if (scenario != null) add(scenario)
                 }
             }
@@ -210,14 +196,10 @@ class ScenarioStore(private val prefs: android.content.SharedPreferences) {
         prefs.edit().putString(KEY, array.toString()).apply()
     }
 
-    @Synchronized
-    fun add(scenario: Scenario) = save(load() + scenario)
-    @Synchronized
-    fun update(scenario: Scenario) = save(load().map { if (it.id == scenario.id) scenario else it })
-    @Synchronized
-    fun delete(id: String) = save(load().filterNot { it.id == id })
-    @Synchronized
-    fun clear() = prefs.edit().remove(KEY).apply()
+    @Synchronized fun add(scenario: Scenario) = save(load() + scenario)
+    @Synchronized fun update(scenario: Scenario) = save(load().map { if (it.id == scenario.id) scenario else it })
+    @Synchronized fun delete(id: String) = save(load().filterNot { it.id == id })
+    @Synchronized fun clear() = prefs.edit().remove(KEY).apply()
 }
 
 class ScenarioEngine(
@@ -228,6 +210,11 @@ class ScenarioEngine(
     private val values = mutableMapOf<String, Double>()
     private val verificationTasks = mutableMapOf<String, java.util.concurrent.ScheduledFuture<*>>()
     private val verificationGenerations = mutableMapOf<String, Long>()
+
+    // Runtime edge state. It is deliberately NOT persisted in ScenarioStore.
+    // This prevents a saved armed=false flag from surviving app restarts.
+    private val conditionStates = mutableMapOf<String, Boolean>()
+
     private val scheduler = java.util.concurrent.Executors.newSingleThreadScheduledExecutor()
     private var shutdown = false
     private var runtimeActive = true
@@ -268,27 +255,21 @@ class ScenarioEngine(
 
     @Synchronized
     private fun startVerification(scenario: Scenario) {
-        if (shutdown) return
-        if (!scenario.verifyEnabled || scenario.verifyDeviceId.isBlank() || scenario.verifyWidgetId.isBlank()) return
+        if (shutdown || !scenario.verifyEnabled || scenario.verifyDeviceId.isBlank() || scenario.verifyWidgetId.isBlank()) return
         if (scheduler.isShutdown || scheduler.isTerminated) return
 
         verificationTasks.remove(scenario.id)?.cancel(false)
         val generation = (verificationGenerations[scenario.id] ?: 0L) + 1L
         verificationGenerations[scenario.id] = generation
+
         val task = try {
             scheduler.schedule({
                 val current: Scenario?
                 val stillCurrent: Boolean
                 synchronized(this) {
                     stillCurrent = !shutdown && verificationGenerations[scenario.id] == generation
-                    if (stillCurrent) {
-                        verificationTasks.remove(scenario.id)
-                    }
-                    current = if (stillCurrent) {
-                        store.load().firstOrNull { it.id == scenario.id }
-                    } else {
-                        null
-                    }
+                    if (stillCurrent) verificationTasks.remove(scenario.id)
+                    current = if (stillCurrent) store.load().firstOrNull { it.id == scenario.id } else null
                 }
                 if (stillCurrent && current?.enabled == true && current.verifyEnabled) {
                     onVerificationResult(current, false, "")
@@ -304,6 +285,8 @@ class ScenarioEngine(
     fun cancelScenario(scenarioId: String) {
         verificationTasks.remove(scenarioId)?.cancel(false)
         verificationGenerations[scenarioId] = (verificationGenerations[scenarioId] ?: 0L) + 1L
+        // Re-editing/toggling a scenario starts a fresh condition edge.
+        conditionStates.remove(scenarioId)
     }
 
     @Synchronized
@@ -315,6 +298,7 @@ class ScenarioEngine(
             verificationGenerations.keys.toList().forEach { id ->
                 verificationGenerations[id] = (verificationGenerations[id] ?: 0L) + 1L
             }
+            conditionStates.clear()
         }
         runtimeActive = active
     }
@@ -326,6 +310,7 @@ class ScenarioEngine(
         verificationTasks.values.forEach { it.cancel(false) }
         verificationTasks.clear()
         verificationGenerations.clear()
+        conditionStates.clear()
         values.clear()
         scheduler.shutdownNow()
     }
@@ -339,14 +324,13 @@ class ScenarioEngine(
     @Synchronized
     fun onValue(deviceId: String, widgetId: String, rawValue: String) {
         if (shutdown || !runtimeActive) return
+
         val value = rawValue.trim().replace(',', '.').toDoubleOrNull() ?: return
         values[key(deviceId, widgetId)] = value
 
         val scenarios = store.load()
 
-        val activeScenarioIds = scenarios
-            .filter { it.enabled && it.verifyEnabled }
-            .mapTo(mutableSetOf()) { it.id }
+        val activeScenarioIds = scenarios.filter { it.enabled && it.verifyEnabled }.mapTo(mutableSetOf()) { it.id }
         val staleIds = verificationTasks.keys.filter { it !in activeScenarioIds }
         staleIds.forEach { id ->
             verificationTasks.remove(id)?.cancel(false)
@@ -354,7 +338,10 @@ class ScenarioEngine(
         }
 
         scenarios.forEach { scenario ->
-            if (!scenario.enabled) return@forEach
+            if (!scenario.enabled) {
+                conditionStates.remove(scenario.id)
+                return@forEach
+            }
 
             if (scenario.verifyEnabled &&
                 scenario.verifyDeviceId == deviceId &&
@@ -378,20 +365,31 @@ class ScenarioEngine(
             if (conditions.none { it.deviceId == deviceId && it.widgetId == widgetId }) return@forEach
 
             val matched = expressionMatches(conditions) ?: return@forEach
+            val wasMatched = conditionStates[scenario.id] ?: false
 
-            if (matched && scenario.armed) {
+            // Trigger only on a false -> true edge.
+            // This removes the dependency on the persisted armed flag.
+            if (matched && !wasMatched) {
+                conditionStates[scenario.id] = true
+
                 if (scenario.verifyEnabled) startVerification(scenario)
 
-                // Do not permanently persist the disarmed state.
-                // A scenario must be able to fire again while the app remains
-                // in the background after the condition becomes true again.
-                // The in-memory guard below prevents duplicate handling of the
-                // same continuously-true condition.
-                store.update(scenario.copy(armed = false))
-                onTrigger(scenario, rawValue, value)
-            } else if (!matched && !scenario.armed) {
-                // The condition returned to false: re-arm and persist it.
-                store.update(scenario.copy(armed = true))
+                // Keep the legacy field harmless for old saved scenarios, but
+                // do not use it as the runtime trigger lock.
+                if (scenario.armed) {
+                    onTrigger(scenario, rawValue, value)
+                } else {
+                    // An old scenario may have armed=false saved from a previous
+                    // version. Automatically repair it and still allow this edge.
+                    store.update(scenario.copy(armed = true))
+                    onTrigger(scenario.copy(armed = true), rawValue, value)
+                }
+            } else if (!matched) {
+                // Condition went false: next true value is a new trigger.
+                conditionStates[scenario.id] = false
+                if (!scenario.armed) {
+                    store.update(scenario.copy(armed = true))
+                }
             }
         }
     }
@@ -412,11 +410,7 @@ class ScenarioActionExecutor {
         for (action in actions) {
             if (action.deviceId.isBlank() || action.widgetId.isBlank()) continue
             try {
-                manager.publishControl(
-                    action.deviceId,
-                    action.widgetId,
-                    action.value.ifBlank { "1" }
-                )
+                manager.publishControl(action.deviceId, action.widgetId, action.value.ifBlank { "1" })
             } catch (_: Exception) {
             }
         }
