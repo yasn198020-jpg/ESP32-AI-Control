@@ -373,8 +373,11 @@ class ScenarioEngine(
             // false -> false = stay reset
             if (!matched) {
                 conditionStates[scenario.id] = false
-                if (!scenario.armed) {
-                    store.update(scenario.copy(armed = true))
+
+                // The condition is no longer active: clear the persisted armed flag.
+                // This is what allows the next false -> true transition to trigger again.
+                if (scenario.armed) {
+                    store.update(scenario.copy(armed = false))
                 }
                 return@forEach
             }
