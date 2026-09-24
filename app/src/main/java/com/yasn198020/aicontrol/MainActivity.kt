@@ -74,10 +74,11 @@ class MainActivity : ComponentActivity() {
 
         MarfaShortcutInstaller.ensurePinned(this)
         val prefs = getSharedPreferences("settings", Context.MODE_PRIVATE)
+        val uiPreferences = UiPreferences(prefs)
         setContent {
             val baseDensity = LocalDensity.current
             var fontScale by remember {
-                mutableFloatStateOf(prefs.getFloat("ui_font_scale", 0.85f).coerceIn(0.70f, 1.10f))
+                mutableFloatStateOf(uiPreferences.fontScale)
             }
             CompositionLocalProvider(
                 LocalDensity provides Density(density = baseDensity.density, fontScale = fontScale)
@@ -89,7 +90,7 @@ class MainActivity : ComponentActivity() {
                             onFontScaleChange = {
                                 val value = it.coerceIn(0.70f, 1.10f)
                                 fontScale = value
-                                prefs.edit().putFloat("ui_font_scale", value).apply()
+                                uiPreferences.saveFontScale(value)
                             }
                         )
                     }
