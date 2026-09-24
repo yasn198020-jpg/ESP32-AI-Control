@@ -5,7 +5,8 @@ import com.yasn198020.aicontrol.core.*
 import com.yasn198020.aicontrol.devices.*
 import com.yasn198020.aicontrol.mqtt.*
 import com.yasn198020.aicontrol.marfa.*
-import com.yasn198020.aicontrol.commands.*
+import com.yasn198020.aicontrol.commands.LocalCommandManager
+import com.yasn198020.aicontrol.commands.LocalCommandAction
 import com.yasn198020.aicontrol.core.Device
 import com.yasn198020.aicontrol.core.WidgetState
 
