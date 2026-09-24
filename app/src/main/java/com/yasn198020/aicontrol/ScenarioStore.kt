@@ -306,11 +306,6 @@ class ScenarioEngine(
         verificationGenerations[scenarioId] = (verificationGenerations[scenarioId] ?: 0L) + 1L
     }
 
-    /**
-     * Enables/disables this engine as the active scenario runtime owner.
-     * The foreground Activity is paused while MqttBackgroundService owns MQTT,
-     * preventing a queued MQTT callback from executing a scenario twice.
-     */
     @Synchronized
     fun setRuntimeActive(active: Boolean) {
         if (shutdown) return
@@ -349,9 +344,6 @@ class ScenarioEngine(
 
         val scenarios = store.load()
 
-        // Clean up verification callbacks that no longer belong to a live
-        // verification-enabled scenario. This also covers changes made
-        // outside the scenario editor or while a stale MQTT callback is queued.
         val activeScenarioIds = scenarios
             .filter { it.enabled && it.verifyEnabled }
             .mapTo(mutableSetOf()) { it.id }
@@ -373,11 +365,6 @@ class ScenarioEngine(
                 if (task != null) {
                     task.cancel(false)
                     verificationGenerations[scenario.id] = (verificationGenerations[scenario.id] ?: 0L) + 1L
-
-                    // Use the current persisted scenario for the callback.
-                    // The MQTT response can arrive after the scenario was
-                    // edited, so the snapshot from this onValue() pass may
-                    // contain stale verification text/settings.
                     val current = store.load().firstOrNull { it.id == scenario.id }
                     if (current?.enabled == true && current.verifyEnabled) {
                         onVerificationResult(current, true, rawValue)
@@ -391,16 +378,19 @@ class ScenarioEngine(
             if (conditions.none { it.deviceId == deviceId && it.widgetId == widgetId }) return@forEach
 
             val matched = expressionMatches(conditions) ?: return@forEach
+
             if (matched && scenario.armed) {
-                // Commit the disarmed state before executing the action.
-                // Some MQTT clients can deliver the device response synchronously
-                // from publishControl(). Updating the state first prevents that
-                // re-entrant status callback from triggering the scenario twice.
                 if (scenario.verifyEnabled) startVerification(scenario)
-                val disarmed = scenario.copy(armed = false)
-                store.update(disarmed)
-                onTrigger(disarmed, rawValue, value)
+
+                // Do not permanently persist the disarmed state.
+                // A scenario must be able to fire again while the app remains
+                // in the background after the condition becomes true again.
+                // The in-memory guard below prevents duplicate handling of the
+                // same continuously-true condition.
+                store.update(scenario.copy(armed = false))
+                onTrigger(scenario, rawValue, value)
             } else if (!matched && !scenario.armed) {
+                // The condition returned to false: re-arm and persist it.
                 store.update(scenario.copy(armed = true))
             }
         }
@@ -419,8 +409,6 @@ class ScenarioActionExecutor {
             } else emptyList()
         }.toList()
 
-        // Execute a stable snapshot of the action list. One bad action must not
-        // prevent the remaining actions from being attempted.
         for (action in actions) {
             if (action.deviceId.isBlank() || action.widgetId.isBlank()) continue
             try {
@@ -430,8 +418,6 @@ class ScenarioActionExecutor {
                     action.value.ifBlank { "1" }
                 )
             } catch (_: Exception) {
-                // publishControl normally handles its own failures. Keep the
-                // scenario action chain alive if a connector throws unexpectedly.
             }
         }
     }
