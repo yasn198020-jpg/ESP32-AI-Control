@@ -167,8 +167,7 @@ fun App(
 
     fun saveTraining(phrase: String) {
         val target = trainingTarget ?: return
-        val clean = phrase.trim()
-        val finalPhrase = if (attachToExisting) selectedExistingPhrase?.trim().orEmpty() else clean
+        val finalPhrase = normalizedTrainingPhrase(phrase)
         if (finalPhrase.isBlank()) {
             voiceStatus = if (attachToExisting) "Выберите существующую команду" else "Фраза не распознана"
             return
@@ -181,6 +180,9 @@ fun App(
         attachToExisting = false
         selectedExistingPhrase = null
     }
+
+    fun normalizedTrainingPhrase(phrase: String): String =
+        if (attachToExisting) selectedExistingPhrase?.trim().orEmpty() else phrase.trim()
 
     fun addLog(message: String) { log = (log + message).takeLast(100) }
 
