@@ -446,6 +446,10 @@ private fun App(
                 Lifecycle.Event.ON_STOP -> {
                     handoffGeneration += 1L
                     val marfaActive = prefs.getBoolean("marfa_voice_active", false)
+                    if (!marfaActive) {
+                        // Background service becomes the only scenario runtime owner.
+                        scenarioEngine.setRuntimeActive(false)
+                    }
                     if (backgroundEnabled && !manualMqttDisconnect && !marfaActive) {
                         prefs.edit().putBoolean("mqtt_foreground_owner", false).apply()
                         addLog("MQTT background mode: handing connection to service")
@@ -467,6 +471,12 @@ private fun App(
                     val generation = handoffGeneration + 1L
                     handoffGeneration = generation
                     val marfaActive = prefs.getBoolean("marfa_voice_active", false)
+                    if (!backgroundEnabled || marfaActive) {
+                        scenarioEngine.setRuntimeActive(true)
+                    } else {
+                        // Wait until the foreground MQTT owner is restored.
+                        scenarioEngine.setRuntimeActive(false)
+                    }
                     if (backgroundEnabled && !marfaActive) {
                         markForegroundOwner()
                         // Stop the background owner before restoring the foreground
@@ -487,6 +497,7 @@ private fun App(
                             ) {
                                 addLog("MQTT foreground mode: restoring connection")
                                 connect(save = false)
+                                scenarioEngine.setRuntimeActive(true)
                             }
                         }, 1000)
                     }
