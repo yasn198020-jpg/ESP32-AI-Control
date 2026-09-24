@@ -81,9 +81,9 @@ fun App(
     var voiceStatus by remember { mutableStateOf("Нажмите 🎤 и скажите команду") }
     val localCommandManager = remember { LocalCommandManager() }
     val speech = remember { TextToSpeech(context, null) }
-    val ttsController = remember { TtsVoiceController(context, speech) }
-    val voiceTraining = remember { VoiceTrainingController(prefs) }
-    var trainedCommands by remember { mutableStateOf(voiceTraining.load()) }
+    val trainedStore = remember { TrainedCommandStore(prefs) }
+    val trainedMatcher = remember { TrainedCommandMatcher(trainedStore) }
+    var trainedCommands by remember { mutableStateOf(trainedStore.load()) }
     var trainingTarget by remember { mutableStateOf<TrainingTarget?>(null) }
     var trainingValue by remember { mutableStateOf("1") }
     var trainingPhrase by remember { mutableStateOf("") }
@@ -103,26 +103,99 @@ fun App(
     var availableVoices by remember { mutableStateOf(emptyList<android.speech.tts.Voice>()) }
 
     fun applyVoiceSettings() {
-        ttsController.apply(selectedVoiceName, voiceRate, voicePitch)
+        try {
+            speech.language = Locale("ru", "RU")
+            if (selectedVoiceName.isNotBlank()) {
+                speech.voices.firstOrNull { it.name == selectedVoiceName }?.let { speech.voice = it }
+            }
+            speech.setSpeechRate(voiceRate)
+            speech.setPitch(voicePitch)
+        } catch (_: Exception) {
+        }
     }
 
     fun selectInstalledVoice(name: String) {
         selectedVoiceName = name
-        ttsController.saveSelection(name)
+        prefs.edit().putString("tts_voice", name).apply()
         applyVoiceSettings()
     }
-    LaunchedEffect(speech, ttsController) {
+
+    LaunchedEffect(speech) {
         repeat(20) {
-            val voices = ttsController.availableVoices()
-            if (voices.isNotEmpty()) {
-                availableVoices = voices
-                applyVoiceSettings()
-                return@LaunchedEffect
+            try {
+                val voices = speech.voices
+                if (voices.isNotEmpty()) {
+                    availableVoices = voices.sortedWith(
+                        compareBy<android.speech.tts.Voice> { it.locale.language != "ru" }
+                            .thenBy { it.locale.displayName }
+                            .thenBy { it.name }
+                    )
+                    applyVoiceSettings()
+                    return@LaunchedEffect
+                }
+            } catch (_: Exception) {
             }
-            delay(250)
+            kotlinx.coroutines.delay(250)
         }
     }
 
+    LaunchedEffect(speech, voiceRate, voicePitch, selectedVoiceName) {
+        applyVoiceSettings()
+    }
+
+    fun selectVoicePreset(id: String) {
+        voicePreset = id
+        when (id) {
+            "soft" -> { voiceRate = 0.88f; voicePitch = 1.12f }
+            "friendly" -> { voiceRate = 0.92f; voicePitch = 1.05f }
+            "natural" -> { voiceRate = 0.98f; voicePitch = 1.00f }
+            "assistant" -> { voiceRate = 0.94f; voicePitch = 0.96f }
+        }
+        prefs.edit().putString("voice_preset", voicePreset)
+            .putFloat("voice_rate", voiceRate).putFloat("voice_pitch", voicePitch).apply()
+        applyVoiceSettings()
+    }
+
+    fun saveVoiceSettings() {
+        prefs.edit().putString("voice_preset", voicePreset)
+            .putFloat("voice_rate", voiceRate).putFloat("voice_pitch", voicePitch).apply()
+        applyVoiceSettings()
+        voiceStatus = "Настройки голоса сохранены"
+    }
+
+    fun openTraining(deviceId: String, widget: WidgetState) {
+        val canTrain = widget.type == WidgetState.Type.TOGGLE ||
+            widget.type == WidgetState.Type.BUTTON ||
+            widget.type == WidgetState.Type.VALUE ||
+            widget.type == WidgetState.Type.STATUS
+        if (!canTrain) return
+        trainingTarget = TrainingTarget(deviceId, widget.id, widget.title)
+        trainingValue = if (widget.type == WidgetState.Type.VALUE || widget.type == WidgetState.Type.STATUS) {
+            TRAINED_READ_VALUE
+        } else {
+            "1"
+        }
+        trainingPhrase = ""
+        attachToExisting = false
+        selectedExistingPhrase = null
+    }
+
+    fun saveTraining(phrase: String) {
+        val target = trainingTarget ?: return
+        val clean = phrase.trim()
+        val finalPhrase = if (attachToExisting) selectedExistingPhrase?.trim().orEmpty() else clean
+        if (finalPhrase.isBlank()) {
+            voiceStatus = if (attachToExisting) "Выберите существующую команду" else "Фраза не распознана"
+            return
+        }
+        trainedStore.add(TrainedVoiceCommand(finalPhrase, target.deviceId, target.widgetId, trainingValue))
+        trainedCommands = trainedStore.load()
+        voiceStatus = "Действие добавлено к команде: $finalPhrase"
+        trainingPhrase = finalPhrase
+        trainingTarget = null
+        attachToExisting = false
+        selectedExistingPhrase = null
+    }
 
     fun addLog(message: String) { log = (log + message).takeLast(100) }
 
@@ -221,7 +294,8 @@ fun App(
                 mqtt.disconnect()
             }
             voiceManager.stop()
-            ttsController.shutdown()
+            speech.stop()
+            speech.shutdown()
         }
     }
 
