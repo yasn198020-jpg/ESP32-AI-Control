@@ -49,7 +49,7 @@ fun TrainingDialog(
             ) {
                 Text("Виджет: ${target.title}")
                 Text("Что должна делать фраза?")
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(\n                    horizontalArrangement = Arrangement.spacedBy(8.dp)\n                ) {
                     FilterChip(selected = !attachToExisting, onClick = { onAttachChange(false) }, label = { Text("Новая команда") })
                     FilterChip(selected = attachToExisting, onClick = { onAttachChange(true) }, label = { Text("К существующей") })
                 }
