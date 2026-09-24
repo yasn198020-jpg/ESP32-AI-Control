@@ -13,6 +13,8 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.app.AlarmManager
+import android.app.PendingIntent
 import androidx.core.app.NotificationCompat
 
 /**
@@ -96,6 +98,7 @@ class MqttBackgroundService : Service() {
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
+        scheduleServiceRestart()
         // Keep the service independent from the Activity task.
         val runtime = AppRuntime.get(applicationContext)
         runtime.scenarioEngine.setRuntimeActive(true)
@@ -103,6 +106,27 @@ class MqttBackgroundService : Service() {
         super.onTaskRemoved(rootIntent)
     }
 
+
+    private fun scheduleServiceRestart() {
+        try {
+            val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val intent = Intent(this, MqttBootReceiver::class.java)
+                .setAction(MqttBootReceiver.ACTION_RESTART)
+            val pending = PendingIntent.getBroadcast(
+                this,
+                7301,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            alarmManager.setAndAllowWhileIdle(
+                AlarmManager.RTC_WAKEUP,
+                System.currentTimeMillis() + 5_000L,
+                pending
+            )
+        } catch (e: Exception) {
+            android.util.Log.e("MQTT_BACKGROUND", "restart alarm failed", e)
+        }
+    }
 
     private fun acquireBackgroundWakeLock() {
         try {
