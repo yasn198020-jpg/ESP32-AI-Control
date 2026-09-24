@@ -22,3 +22,5 @@ class MqttSettingsStore(private val prefs: SharedPreferences) {
             .apply()
     }
 }
+
+// Keep this store intentionally small: MQTT protocol behavior remains in MqttManager.
