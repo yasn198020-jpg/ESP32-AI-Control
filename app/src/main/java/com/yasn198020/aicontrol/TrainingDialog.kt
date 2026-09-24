@@ -58,7 +58,7 @@ fun TrainingDialog(
                     val existingPhrases = remember(trainedCommands) { trainedCommands.map { it.phrase }.distinct() }
                     if (existingPhrases.isEmpty()) Text("Существующих команд пока нет.")
                     else {
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Column(\n                            verticalArrangement = Arrangement.spacedBy(4.dp)\n                        ) {
                             existingPhrases.forEach { phrase ->
                                 FilterChip(selected = selectedExistingPhrase == phrase, onClick = { onSelectPhrase(phrase) }, label = { Text("«$phrase»") }, modifier = Modifier.fillMaxWidth())
                             }
