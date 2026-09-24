@@ -146,7 +146,6 @@ private fun App(
     var selectedPage by remember { mutableStateOf<String?>(null) }
     var connected by remember { mutableStateOf(false) }
     var manualMqttDisconnect by remember { mutableStateOf(false) }
-    var backgroundEnabled by remember { mutableStateOf(prefs.getBoolean("mqtt_background_enabled", false)) }
     var log by remember { mutableStateOf(listOf("MQTT diagnostic log ready")) }
     var devices by remember { mutableStateOf(emptyList<Device>()) }
     var voiceText by remember { mutableStateOf("") }
@@ -385,32 +384,6 @@ private fun App(
         addLog("Settings saved")
     }
 
-    fun setBackgroundEnabled(enabled: Boolean) {
-        backgroundEnabled = enabled
-        prefs.edit().putBoolean("mqtt_background_enabled", enabled).apply()
-
-        if (!enabled) {
-            try {
-                context.stopService(Intent(context, MqttBackgroundService::class.java))
-            } catch (_: Exception) {
-            }
-            addLog("MQTT background mode: disabled")
-        } else {
-            addLog("MQTT background mode: enabled")
-            try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    ContextCompat.startForegroundService(
-                        context,
-                        Intent(context, MqttBackgroundService::class.java)
-                    )
-                } else {
-                    context.startService(Intent(context, MqttBackgroundService::class.java))
-                }
-            } catch (e: Exception) {
-                addLog("MQTT background service start failed: " + (e.message ?: e.javaClass.simpleName))
-            }
-        }
-    }
 
     fun connect(save: Boolean = true) {
         manualMqttDisconnect = false
@@ -434,50 +407,6 @@ private fun App(
         }
     }
 
-    // The same AppRuntime/MqttManager is used in foreground and background.
-    // Going to background starts the foreground service but never disconnects MQTT.
-    // Returning to the UI only re-attaches the Activity; no second MQTT connection is created.
-    val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(context, runtime, backgroundEnabled) {
-        val lifecycle = (context as? ComponentActivity)?.lifecycle
-        val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_STOP -> {
-                    voiceManager.stop()
-                    voiceStatus = "Микрофон выключен"
-                    if (backgroundEnabled &&
-                        !manualMqttDisconnect &&
-                        !prefs.getBoolean("marfa_voice_active", false)
-                    ) {
-                        try {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                ContextCompat.startForegroundService(
-                                    context,
-                                    Intent(context, MqttBackgroundService::class.java)
-                                )
-                            } else {
-                                context.startService(Intent(context, MqttBackgroundService::class.java))
-                            }
-                        } catch (e: Exception) {
-                            addLog("MQTT background service start failed: " + (e.message ?: e.javaClass.simpleName))
-                        }
-                    }
-                }
-                Lifecycle.Event.ON_START -> {
-                    // Do not stop the service and do not reconnect MQTT here.
-                    // The shared runtime remains the single connection owner.
-                    if (backgroundEnabled && !manualMqttDisconnect) {
-                        addLog("MQTT foreground UI attached to shared runtime")
-                    }
-                }
-                else -> Unit
-            }
-        }
-        lifecycle?.addObserver(observer)
-        onDispose {
-            lifecycle?.removeObserver(observer)
-        }
-    }
 
     LaunchedEffect(Unit) {
         delay(500)
@@ -953,7 +882,7 @@ private fun App(
             2 -> MqttScreen(
                 Modifier.padding(padding),
                 mqttHost, mqttPort, mqttPrefix, username, password, mqttTls, connected,
-                backgroundEnabled,
+
                 { mqttHost = it }, { mqttPort = it }, { mqttPrefix = it }, { username = it }, { password = it }, { mqttTls = it },
                 ::saveSettings,
                 ::setBackgroundEnabled,
@@ -1281,7 +1210,7 @@ private fun InputWidget(widget: WidgetState, onSend: (String) -> Unit) {
 
 @Composable
 private fun MqttScreen(modifier: Modifier, host: String, port: String, prefix: String, username: String, password: String, tls: Boolean, connected: Boolean,
-    backgroundEnabled: Boolean,
+
     onHost: (String) -> Unit, onPort: (String) -> Unit, onPrefix: (String) -> Unit, onUser: (String) -> Unit, onPass: (String) -> Unit, onTls: (Boolean) -> Unit,
     onSave: () -> Unit, onBackgroundEnabled: (Boolean) -> Unit, onConnect: () -> Unit, onHello: () -> Unit) {
     Column(modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
