@@ -259,7 +259,13 @@ class MqttManager(
 
     fun publishControl(deviceId: String, widgetId: String, value: String): Boolean {
         if (prefix.isBlank() || deviceId.isBlank() || widgetId.isBlank()) return false
-        // Device/scenario traffic uses the actual ESP32 protocol root. The UI MQTT prefix\n        // is kept for subscription compatibility, but must not redirect control\n        // commands to /IoTManager when the devices live under /dghjko.\n        return publish("/dghjko/" + deviceId + "/" + widgetId + "/control", org.json.JSONObject().put("status", value).toString())
+        // Device/scenario traffic uses the actual ESP32 protocol root.
+        // The UI MQTT prefix is kept for subscription compatibility,
+        // but must not redirect control commands to /IoTManager.
+        return publish(
+            "/dghjko/" + deviceId + "/" + widgetId + "/control",
+            org.json.JSONObject().put("status", value).toString()
+        )
     }
 
     private fun publish(topic: String, payload: String): Boolean {
