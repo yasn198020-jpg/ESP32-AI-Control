@@ -664,11 +664,7 @@ private fun ScenarioEditorDialog(
                         verifyFailureMessage = verifyFailureMessage.trim().ifBlank { "Подтверждение не получено" },
                         conditions = parsed
                     )
-                    if (scenarioToSave.notificationEnabled) {
-                        onRequestNotifications { onSave(scenarioToSave) }
-                    } else {
-                        onSave(scenarioToSave)
-                    }
+                    onSave(scenarioToSave)
                 }
             }) { Text("Сохранить") }
         },
