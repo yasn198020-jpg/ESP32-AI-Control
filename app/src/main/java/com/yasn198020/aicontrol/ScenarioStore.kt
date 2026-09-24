@@ -334,7 +334,15 @@ class ScenarioEngine(
                 if (task != null) {
                     task.cancel(false)
                     verificationGenerations[scenario.id] = (verificationGenerations[scenario.id] ?: 0L) + 1L
-                    onVerificationResult(scenario, true, rawValue)
+
+                    // Use the current persisted scenario for the callback.
+                    // The MQTT response can arrive after the scenario was
+                    // edited, so the snapshot from this onValue() pass may
+                    // contain stale verification text/settings.
+                    val current = store.load().firstOrNull { it.id == scenario.id }
+                    if (current?.enabled == true && current.verifyEnabled) {
+                        onVerificationResult(current, true, rawValue)
+                    }
                 }
             }
 
