@@ -302,7 +302,7 @@ class MqttManager(
         } catch (e: Exception) {
             synchronized(publishLock) {
                 if (pendingPublishes.size >= maxPendingPublishes) pendingPublishes.removeFirst()
-                pendingPublishes.addLast(PendingPublish(topic, payload))
+                pendingPublishes.addLast(PendingPublish(topic, payload, eventId))
             }
             DiagnosticTrace.stepForEvent(eventId, "ERROR", "TX failed topic=" + topic + " error=" + (e.message ?: e.javaClass.simpleName))
             emitLog(mqttExceptionText("MQTT publish failed", e))
