@@ -386,14 +386,6 @@ fun VoiceSettingsScreen(
 ) {
     var voiceMenuOpen by remember { mutableStateOf(false) }
 
-    fun languageLabel(locale: Locale): String {
-        val language = locale.getDisplayLanguage(Locale("ru", "RU")).ifBlank { locale.language }
-        val country = locale.getDisplayCountry(Locale("ru", "RU"))
-        return if (country.isBlank()) language else "$language — $country"
-    }
-
-    fun voiceLabel(voice: android.speech.tts.Voice): String = voice.name
-
     val selectedVoice = voices.firstOrNull { it.name == selectedVoiceName }
     val russianVoices = voices.filter { it.locale.language == "ru" }
     val voicesByLanguage = voices.groupBy { languageLabel(it.locale) }
@@ -458,13 +450,10 @@ fun VoiceSettingsScreen(
         }
 
         Text("Пресет", fontWeight = FontWeight.Medium)
-        val presets = listOf(
-            Triple("soft", "🌸 Нежный", "Мягкий и спокойный"),
-            Triple("friendly", "😊 Дружелюбный", "Тёплый и естественный"),
-            Triple("natural", "🎧 Естественный", "Более нейтральный"),
-            Triple("assistant", "🤖 Ассистент", "Чёткий и спокойный")
-        )
-        presets.forEach { (id, title, description) ->
+        voicePresets.forEach { presetItem ->
+            val id = presetItem.id
+            val title = presetItem.title
+            val description = presetItem.description
             Card(
                 modifier = Modifier.fillMaxWidth().clickable { onPreset(id) },
                 shape = RoundedCornerShape(14.dp)
