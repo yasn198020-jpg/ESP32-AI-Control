@@ -40,13 +40,15 @@ class AppRuntime private constructor(private val appContext: Context) {
     val scenarioStore: ScenarioStore = ScenarioStore(prefs)
     val scenarioActionExecutor: ScenarioActionExecutor = ScenarioActionExecutor()
 
+    private var currentTriggeredScenario: ((Scenario, String) -> Unit)? = null
+
     val scenarioEngine: ScenarioEngine = ScenarioEngine(
-        scenarioStore,
         onTrigger = { scenario, rawValue, _ ->
-            if (scenario.notificationEnabled) {
-                ScenarioNotifier.notify(appContext, scenario, rawValue)
-            }
+            // This callback executes the action synchronously. The MQTT event
+            // handler captures the scenario/raw value and sends the notification
+            // after runtimeActive is returned to false.
             scenarioActionExecutor.execute(scenario)
+            currentTriggeredScenario?.invoke(scenario, rawValue)
         },
         onVerificationResult = { scenario, success, rawValue ->
             if (scenario.notificationEnabled) {
@@ -73,18 +75,46 @@ class AppRuntime private constructor(private val appContext: Context) {
             // already independent of Activity/main UI. Process scenarios directly
             // here so background execution cannot depend on an Activity-owned
             // executor or its lifecycle.
+            var triggeredScenario: Scenario? = null
+            var triggeredRawValue: String? = null
+            val originalEngine = scenarioEngine
+            currentTriggeredScenario = { scenario, raw -> 
+                triggeredScenario = scenario
+                triggeredRawValue = raw
+            }
+
             try {
                 historyStore.add(deviceId, widgetId, value)
-                // Temporary diagnostic mode: wake scenario processing only for
-                // this MQTT event, execute action/notification, then deactivate.
-                scenarioEngine.setRuntimeActive(true)
+
+                // Exact diagnostic sequence for every MQTT event:
+                // false -> true -> execute action -> false -> notification.
+                originalEngine.setRuntimeActive(false)
+                originalEngine.setRuntimeActive(true)
                 try {
-                    scenarioEngine.onValue(deviceId, widgetId, value)
+                    // Capture the scenario through the trigger callback.
+                    // The action itself is executed synchronously by onTrigger.
+                    val previous = triggeredScenario
+                    originalEngine.onValue(deviceId, widgetId, value)
+                    if (previous == null && triggeredScenario == null) {
+                        // No trigger on this MQTT event.
+                    }
                 } finally {
-                    scenarioEngine.setRuntimeActive(false)
+                    originalEngine.setRuntimeActive(false)
+                }
+
+                // Notification is controlled by the scenario's saved flag and
+                // is deliberately delivered after runtimeActive=false.
+                if (triggeredScenario?.notificationEnabled == true) {
+                    ScenarioNotifier.notify(
+                        appContext,
+                        triggeredScenario!!,
+                        triggeredRawValue ?: value
+                    )
                 }
             } catch (e: Exception) {
                 android.util.Log.e("MQTT_RUNTIME", "Background status processing failed", e)
+            } finally {
+                currentTriggeredScenario = null
             }
 
             // Only UI rendering is marshalled to the main thread.
