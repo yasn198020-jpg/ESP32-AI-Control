@@ -49,7 +49,6 @@ class MqttBackgroundService : Service() {
             if (!running) return
             try {
                 val runtime = AppRuntime.get(applicationContext)
-                runtime.scenarioEngine.setRuntimeActive(false)
                 runtime.ensureConnected()
             } catch (e: Exception) {
                 android.util.Log.e("MQTT_BACKGROUND", "ensureConnected failed", e)
@@ -67,9 +66,8 @@ class MqttBackgroundService : Service() {
         running = true
 
         // Create/keep the single process-wide runtime alive immediately.
-        // Scenarios must remain active while the Activity is stopped.
+        // Scenarios must remain available while the Activity is stopped.
         val runtime = AppRuntime.get(applicationContext)
-        runtime.scenarioEngine.setRuntimeActive(false)
         runtime.ensureConnected()
         handler.post(checkRunnable)
 
