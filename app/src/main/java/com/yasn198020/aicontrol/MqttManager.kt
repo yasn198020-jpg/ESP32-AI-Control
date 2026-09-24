@@ -14,6 +14,7 @@ class MqttManager(
 ) {
     private val main = Handler(Looper.getMainLooper())
     private var client: MqttAsyncClient? = null
+    @Volatile private var connecting = false
     private var prefix = ""
     private data class PendingPublish(val topic: String, val payload: String)
     private val pendingPublishes = ArrayDeque<PendingPublish>()
@@ -46,9 +47,11 @@ class MqttManager(
             val id = "ESP32AI-" + UUID.randomUUID().toString().replace("-", "").take(12)
             val c = MqttAsyncClient(normalizedUrl, id, MemoryPersistence())
             client = c
+            connecting = true
 
             c.setCallback(object : MqttCallbackExtended {
                 override fun connectComplete(reconnect: Boolean, serverURI: String?) {
+                    connecting = false
                     emitLog("MQTT connected: " + serverURI)
                     emitConnected(true)
                     // Flush scenario/control messages that were queued while the
@@ -58,6 +61,7 @@ class MqttManager(
                 }
 
                 override fun connectionLost(cause: Throwable?) {
+                    connecting = false
                     emitLog(mqttExceptionText("MQTT connection lost", cause))
                     emitConnected(false)
                 }
@@ -163,6 +167,7 @@ class MqttManager(
                     asyncActionToken: IMqttToken?,
                     exception: Throwable?
                 ) {
+                    connecting = false
                     emitLog(mqttExceptionText("MQTT connect failed", exception))
                     emitLog("MQTT credentials supplied: " + username.isNotBlank())
                     emitLog("MQTT TLS: " + tls)
@@ -171,6 +176,7 @@ class MqttManager(
                 }
             })
         } catch (e: Exception) {
+            connecting = false
             emitLog(mqttExceptionText("MQTT error", e))
             emitConnected(false)
         }
@@ -326,11 +332,13 @@ class MqttManager(
             emitLog(mqttExceptionText("MQTT disconnect error", e))
         } finally {
             client = null
+            connecting = false
             emitConnected(false)
         }
     }
 
     fun isConnected(): Boolean = client?.isConnected == true
+    fun isConnecting(): Boolean = connecting
 
     private fun emitLog(value: String) {
         main.post { onLog(value) }

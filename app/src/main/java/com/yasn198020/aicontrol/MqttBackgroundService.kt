@@ -29,15 +29,14 @@ class MqttBackgroundService : Service() {
     private val reconnectTask = object : Runnable {
         override fun run() {
             val prefs = getSharedPreferences("settings", Context.MODE_PRIVATE)
-            if (!prefs.getBoolean("mqtt_background_enabled", false) ||
-                prefs.getBoolean("mqtt_foreground_owner", false)) {
+            if (!prefs.getBoolean("mqtt_background_enabled", false)) {
                 handler.removeCallbacks(this)
                 stopSelf()
                 return
             }
 
             val manager = mqtt
-            if (manager != null && !manager.isConnected()) {
+            if (manager != null && !manager.isConnected() && !manager.isConnecting()) {
                 connectFromSavedSettings(manager)
             }
             handler.postDelayed(this, CHECK_MS)
@@ -51,6 +50,9 @@ class MqttBackgroundService : Service() {
             stopSelf()
             return
         }
+        // Once this service is started, it is the background MQTT/scenario owner.
+        // Do not rely on a stale foreground-owner flag left by a previous activity instance.
+        prefs.edit().putBoolean("mqtt_foreground_owner", false).apply()
         createNotificationChannel()
         startAsForeground()
         historyStore = HistoryStore(prefs)
@@ -107,16 +109,11 @@ class MqttBackgroundService : Service() {
             return START_NOT_STICKY
         }
 
-        // If the activity has already returned to the foreground, this service
-        // is no longer the MQTT owner. Stop without creating/reconnecting a client.
-        if (prefs.getBoolean("mqtt_foreground_owner", false)) {
-            handler.removeCallbacksAndMessages(null)
-            stopSelf(startId)
-            return START_NOT_STICKY
-        }
-
+        // Foreground handoff is controlled by MainActivity.stopService().
+        // A stale foreground-owner flag must never prevent this explicitly
+        // started background service from running scenarios.
         mqtt?.let { manager ->
-            if (!manager.isConnected()) {
+            if (!manager.isConnected() && !manager.isConnecting()) {
                 connectFromSavedSettings(manager)
             }
         }
