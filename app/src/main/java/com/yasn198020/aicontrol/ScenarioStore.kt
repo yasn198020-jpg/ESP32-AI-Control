@@ -236,8 +236,18 @@ class ScenarioEngine(
             synchronized(this) {
                 verificationTasks.remove(scenario.id)
             }
-            onVerificationResult(scenario, false, "")
+            val current = store.load().firstOrNull { it.id == scenario.id }
+            if (current?.enabled == true && current.verifyEnabled) {
+                onVerificationResult(current, false, "")
+            }
         }, scenario.verifyTimeoutSec.coerceIn(1, 300).toLong(), java.util.concurrent.TimeUnit.SECONDS)
+    }
+
+    @Synchronized
+    fun shutdown() {
+        verificationTasks.values.forEach { it.cancel(false) }
+        verificationTasks.clear()
+        scheduler.shutdownNow()
     }
 
     @Synchronized
