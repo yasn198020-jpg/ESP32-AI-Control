@@ -42,7 +42,7 @@ fun VariantPhraseDialog(
                 Button(\n                    onClick = onRequestMic,\n                    modifier = Modifier.fillMaxWidth()\n                ) { Text("🎤 Произнести вариант") }
             }
         },
-        confirmButton = { TextButton(onClick = { onAdd(text.trim()) }, enabled = text.trim().isNotBlank()) { Text("Добавить") } },
+        confirmButton = {\n            TextButton(\n                onClick = { onAdd(text.trim()) },\n                enabled = text.trim().isNotBlank()\n            ) { Text("Добавить") }\n        },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } }
     )
 }
