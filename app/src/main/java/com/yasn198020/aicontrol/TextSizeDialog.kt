@@ -37,8 +37,16 @@ fun TextSizeDialog(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text("${(fontScale * 100f).toInt()}%", fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-                Slider(\n                    value = fontScale,\n                    onValueChange = onFontScaleChange,\n                    valueRange = 0.70f..1.10f,\n                    steps = 7\n                )
-                Row(\n                    modifier = Modifier.fillMaxWidth(),\n                    horizontalArrangement = Arrangement.SpaceBetween\n                ) {
+                Slider(
+                    value = fontScale,
+                    onValueChange = onFontScaleChange,
+                    valueRange = 0.70f..1.10f,
+                    steps = 7
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
                     Text("Мельче")
                     Text("Обычный")
                     Text("Крупнее")
@@ -47,6 +55,8 @@ fun TextSizeDialog(
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Готово") } },
-        dismissButton = {\n            TextButton(onClick = { onFontScaleChange(0.85f) }) { Text("По умолчанию") }\n        }
+        dismissButton = {
+            TextButton(onClick = { onFontScaleChange(0.85f) }) { Text("По умолчанию") }
+        }
     )
 }
