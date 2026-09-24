@@ -358,6 +358,12 @@ private fun App(
 
     scenarioActionExecutor.mqtt = mqtt
 
+    DisposableEffect(scenarioEngine) {
+        onDispose {
+            scenarioEngine.shutdown()
+        }
+    }
+
     DisposableEffect(mqtt, voiceManager, speech) {
         onDispose {
             if (!context.getSharedPreferences("settings", Context.MODE_PRIVATE).getBoolean("marfa_voice_active", false)) {
