@@ -54,9 +54,8 @@ class MarfaVoiceService : Service() {
                 android.util.Log.d("MARFA_MQTT", "connected=$connected")
                 if (connected) {
                     mqtt?.publishHello()
-                    // Start listening only after MQTT is connected so commands
-                    // have a live transport even when the main UI is closed.
-                    voiceManager?.startWakeWord()
+                    // MQTT connection must NOT start the microphone.
+                    // Listening is started only by an explicit microphone button.
                 }
             },
             onStatus = { deviceId, widgetId, value ->
@@ -133,12 +132,16 @@ class MarfaVoiceService : Service() {
             mqtt?.connect(host, port, prefix, username, password, tls)
         } catch (e: Exception) {
             android.util.Log.e("MARFA_MQTT", "connect failed", e)
-            voiceManager?.startWakeWord()
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        voiceManager?.startWakeWord()
+        // Microphone activation is explicit: only an intent carrying
+        // start_listening=true (sent by the microphone shortcut button)
+        // may start recognition.
+        if (intent?.getBooleanExtra("start_listening", false) == true) {
+            voiceManager?.startWakeWord()
+        }
         // The microphone shortcut is explicitly user-controlled.
         // Do not let Android resurrect the service after it was stopped or crashed,
         // otherwise the shortcut can remain visually stuck in the ON state.
