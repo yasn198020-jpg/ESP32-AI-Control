@@ -325,6 +325,17 @@ private fun App(
         )
     }
 
+    // Restore persisted telemetry into the foreground scenario engine too.
+    // This keeps scenario conditions consistent across foreground/background handoff.
+    LaunchedEffect(historyStore, scenarioEngine) {
+        historyStore.latestValues().forEach { (key, value) ->
+            val parts = key.split("/", limit = 2)
+            if (parts.size == 2) {
+                scenarioEngine.restoreValue(parts[0], parts[1], value)
+            }
+        }
+    }
+
     val deviceManager = remember {
         DeviceManager(
             onDevicesChanged = { devices = it },
