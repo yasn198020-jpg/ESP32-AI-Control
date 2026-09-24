@@ -89,11 +89,11 @@ class MqttManager(
                             " qos=" + message.qos +
                             " retained=" + message.isRetained
                     )
-                    if (topic.contains("/vbtn90/")) {
+                    if (topic.contains("vbtn90", ignoreCase = true) || payload.contains("vbtn90", ignoreCase = true)) {
                         DiagnosticTrace.stepForEvent(
                             traceId,
                             "MQTT",
-                            "VBTN90 RX topic=" + topic + " payload=" + payload
+                            "MQTT RX topic=" + topic + " payload=" + payload
                         )
                     }
 
@@ -160,8 +160,8 @@ class MqttManager(
                                 if (widgetId == "vbtn90") {
                                     DiagnosticTrace.stepForEvent(
                                         traceId,
-                                        "MQTT",
-                                        "VBTN90 EVENT parsed value=" + value
+                                        "VBTN90",
+                                        "EVENT parsed device=" + parts[0] + " widget=" + widgetId + " value=" + value
                                     )
                                 }
                                 emitStatus(parts[0], widgetId, value)
@@ -320,6 +320,9 @@ class MqttManager(
                 isRetained = false
             }
             c.publish(topic, message)
+            if (topic.contains("vbtn90", ignoreCase = true) || payload.contains("vbtn90", ignoreCase = true)) {
+                DiagnosticTrace.stepForEvent(eventId, "VBTN90", "TX result=true topic=" + topic + " payload=" + payload)
+            }
             DiagnosticTrace.stepForEvent(eventId, "MQTT", "TX result=true topic=" + topic + " payload=" + payload)
             emitLog("MQTT TX topic=" + topic + " payload=" + payload)
             true
@@ -348,6 +351,9 @@ class MqttManager(
                     isRetained = false
                 }
                 c.publish(pending.topic, message)
+                if (pending.topic.contains("vbtn90", ignoreCase = true) || pending.payload.contains("vbtn90", ignoreCase = true)) {
+                    DiagnosticTrace.stepForEvent(pending.eventId, "VBTN90", "TX queued result=true topic=" + pending.topic + " payload=" + pending.payload)
+                }
                 DiagnosticTrace.stepForEvent(pending.eventId, "MQTT", "TX queued result=true topic=" + pending.topic + " payload=" + pending.payload)
                 emitLog("MQTT TX queued topic=" + pending.topic + " payload=" + pending.payload)
             } catch (e: Exception) {
