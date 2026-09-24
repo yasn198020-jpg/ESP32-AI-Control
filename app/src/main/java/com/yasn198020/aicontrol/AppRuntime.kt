@@ -2,6 +2,8 @@ package com.yasn198020.aicontrol
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.os.Handler
+import android.os.Looper
 import java.util.concurrent.CopyOnWriteArraySet
 import java.util.concurrent.Executors
 
@@ -34,6 +36,7 @@ class AppRuntime private constructor(private val appContext: Context) {
         appContext.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
     private val uiListeners = CopyOnWriteArraySet<UiListener>()
+    private val mainHandler = Handler(Looper.getMainLooper())
     // MQTT status processing must not depend on the Activity/main UI loop.
     // This worker keeps telemetry, scenarios and notifications alive in background.
     private val backgroundExecutor = Executors.newSingleThreadExecutor { runnable ->
@@ -83,8 +86,12 @@ class AppRuntime private constructor(private val appContext: Context) {
                 }
             }
 
-            // UI updates remain on the MQTT manager's main-thread callback.
-            uiListeners.forEach { it.onStatus(deviceId, widgetId, value) }
+            // MQTT status arrives on the Paho callback thread. Only the UI
+            // notification is marshalled to main; history/scenarios stay fully
+            // independent of Activity and main-thread lifecycle.
+            mainHandler.post {
+                uiListeners.forEach { it.onStatus(deviceId, widgetId, value) }
+            }
         },
         onConfig = { deviceId, widgetId, label, widgetType, page, topic, order, raw ->
             uiListeners.forEach {
