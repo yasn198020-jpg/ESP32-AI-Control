@@ -210,6 +210,7 @@ class ScenarioEngine(
     private val values = mutableMapOf<String, Double>()
     private val verificationTasks = mutableMapOf<String, java.util.concurrent.ScheduledFuture<*>>()
     private val verificationGenerations = mutableMapOf<String, Long>()
+    private val verificationTraceIds = mutableMapOf<String, Long?>()
 
     // Runtime edge state. It is deliberately NOT persisted in ScenarioStore.
     // This prevents a saved armed=false flag from surviving app restarts.
@@ -255,12 +256,23 @@ class ScenarioEngine(
 
     @Synchronized
     private fun startVerification(scenario: Scenario) {
-        if (shutdown || !scenario.verifyEnabled || scenario.verifyDeviceId.isBlank() || scenario.verifyWidgetId.isBlank()) return
-        if (scheduler.isShutdown || scheduler.isTerminated) return
+        if (shutdown || !scenario.verifyEnabled || scenario.verifyDeviceId.isBlank() || scenario.verifyWidgetId.isBlank()) {
+            DiagnosticTrace.step("VERIFY", "SKIP invalid verification config scenario=${scenario.id}")
+            return
+        }
+        if (scheduler.isShutdown || scheduler.isTerminated) {
+            DiagnosticTrace.step("VERIFY", "SKIP scheduler unavailable scenario=${scenario.id}")
+            return
+        }
 
         verificationTasks.remove(scenario.id)?.cancel(false)
         val generation = (verificationGenerations[scenario.id] ?: 0L) + 1L
         verificationGenerations[scenario.id] = generation
+        verificationTraceIds[scenario.id] = DiagnosticTrace.currentEventId()
+        DiagnosticTrace.step(
+            "VERIFY",
+            "START scenario=${scenario.id} timeout=${scenario.verifyTimeoutSec}s target=${scenario.verifyDeviceId}/${scenario.verifyWidgetId} expected=${scenario.verifyValue}"
+        )
 
         val task = try {
             scheduler.schedule({
@@ -271,7 +283,9 @@ class ScenarioEngine(
                     if (stillCurrent) verificationTasks.remove(scenario.id)
                     current = if (stillCurrent) store.load().firstOrNull { it.id == scenario.id } else null
                 }
+                val traceId = synchronized(this) { verificationTraceIds.remove(scenario.id) }
                 if (stillCurrent && current?.enabled == true && current.verifyEnabled) {
+                    DiagnosticTrace.stepForEvent(traceId, "VERIFY", "TIMEOUT scenario=${scenario.id}")
                     onVerificationResult(current, false, "")
                 }
             }, scenario.verifyTimeoutSec.coerceIn(1, 300).toLong(), java.util.concurrent.TimeUnit.SECONDS)
@@ -285,6 +299,8 @@ class ScenarioEngine(
     fun cancelScenario(scenarioId: String) {
         verificationTasks.remove(scenarioId)?.cancel(false)
         verificationGenerations[scenarioId] = (verificationGenerations[scenarioId] ?: 0L) + 1L
+        verificationTraceIds.remove(scenarioId)
+        DiagnosticTrace.system("Scenario cancelled id=$scenarioId")
         // Re-editing/toggling a scenario starts a fresh condition edge.
         conditionStates.remove(scenarioId)
     }
@@ -292,6 +308,7 @@ class ScenarioEngine(
     @Synchronized
     fun setRuntimeActive(active: Boolean) {
         if (shutdown) return
+        DiagnosticTrace.system("ScenarioEngine runtimeActive=$active")
         if (!active) {
             verificationTasks.values.forEach { it.cancel(false) }
             verificationTasks.clear()
@@ -323,12 +340,25 @@ class ScenarioEngine(
 
     @Synchronized
     fun onValue(deviceId: String, widgetId: String, rawValue: String) {
-        if (shutdown || !runtimeActive) return
+        val eventId = DiagnosticTrace.currentEventId()
+        if (shutdown) {
+            DiagnosticTrace.stepForEvent(eventId, "SCENARIO", "SKIP engine is shutdown")
+            return
+        }
+        if (!runtimeActive) {
+            DiagnosticTrace.stepForEvent(eventId, "SCENARIO", "SKIP runtimeActive=false")
+            return
+        }
 
-        val value = rawValue.trim().replace(',', '.').toDoubleOrNull() ?: return
+        val value = rawValue.trim().replace(',', '.').toDoubleOrNull()
+        if (value == null) {
+            DiagnosticTrace.stepForEvent(eventId, "SCENARIO", "SKIP non-numeric value=$rawValue")
+            return
+        }
         values[key(deviceId, widgetId)] = value
 
         val scenarios = store.load()
+        DiagnosticTrace.stepForEvent(eventId, "SCENARIO", "loaded=${scenarios.size} current=$deviceId/$widgetId=$value")
 
         val activeScenarioIds = scenarios.filter { it.enabled && it.verifyEnabled }.mapTo(mutableSetOf()) { it.id }
         val staleIds = verificationTasks.keys.filter { it !in activeScenarioIds }
@@ -339,6 +369,7 @@ class ScenarioEngine(
 
         scenarios.forEach { scenario ->
             if (!scenario.enabled) {
+                DiagnosticTrace.stepForEvent(eventId, "SCENARIO", "SKIP id=${scenario.id} disabled")
                 conditionStates.remove(scenario.id)
                 return@forEach
             }
@@ -354,28 +385,37 @@ class ScenarioEngine(
                     verificationGenerations[scenario.id] = (verificationGenerations[scenario.id] ?: 0L) + 1L
                     val current = store.load().firstOrNull { it.id == scenario.id }
                     if (current?.enabled == true && current.verifyEnabled) {
+                        DiagnosticTrace.stepForEvent(eventId, "VERIFY", "SUCCESS matched scenario=${scenario.id} value=$rawValue")
+                        val traceId = verificationTraceIds.remove(scenario.id)
+                        DiagnosticTrace.stepForEvent(traceId, "VERIFY", "triggered verification completed by current event")
                         onVerificationResult(current, true, rawValue)
+                    } else {
+                        DiagnosticTrace.stepForEvent(eventId, "VERIFY", "success candidate ignored scenario=${scenario.id}")
                     }
+                } else {
+                    DiagnosticTrace.stepForEvent(eventId, "VERIFY", "response matched but no pending task scenario=${scenario.id}")
                 }
             }
 
             val conditions = scenario.conditions.ifEmpty {
                 listOf(ScenarioCondition(scenario.deviceId, scenario.widgetId, scenario.operator, scenario.threshold))
             }
-            if (conditions.none { it.deviceId == deviceId && it.widgetId == widgetId }) return@forEach
+            if (conditions.none { it.deviceId == deviceId && it.widgetId == widgetId }) {
+                DiagnosticTrace.stepForEvent(eventId, "SCENARIO", "SKIP id=${scenario.id} widget not in conditions")
+                return@forEach
+            }
 
-            val matched = expressionMatches(conditions) ?: return@forEach
+            val matched = expressionMatches(conditions)
+            if (matched == null) {
+                DiagnosticTrace.stepForEvent(eventId, "CONDITION", "UNKNOWN id=${scenario.id} waiting for other condition value(s)")
+                return@forEach
+            }
 
-            // Edge-triggered scenario:
-            // false -> true  = trigger once
-            // true -> true   = ignore
-            // true -> false  = reset
-            // false -> false = stay reset
+            DiagnosticTrace.stepForEvent(eventId, "CONDITION", "id=${scenario.id} result=$matched conditions=${conditions.size}")
+
             if (!matched) {
                 conditionStates[scenario.id] = false
-
-                // The condition is no longer active: clear the persisted armed flag.
-                // This is what allows the next false -> true transition to trigger again.
+                DiagnosticTrace.stepForEvent(eventId, "EDGE", "id=${scenario.id} false -> reset")
                 if (scenario.armed) {
                     store.update(scenario.copy(armed = false))
                 }
@@ -383,17 +423,15 @@ class ScenarioEngine(
             }
 
             if (conditionStates[scenario.id] == true) {
+                DiagnosticTrace.stepForEvent(eventId, "EDGE", "id=${scenario.id} true -> true, ignored")
                 return@forEach
             }
 
-            // We are entering the TRUE state. Mark it before executing the
-            // action so repeated MQTT values cannot trigger it again.
             conditionStates[scenario.id] = true
+            DiagnosticTrace.stepForEvent(eventId, "EDGE", "id=${scenario.id} false -> true, TRIGGER")
 
             if (scenario.verifyEnabled) startVerification(scenario)
 
-            // The persisted armed field is legacy state only and must never
-            // block a fresh false -> true edge.
             if (!scenario.armed) {
                 store.update(scenario.copy(armed = true))
             }
@@ -414,11 +452,18 @@ class ScenarioActionExecutor {
             } else emptyList()
         }.toList()
 
+        DiagnosticTrace.step("ACTION", "executor scenario=${scenario.id} actionCount=${actions.size}")
         for (action in actions) {
-            if (action.deviceId.isBlank() || action.widgetId.isBlank()) continue
+            if (action.deviceId.isBlank() || action.widgetId.isBlank()) {
+                DiagnosticTrace.step("ACTION", "skip blank action target")
+                continue
+            }
             try {
-                manager.publishControl(action.deviceId, action.widgetId, action.value.ifBlank { "1" })
-            } catch (_: Exception) {
+                val actionValue = action.value.ifBlank { "1" }
+                val result = manager.publishControl(action.deviceId, action.widgetId, actionValue)
+                DiagnosticTrace.step("ACTION", "publish ${action.deviceId}/${action.widgetId} value=$actionValue result=$result")
+            } catch (e: Exception) {
+                DiagnosticTrace.error("action exception ${e.message ?: e.javaClass.simpleName}")
             }
         }
     }
