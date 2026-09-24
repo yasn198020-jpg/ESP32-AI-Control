@@ -36,8 +36,76 @@ import java.util.Locale
 }
 @Composable private fun HistoryChart(points: List<HistoryPoint>, unit:String){
     if(points.size<2){Text("Нужно минимум два измерения для графика.",modifier=Modifier.padding(8.dp));return}
-    val min=points.minOf{it.value}; val max=points.maxOf{it.value}; val span=(max-min).takeIf{it>0.0}?:1.0
-    Column(Modifier.fillMaxWidth()){Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text(String.format(Locale.US,"%.2f %s",max,unit));Text(String.format(Locale.US,"%.2f %s",min,unit))}
-        Canvas(Modifier.fillMaxWidth().height(180.dp).padding(vertical=8.dp)){val w=size.width;val h=size.height;points.forEachIndexed{index,p->if(index>0){val prev=points[index-1];val x1=(index-1).toFloat()/(points.size-1)*w;val x2=index.toFloat()/(points.size-1)*w;val y1=h-((prev.value-min)/span*h).toFloat();val y2=h-((p.value-min)/span*h).toFloat();drawLine(color = androidx.compose.ui.graphics.Color.Gray, start = Offset(x1,y1), end = Offset(x2,y2), strokeWidth=4f)}}}
+
+    val min=points.minOf{it.value}
+    val max=points.maxOf{it.value}
+    val span=(max-min).takeIf{it>0.0}?:1.0
+    val timeFormat=remember{SimpleDateFormat("HH:mm:ss",Locale.getDefault())}
+
+    Column(Modifier.fillMaxWidth()){
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement=Arrangement.SpaceBetween
+        ){
+            Text(String.format(Locale.US,"%.2f %s",max,unit))
+            Text(String.format(Locale.US,"%.2f %s",min,unit))
+        }
+
+        Canvas(
+            Modifier
+                .fillMaxWidth()
+                .height(220.dp)
+                .padding(vertical=8.dp)
+        ){
+            val w=size.width
+            val h=size.height
+            val graphHeight=h-28.dp.toPx()
+
+            points.forEachIndexed{index,p->
+                val x=index.toFloat()/(points.size-1)*w
+                val y=graphHeight-((p.value-min)/span*graphHeight).toFloat()
+
+                if(index>0){
+                    val prev=points[index-1]
+                    val x1=(index-1).toFloat()/(points.size-1)*w
+                    val y1=graphHeight-((prev.value-min)/span*graphHeight).toFloat()
+                    drawLine(
+                        color=androidx.compose.ui.graphics.Color.Gray,
+                        start=Offset(x1,y1),
+                        end=Offset(x,y),
+                        strokeWidth=4f
+                    )
+                }
+
+                drawCircle(
+                    color=androidx.compose.ui.graphics.Color.Gray,
+                    radius=4f,
+                    center=Offset(x,y)
+                )
+            }
+
+            // Показываем время изменения под графиком.
+            // Чтобы подписи не накладывались друг на друга, выводим до 6 меток.
+            val labelCount=minOf(6,points.size)
+            val paint=android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply{
+                textSize=10.dp.toPx()
+                color=android.graphics.Color.DKGRAY
+                textAlign=android.graphics.Paint.Align.CENTER
+            }
+
+            if(labelCount>1){
+                for(labelIndex in 0 until labelCount){
+                    val pointIndex=labelIndex*(points.size-1)/(labelCount-1)
+                    val x=pointIndex.toFloat()/(points.size-1)*w
+                    val time=timeFormat.format(Date(points[pointIndex].timestamp))
+                    drawContext.canvas.nativeCanvas.drawText(
+                        time,
+                        x,
+                        h-2.dp.toPx(),
+                        paint
+                    )
+                }
+            }
+        }
     }
 }
