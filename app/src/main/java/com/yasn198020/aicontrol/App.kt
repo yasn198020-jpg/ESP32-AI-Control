@@ -63,12 +63,13 @@ fun App(
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("settings", Context.MODE_PRIVATE) }
-    var mqttHost by remember { mutableStateOf(prefs.getString("mqtt_host", "m4.wqtt.ru") ?: "m4.wqtt.ru") }
-    var mqttPort by remember { mutableStateOf(prefs.getString("mqtt_port", "1883") ?: "1883") }
-    var mqttTls by remember { mutableStateOf(prefs.getBoolean("mqtt_tls", false)) }
-    var mqttPrefix by remember { mutableStateOf(prefs.getString("mqtt_prefix", "IoTManager") ?: "IoTManager") }
-    var username by remember { mutableStateOf(prefs.getString("mqtt_user", "") ?: "") }
-    var password by remember { mutableStateOf(prefs.getString("mqtt_pass", "") ?: "") }
+    val mqttSettings = remember { MqttSettingsStore(prefs) }
+    var mqttHost by remember { mutableStateOf(mqttSettings.host) }
+    var mqttPort by remember { mutableStateOf(mqttSettings.port) }
+    var mqttTls by remember { mutableStateOf(mqttSettings.tls) }
+    var mqttPrefix by remember { mutableStateOf(mqttSettings.prefix) }
+    var username by remember { mutableStateOf(mqttSettings.username) }
+    var password by remember { mutableStateOf(mqttSettings.password) }
     var tab by remember { mutableIntStateOf(0) }
     var menuOpen by remember { mutableStateOf(false) }
     var textSizeDialogOpen by remember { mutableStateOf(false) }
@@ -300,14 +301,7 @@ fun App(
     }
 
     fun saveSettings() {
-        prefs.edit()
-            .putString("mqtt_host", mqttHost)
-            .putString("mqtt_port", mqttPort)
-            .putBoolean("mqtt_tls", mqttTls)
-            .putString("mqtt_prefix", mqttPrefix)
-            .putString("mqtt_user", username)
-            .putString("mqtt_pass", password)
-            .apply()
+        mqttSettings.save(mqttHost, mqttPort, mqttTls, mqttPrefix, username, password)
         addLog("Settings saved")
     }
 
