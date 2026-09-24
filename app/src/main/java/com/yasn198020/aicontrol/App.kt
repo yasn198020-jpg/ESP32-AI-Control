@@ -27,6 +27,7 @@ import com.yasn198020.aicontrol.ui.MqttScreen
 import com.yasn198020.aicontrol.ScenariosScreen
 import com.yasn198020.aicontrol.ui.TrainedCommandsScreen
 import com.yasn198020.aicontrol.ui.VoiceSettingsScreen
+import com.yasn198020.aicontrol.ui.voicePresets
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -145,13 +146,10 @@ fun App(
     }
 
     fun selectVoicePreset(id: String) {
-        voicePreset = id
-        when (id) {
-            "soft" -> { voiceRate = 0.88f; voicePitch = 1.12f }
-            "friendly" -> { voiceRate = 0.92f; voicePitch = 1.05f }
-            "natural" -> { voiceRate = 0.98f; voicePitch = 1.00f }
-            "assistant" -> { voiceRate = 0.94f; voicePitch = 0.96f }
-        }
+        val preset = voicePresets.firstOrNull { it.id == id } ?: return
+        voicePreset = preset.id
+        voiceRate = preset.rate
+        voicePitch = preset.pitch
         voiceSettings.savePreset(voicePreset, voiceRate, voicePitch)
         applyVoiceSettings()
     }
