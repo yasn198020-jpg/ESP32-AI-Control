@@ -77,23 +77,48 @@ fun ScenariosScreen(
                                 Text("Действие: уведомление")
                             }
                             Text((if (scenario.enabled) "Включён" else "Выключен") + "  •  " + (if (scenario.notificationEnabled) "уведомления включены" else "без уведомлений"))
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedButton(onClick = {
-                                    store.update(scenario.copy(enabled = !scenario.enabled, armed = true))
-                                    refresh()
-                                }) { Text(if (scenario.enabled) "Выключить" else "Включить") }
-                                OutlinedButton(onClick = { editing = scenario }) { Text("Изменить") }
-                                OutlinedButton(onClick = {
-                                    val copy = scenario.copy(
-                                        id = java.util.UUID.randomUUID().toString(),
-                                        title = scenario.title + " (копия)",
-                                        enabled = false,
-                                        armed = true
-                                    )
-                                    store.add(copy)
-                                    refresh()
-                                }) { Text("Копировать") }
-                                OutlinedButton(onClick = { store.delete(scenario.id); refresh() }) { Text("Удалить") }
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Row(
+                                    Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            store.update(scenario.copy(enabled = !scenario.enabled, armed = true))
+                                            refresh()
+                                        },
+                                        modifier = Modifier.weight(1f)
+                                    ) { Text(if (scenario.enabled) "Выключить" else "Включить") }
+
+                                    OutlinedButton(
+                                        onClick = { editing = scenario },
+                                        modifier = Modifier.weight(1f)
+                                    ) { Text("Изменить") }
+
+                                    OutlinedButton(
+                                        onClick = {
+                                            val copy = scenario.copy(
+                                                id = java.util.UUID.randomUUID().toString(),
+                                                title = scenario.title + " (копия)",
+                                                enabled = false,
+                                                armed = true
+                                            )
+                                            store.add(copy)
+                                            refresh()
+                                        },
+                                        modifier = Modifier.weight(1f)
+                                    ) { Text("Копировать") }
+                                }
+
+                                OutlinedButton(
+                                    onClick = {
+                                        store.delete(scenario.id)
+                                        refresh()
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("🗑 Удалить сценарий")
+                                }
                             }
                         }
                     }
