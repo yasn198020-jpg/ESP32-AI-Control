@@ -26,7 +26,7 @@
         </provider>
 
         <receiver
-            android:name=".UpdateCleanupReceiver"
+            android:name=".updates.UpdateCleanupReceiver"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
@@ -34,17 +34,17 @@
         </receiver>
 
         <service
-            android:name=".MarfaVoiceService"
+            android:name=".voice.MarfaVoiceService"
             android:exported="false"
             android:foregroundServiceType="microphone" />
         <activity
-            android:name=".MarfaToggleActivity"
+            android:name=".marfa.MarfaToggleActivity"
             android:exported="true"
             android:noHistory="true"
             android:excludeFromRecents="true"
             android:theme="@style/Theme.App.NoActionBar" />
         <service
-            android:name=".MqttBackgroundService"
+            android:name=".mqtt.MqttBackgroundService"
             android:exported="false"
             android:foregroundServiceType="remoteMessaging" />
         <activity
