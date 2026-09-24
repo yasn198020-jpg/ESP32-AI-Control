@@ -24,11 +24,13 @@ object ScenarioNotifier {
     private const val TAG = "SCENARIO_NOTIFY"
 
     fun notify(context: Context, scenario: Scenario, rawValue: String) {
+        DiagnosticTrace.step("NOTIFY", "trigger notification attempt scenario=${scenario.id} value=$rawValue")
         android.util.Log.d(TAG, "TRIGGER id=${scenario.id} value=$rawValue threshold=${scenario.threshold}")
         createChannel(context)
         if (android.os.Build.VERSION.SDK_INT >= 33 &&
             androidx.core.content.ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
+            DiagnosticTrace.step("NOTIFY", "SKIPPED permission missing scenario=${scenario.id}")
             android.util.Log.w(TAG, "POST_NOTIFICATIONS permission missing")
             return
         }
@@ -53,13 +55,18 @@ object ScenarioNotifier {
             scenario.id.hashCode() and 0x7fffffff,
             notification
         )
+        DiagnosticTrace.step("NOTIFY", "trigger notification sent scenario=${scenario.id}")
     }
 
     fun notifyVerification(context: Context, scenario: Scenario, success: Boolean, rawValue: String) {
+        DiagnosticTrace.step("NOTIFY", "verification notification attempt scenario=${scenario.id} success=$success value=$rawValue")
         createChannel(context)
         if (android.os.Build.VERSION.SDK_INT >= 33 &&
             androidx.core.content.ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) return
+        ) {
+            DiagnosticTrace.step("NOTIFY", "SKIPPED verification permission missing scenario=${scenario.id}")
+            return
+        }
 
         val template = if (success) scenario.verifySuccessMessage else scenario.verifyFailureMessage
         val text = template
@@ -81,6 +88,7 @@ object ScenarioNotifier {
             (scenario.id.hashCode() + if (success) 1001 else 1002) and 0x7fffffff,
             notification
         )
+        DiagnosticTrace.step("NOTIFY", "verification notification sent scenario=${scenario.id} success=$success")
     }
     private fun createChannel(context: Context) {
         if (android.os.Build.VERSION.SDK_INT >= 26) {
