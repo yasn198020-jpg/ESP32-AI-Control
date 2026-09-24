@@ -1,5 +1,13 @@
 package com.yasn198020.aicontrol
 
+import com.yasn198020.aicontrol.mqtt.*
+import com.yasn198020.aicontrol.voice.*
+import com.yasn198020.aicontrol.commands.*
+import com.yasn198020.aicontrol.scenarios.*
+import com.yasn198020.aicontrol.history.*
+import com.yasn198020.aicontrol.updates.*
+import com.yasn198020.aicontrol.marfa.*
+
 import android.Manifest
 import android.content.Context
 import android.content.Intent
