@@ -51,6 +51,9 @@ class MqttManager(
                 override fun connectComplete(reconnect: Boolean, serverURI: String?) {
                     emitLog("MQTT connected: " + serverURI)
                     emitConnected(true)
+                    // Flush scenario/control messages that were queued while the
+                    // background service was reconnecting or the broker was offline.
+                    flushPendingPublishes()
                     subscribeDevice()
                 }
 
