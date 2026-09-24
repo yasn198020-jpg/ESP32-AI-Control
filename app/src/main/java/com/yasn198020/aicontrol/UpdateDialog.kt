@@ -29,7 +29,6 @@ fun UpdateDialog(
         onDismissRequest = { if (!downloading) onDismiss() },
         title = { Text("Обновление приложения") },
         text = { Text(status) },
-
         confirmButton = {
             when {
                 downloading -> TextButton(onClick = { }) { Text("Скачивание…") }
