@@ -28,6 +28,13 @@ class MqttBackgroundService : Service() {
 
     private val reconnectTask = object : Runnable {
         override fun run() {
+            val prefs = getSharedPreferences("settings", Context.MODE_PRIVATE)
+            if (prefs.getBoolean("mqtt_foreground_owner", false)) {
+                handler.removeCallbacks(this)
+                stopSelf()
+                return
+            }
+
             val manager = mqtt
             if (manager != null && !manager.isConnected()) {
                 connectFromSavedSettings(manager)
@@ -98,6 +105,11 @@ class MqttBackgroundService : Service() {
 
     private fun connectFromSavedSettings(manager: MqttManager) {
         val prefs = getSharedPreferences("settings", Context.MODE_PRIVATE)
+        if (prefs.getBoolean("mqtt_foreground_owner", false)) {
+            handler.removeCallbacks(reconnectTask)
+            return
+        }
+
         val host = prefs.getString("mqtt_host", "m4.wqtt.ru") ?: "m4.wqtt.ru"
         val port = prefs.getString("mqtt_port", "1883")?.toIntOrNull() ?: 1883
         val tls = prefs.getBoolean("mqtt_tls", false)
