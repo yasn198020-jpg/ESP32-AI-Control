@@ -146,6 +146,7 @@ private fun App(
     var selectedPage by remember { mutableStateOf<String?>(null) }
     var connected by remember { mutableStateOf(false) }
     var manualMqttDisconnect by remember { mutableStateOf(false) }
+    var backgroundEnabled by remember { mutableStateOf(prefs.getBoolean("mqtt_background_enabled", false)) }
     var log by remember { mutableStateOf(listOf("MQTT diagnostic log ready")) }
     var devices by remember { mutableStateOf(emptyList<Device>()) }
     var voiceText by remember { mutableStateOf("") }
@@ -388,6 +389,23 @@ private fun App(
         addLog("Settings saved")
     }
 
+    fun setBackgroundEnabled(enabled: Boolean) {
+        backgroundEnabled = enabled
+        prefs.edit().putBoolean("mqtt_background_enabled", enabled).apply()
+
+        if (!enabled) {
+            try {
+                context.stopService(Intent(context, MqttBackgroundService::class.java))
+            } catch (_: Exception) {
+            }
+            prefs.edit().putBoolean("mqtt_foreground_owner", true).apply()
+            addLog("MQTT background mode: disabled")
+        } else {
+            addLog("MQTT background mode: enabled")
+            addLog("Background MQTT will start when the app leaves the foreground")
+        }
+    }
+
     fun connect(save: Boolean = true) {
         manualMqttDisconnect = false
         if (save) saveSettings()
@@ -413,7 +431,7 @@ private fun App(
     // Single-owner MQTT handoff between the foreground activity and the
     // background service. A generation token invalidates delayed reconnects
     // from an earlier lifecycle transition.
-    DisposableEffect(context, mqtt) {
+    DisposableEffect(context, mqtt, backgroundEnabled) {
         val lifecycle = (context as? ComponentActivity)?.lifecycle
         val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
         val handoffHandler = android.os.Handler(android.os.Looper.getMainLooper())
@@ -428,7 +446,7 @@ private fun App(
                 Lifecycle.Event.ON_STOP -> {
                     handoffGeneration += 1L
                     val marfaActive = prefs.getBoolean("marfa_voice_active", false)
-                    if (!manualMqttDisconnect && !marfaActive) {
+                    if (backgroundEnabled && !manualMqttDisconnect && !marfaActive) {
                         prefs.edit().putBoolean("mqtt_foreground_owner", false).apply()
                         addLog("MQTT background mode: handing connection to service")
                         handoffHandler.removeCallbacksAndMessages(null)
@@ -449,7 +467,7 @@ private fun App(
                     val generation = handoffGeneration + 1L
                     handoffGeneration = generation
                     val marfaActive = prefs.getBoolean("marfa_voice_active", false)
-                    if (!marfaActive) {
+                    if (backgroundEnabled && !marfaActive) {
                         markForegroundOwner()
                         // Stop the background owner before restoring the foreground
                         // connection. stopService() does not create a new service.
@@ -458,7 +476,7 @@ private fun App(
                         } catch (_: Exception) {
                         }
                     }
-                    if (!manualMqttDisconnect && !marfaActive) {
+                    if (backgroundEnabled && !manualMqttDisconnect && !marfaActive) {
                         addLog("MQTT foreground mode: waiting for background owner to stop")
                         handoffHandler.removeCallbacksAndMessages(null)
                         handoffHandler.postDelayed({
@@ -958,16 +976,23 @@ private fun App(
                 },
                 onSend = ::sendWidget)
             1 -> TrainedCommandsScreen(Modifier.padding(padding), trainedCommands, devices, onDelete = { command -> trainedStore.remove(command); trainedCommands = trainedStore.load() }, onClearAll = { trainedStore.clear(); trainedCommands = trainedStore.load() }, onAddVariant = { phrase -> variantPhraseTarget = phrase; variantPhraseText = "" })
-            2 -> MqttScreen(Modifier.padding(padding), mqttHost, mqttPort, mqttPrefix, username, password, mqttTls, connected,
+            2 -> MqttScreen(
+                Modifier.padding(padding),
+                mqttHost, mqttPort, mqttPrefix, username, password, mqttTls, connected,
+                backgroundEnabled,
                 { mqttHost = it }, { mqttPort = it }, { mqttPrefix = it }, { username = it }, { password = it }, { mqttTls = it },
-                ::saveSettings, {
+                ::saveSettings,
+                ::setBackgroundEnabled,
+                {
                     if (connected) {
                         manualMqttDisconnect = true
                         mqtt.disconnect()
                     } else {
                         connect()
                     }
-                }, { mqtt.publishHello() })
+                },
+                { mqtt.publishHello() }
+            )
             3 -> LogScreen(Modifier.padding(padding), log) { log = emptyList() }
             4 -> ScenariosScreen(
                 Modifier.padding(padding),
@@ -1282,8 +1307,9 @@ private fun InputWidget(widget: WidgetState, onSend: (String) -> Unit) {
 
 @Composable
 private fun MqttScreen(modifier: Modifier, host: String, port: String, prefix: String, username: String, password: String, tls: Boolean, connected: Boolean,
+    backgroundEnabled: Boolean,
     onHost: (String) -> Unit, onPort: (String) -> Unit, onPrefix: (String) -> Unit, onUser: (String) -> Unit, onPass: (String) -> Unit, onTls: (Boolean) -> Unit,
-    onSave: () -> Unit, onConnect: () -> Unit, onHello: () -> Unit) {
+    onSave: () -> Unit, onBackgroundEnabled: (Boolean) -> Unit, onConnect: () -> Unit, onHello: () -> Unit) {
     Column(modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         OutlinedTextField(host, onHost, label = { Text("MQTT host / IP") }, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(port, onPort, label = { Text("MQTT port") }, modifier = Modifier.fillMaxWidth())
@@ -1293,6 +1319,19 @@ private fun MqttScreen(modifier: Modifier, host: String, port: String, prefix: S
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text("TLS / SSL")
             Switch(checked = tls, onCheckedChange = onTls)
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Работа в фоне", fontWeight = FontWeight.Medium)
+                Text(
+                    if (backgroundEnabled)
+                        "MQTT продолжит работать после выхода из приложения"
+                    else
+                        "MQTT работает только пока приложение открыто",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            Switch(checked = backgroundEnabled, onCheckedChange = onBackgroundEnabled)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onSave) { Text("Save") }
