@@ -45,14 +45,12 @@ class MqttManager(
 
             c.setCallback(object : MqttCallbackExtended {
                 override fun connectComplete(reconnect: Boolean, serverURI: String?) {
-                    if (client !== c) return
                     emitLog("MQTT connected: " + serverURI)
                     emitConnected(true)
                     subscribeDevice()
                 }
 
                 override fun connectionLost(cause: Throwable?) {
-                    if (client !== c) return
                     emitLog(mqttExceptionText("MQTT connection lost", cause))
                     emitConnected(false)
                 }
@@ -151,7 +149,6 @@ class MqttManager(
 
             c.connect(options, null, object : IMqttActionListener {
                 override fun onSuccess(asyncActionToken: IMqttToken?) {
-                    if (client !== c) return
                     emitLog("MQTT connection accepted")
                 }
 
@@ -159,7 +156,6 @@ class MqttManager(
                     asyncActionToken: IMqttToken?,
                     exception: Throwable?
                 ) {
-                    if (client !== c) return
                     emitLog(mqttExceptionText("MQTT connect failed", exception))
                     emitLog("MQTT credentials supplied: " + username.isNotBlank())
                     emitLog("MQTT TLS: " + tls)
