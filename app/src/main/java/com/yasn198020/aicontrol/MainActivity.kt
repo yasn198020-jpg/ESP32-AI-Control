@@ -410,17 +410,29 @@ private fun App(
         }
     }
 
-    // Keep MQTT alive in a foreground service while the app is not visible.
-    // The foreground activity owns the connection while it is visible, so we
-    // never keep two MQTT clients connected at the same time.
+    // Single-owner MQTT handoff between the foreground activity and the
+    // background service. A generation token invalidates delayed reconnects
+    // from an earlier lifecycle transition.
     DisposableEffect(context, mqtt) {
         val lifecycle = (context as? ComponentActivity)?.lifecycle
+        val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+        val handoffHandler = android.os.Handler(android.os.Looper.getMainLooper())
+        var handoffGeneration = 0L
+
+        fun markForegroundOwner() {
+            handoffGeneration += 1L
+            prefs.edit().putBoolean("mqtt_foreground_owner", true).apply()
+        }
+
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_STOP -> {
-                    val marfaActive = context.getSharedPreferences("settings", Context.MODE_PRIVATE).getBoolean("marfa_voice_active", false)
+                    handoffGeneration += 1L
+                    val marfaActive = prefs.getBoolean("marfa_voice_active", false)
                     if (!manualMqttDisconnect && !marfaActive) {
-                        addLog("MQTT background mode: starting service")
+                        prefs.edit().putBoolean("mqtt_foreground_owner", false).apply()
+                        addLog("MQTT background mode: handing connection to service")
+                        handoffHandler.removeCallbacksAndMessages(null)
                         mqtt.disconnect()
                         val intent = Intent(context, MqttBackgroundService::class.java)
                         try {
@@ -435,12 +447,13 @@ private fun App(
                     }
                 }
                 Lifecycle.Event.ON_START -> {
-                    val marfaActive = context.getSharedPreferences("settings", Context.MODE_PRIVATE).getBoolean("marfa_voice_active", false)
+                    val generation = handoffGeneration + 1L
+                    handoffGeneration = generation
+                    val marfaActive = prefs.getBoolean("marfa_voice_active", false)
                     if (!marfaActive) {
-                        // stopService() is important here: sending ACTION_STOP through
-                        // startService() would create the background service if it was
-                        // not already running, briefly creating a second MQTT client
-                        // and ScenarioEngine.
+                        markForegroundOwner()
+                        // Stop the background owner before restoring the foreground
+                        // connection. stopService() does not create a new service.
                         try {
                             context.stopService(Intent(context, MqttBackgroundService::class.java))
                         } catch (_: Exception) {
@@ -448,9 +461,12 @@ private fun App(
                     }
                     if (!manualMqttDisconnect && !marfaActive) {
                         addLog("MQTT foreground mode: waiting for background owner to stop")
-                        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                            if (!manualMqttDisconnect &&
-                                lifecycle?.currentState?.isAtLeast(Lifecycle.State.STARTED) == true
+                        handoffHandler.removeCallbacksAndMessages(null)
+                        handoffHandler.postDelayed({
+                            if (generation == handoffGeneration &&
+                                !manualMqttDisconnect &&
+                                lifecycle?.currentState?.isAtLeast(Lifecycle.State.STARTED) == true &&
+                                prefs.getBoolean("mqtt_foreground_owner", false)
                             ) {
                                 addLog("MQTT foreground mode: restoring connection")
                                 connect(save = false)
@@ -462,7 +478,10 @@ private fun App(
             }
         }
         lifecycle?.addObserver(observer)
-        onDispose { lifecycle?.removeObserver(observer) }
+        onDispose {
+            handoffHandler.removeCallbacksAndMessages(null)
+            lifecycle?.removeObserver(observer)
+        }
     }
 
     // Automatically connect only while the activity is in the foreground.
