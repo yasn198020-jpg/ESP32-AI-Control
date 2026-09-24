@@ -300,6 +300,12 @@ class ScenarioEngine(
     }
 
     @Synchronized
+    fun cancelScenario(scenarioId: String) {
+        verificationTasks.remove(scenarioId)?.cancel(false)
+        verificationGenerations[scenarioId] = (verificationGenerations[scenarioId] ?: 0L) + 1L
+    }
+
+    @Synchronized
     fun shutdown() {
         if (shutdown) return
         shutdown = true
