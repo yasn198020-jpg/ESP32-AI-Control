@@ -7,7 +7,7 @@ import com.yasn198020.aicontrol.commands.*
 import com.yasn198020.aicontrol.scenarios.*
 import com.yasn198020.aicontrol.history.*
 import com.yasn198020.aicontrol.updates.*
-import com.yasn198020.aicontrol.marfa.*
+import com.yasn198020.aicontrol.marfa.MarfaShortcutInstaller
 import com.yasn198020.aicontrol.ui.*
 import android.Manifest
 import android.content.Context
