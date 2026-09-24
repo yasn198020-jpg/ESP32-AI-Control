@@ -1,5 +1,7 @@
 package com.yasn198020.aicontrol
 
+import com.yasn198020.aicontrol.history.*
+
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
