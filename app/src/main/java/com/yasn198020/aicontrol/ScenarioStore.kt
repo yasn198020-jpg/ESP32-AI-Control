@@ -407,8 +407,6 @@ class ScenarioActionExecutor {
     fun execute(scenario: Scenario) {
         if (scenario.actionType != "MQTT_CONTROL") return
         val manager = mqtt ?: return
-        if (!manager.isConnected()) return
-
         val actions = scenario.actions.ifEmpty {
             if (scenario.actionDeviceId.isNotBlank() && scenario.actionWidgetId.isNotBlank()) {
                 listOf(ScenarioAction(scenario.actionDeviceId, scenario.actionWidgetId, scenario.actionValue.ifBlank { "1" }))
