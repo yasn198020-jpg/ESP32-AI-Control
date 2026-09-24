@@ -437,22 +437,25 @@ private fun App(
                 Lifecycle.Event.ON_START -> {
                     val marfaActive = context.getSharedPreferences("settings", Context.MODE_PRIVATE).getBoolean("marfa_voice_active", false)
                     if (!marfaActive) {
+                        // stopService() is important here: sending ACTION_STOP through
+                        // startService() would create the background service if it was
+                        // not already running, briefly creating a second MQTT client
+                        // and ScenarioEngine.
                         try {
-                            context.startService(
-                                Intent(context, MqttBackgroundService::class.java)
-                                    .setAction(MqttBackgroundService.ACTION_STOP)
-                            )
+                            context.stopService(Intent(context, MqttBackgroundService::class.java))
                         } catch (_: Exception) {
-                            try { context.stopService(Intent(context, MqttBackgroundService::class.java)) } catch (_: Exception) {}
                         }
                     }
                     if (!manualMqttDisconnect && !marfaActive) {
-                        addLog("MQTT foreground mode: restoring connection")
+                        addLog("MQTT foreground mode: waiting for background owner to stop")
                         android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                            if (!manualMqttDisconnect && lifecycle?.currentState?.isAtLeast(Lifecycle.State.STARTED) == true) {
+                            if (!manualMqttDisconnect &&
+                                lifecycle?.currentState?.isAtLeast(Lifecycle.State.STARTED) == true
+                            ) {
+                                addLog("MQTT foreground mode: restoring connection")
                                 connect(save = false)
                             }
-                        }, 500)
+                        }, 1000)
                     }
                 }
                 else -> Unit
