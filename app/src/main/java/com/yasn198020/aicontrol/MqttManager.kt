@@ -52,6 +52,7 @@ class MqttManager(
             c.setCallback(object : MqttCallbackExtended {
                 override fun connectComplete(reconnect: Boolean, serverURI: String?) {
                     connecting = false
+                    DiagnosticTrace.system("MQTT connected reconnect=" + reconnect + " serverURI=" + serverURI)
                     emitLog("MQTT connected: " + serverURI)
                     emitConnected(true)
                     flushPendingPublishes()
@@ -60,6 +61,7 @@ class MqttManager(
 
                 override fun connectionLost(cause: Throwable?) {
                     connecting = false
+                    DiagnosticTrace.system("MQTT connection lost: " + (cause?.message ?: cause?.javaClass?.simpleName ?: "unknown"))
                     emitLog(mqttExceptionText("MQTT connection lost", cause))
                     emitConnected(false)
                 }
@@ -75,6 +77,8 @@ class MqttManager(
                         else -> "MESSAGE"
                     }
 
+                    val traceId = DiagnosticTrace.beginEvent(topic, payload)
+
                     emitLog(
                         "MQTT RX [" + messageType + "] " +
                             "topic=" + topic +
@@ -89,6 +93,7 @@ class MqttManager(
                         if (parts.size == 2) {
                             try {
                                 val json = org.json.JSONObject(payload)
+                                DiagnosticTrace.step("MQTT", "CONFIG parsed parts=" + parts.joinToString("/") + " payload valid")
                                 val configTopic = json.optString("topic", "").trim()
                                 val widgetId = configTopic.trim('/').substringAfterLast('/', "")
                                 if (widgetId.isBlank()) {
@@ -106,8 +111,10 @@ class MqttManager(
                                 )
                                 val page = json.optString("page", "Основная")
                                 val order = json.optInt("order", 0)
+                                DiagnosticTrace.step("MQTT", "CONFIG widget=" + widgetId + " type=" + widgetType + " page=" + page)
                                 emitConfig(parts[0], widgetId, label, widgetType, page, configTopic, order, json.toString())
                             } catch (_: Exception) {
+                                DiagnosticTrace.stepForEvent(traceId, "ERROR", "CONFIG parse failed topic=" + topic)
                                 emitLog("MQTT config parse failed: " + topic)
                             }
                         }
@@ -116,15 +123,12 @@ class MqttManager(
                         if (parts.size >= 3) {
                             val json = try { org.json.JSONObject(payload) } catch (_: Exception) { null }
                             val value = json?.optString("status")?.takeIf { json.has("status") } ?: payload
+                            DiagnosticTrace.step("MQTT", "STATUS parsed device=" + parts[0] + " widget=" + parts[parts.size - 2] + " value=" + value)
                             emitLog(
                                 "MQTT STATUS parsed: device=" + parts[0] +
                                     " widget=" + parts[parts.size - 2] +
                                     " value=" + value
                             )
-                            // IMPORTANT: status is delivered directly from the MQTT
-                            // callback thread. AppRuntime immediately sends scenario
-                            // processing to its background executor, so Activity/main
-                            // thread is no longer in the MQTT -> scenario path.
                             emitStatus(parts[0], parts[parts.size - 2], value)
                         }
                     } else if (topic.startsWith(root) && topic.endsWith("/event")) {
@@ -134,14 +138,17 @@ class MqttManager(
                                 val json = org.json.JSONObject(payload)
                                 val widgetId = json.optString("id", parts[parts.size - 2])
                                 val value = json.optString("val", payload)
+                                DiagnosticTrace.step("MQTT", "EVENT parsed device=" + parts[0] + " widget=" + widgetId + " value=" + value)
                                 emitLog("MQTT EVENT parsed: device=" + parts[0] + " widget=" + widgetId + " value=" + value)
-                                // Same background-safe path as STATUS.
                                 emitStatus(parts[0], widgetId, value)
-                            } catch (_: Exception) {
+                            } catch (e: Exception) {
+                                DiagnosticTrace.stepForEvent(traceId, "ERROR", "EVENT parse failed topic=" + topic + " error=" + (e.message ?: e.javaClass.simpleName))
                                 emitLog("MQTT event parse failed: " + topic)
                             }
                         }
                     }
+                    DiagnosticTrace.stepForEvent(traceId, "MQTT", "RX processing finished")
+                    DiagnosticTrace.clearCurrentEvent()
                 }
 
                 override fun deliveryComplete(token: IMqttDeliveryToken?) = Unit
@@ -265,12 +272,14 @@ class MqttManager(
 
     private fun publish(topic: String, payload: String): Boolean {
         val c = client
+        val eventId = DiagnosticTrace.currentEventId()
 
         if (c == null || !c.isConnected) {
             synchronized(publishLock) {
                 if (pendingPublishes.size >= maxPendingPublishes) pendingPublishes.removeFirst()
                 pendingPublishes.addLast(PendingPublish(topic, payload))
             }
+            DiagnosticTrace.stepForEvent(eventId, "ACTION", "MQTT queued topic=" + topic + " payload=" + payload)
             emitLog("MQTT publish queued: not connected topic=" + topic)
             return false
         }
@@ -281,6 +290,7 @@ class MqttManager(
                 isRetained = false
             }
             c.publish(topic, message)
+            DiagnosticTrace.stepForEvent(eventId, "MQTT", "TX result=true topic=" + topic + " payload=" + payload)
             emitLog("MQTT TX topic=" + topic + " payload=" + payload)
             true
         } catch (e: Exception) {
@@ -288,6 +298,7 @@ class MqttManager(
                 if (pendingPublishes.size >= maxPendingPublishes) pendingPublishes.removeFirst()
                 pendingPublishes.addLast(PendingPublish(topic, payload))
             }
+            DiagnosticTrace.stepForEvent(eventId, "ERROR", "TX failed topic=" + topic + " error=" + (e.message ?: e.javaClass.simpleName))
             emitLog(mqttExceptionText("MQTT publish failed", e))
             false
         }
