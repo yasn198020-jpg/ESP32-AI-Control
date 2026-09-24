@@ -31,7 +31,7 @@ object DiagnosticTrace {
 
     private val importantStages = setOf(
         "MQTT", "CONDITION", "EDGE", "TRIGGER", "ACTION",
-        "VERIFY", "NOTIFY", "ERROR"
+        "VERIFY", "NOTIFY", "ERROR", "APP_STATE"
     )
 
     fun init(context: Context) {
