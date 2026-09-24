@@ -397,34 +397,21 @@ fun App(
     }
 
 
-    if (updateDialogOpen && updateStatus != null) {
-        AlertDialog(
-            onDismissRequest = { if (!updateDownloading) updateDialogOpen = false },
-            title = { Text("Обновление приложения") },
-            text = { Text(updateStatus.orEmpty()) },
-            confirmButton = {
-                when {
-                    updateDownloading -> TextButton(onClick = { }) { Text("Скачивание…") }
-                    latestApkUrl != null -> TextButton(onClick = {
-                        updateDownloading = true
-                        updateStatus = "Скачиваю новую версию…"
-                        UpdateManager.downloadAndInstall(context, latestApkUrl!!) { message ->
-                            updateDownloading = false
-                            updateStatus = message
-                        }
-                    }) { Text("Обновить") }
-                    latestReleaseUrl != null -> TextButton(onClick = {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(latestReleaseUrl)))
-                        updateDialogOpen = false
-                    }) { Text("Открыть загрузку") }
-                    else -> TextButton(onClick = { updateDialogOpen = false }) { Text("OK") }
-                }
-            },
-            dismissButton = {
-                if (!updateDownloading) TextButton(onClick = { updateDialogOpen = false }) { Text("Закрыть") }
-            }
-        )
-    }
+    UpdateDialog(
+        context = context,
+        open = updateDialogOpen,
+        status = updateStatus,
+        downloading = updateDownloading,
+        latestApkUrl = latestApkUrl,
+        latestReleaseUrl = latestReleaseUrl,
+        onDismiss = { updateDialogOpen = false },
+        onDownloading = { updateDownloading = true },
+        onStatus = { updateStatus = it },
+        onFinished = {
+            updateDownloading = false
+            updateStatus = it
+        }
+    )
 
     variantPhraseTarget?.let { phrase ->
         AlertDialog(
