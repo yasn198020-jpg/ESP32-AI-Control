@@ -1355,26 +1355,69 @@ private fun VoiceSettingsScreen(
 @Composable
 private fun LogScreen(modifier: Modifier, log: List<String>, onClear: () -> Unit) {
     val context = LocalContext.current
-    val logText = remember(log) { log.joinToString("\n") }
+    var trace by remember { mutableStateOf(DiagnosticTrace.read()) }
+    var filter by remember { mutableStateOf("ALL") }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            trace = DiagnosticTrace.read()
+            delay(750)
+        }
+    }
+
+    val filteredTrace = trace.filter { line ->
+        when (filter) {
+            "MQTT" -> line.contains(" MQTT]") || line.contains("[MQTT]")
+            "SCENARIO" -> line.contains(" SCENARIO]") || line.contains("[SCENARIO]") || line.contains(" CONDITION]") || line.contains(" EDGE]")
+            "ACTION" -> line.contains(" ACTION]")
+            "VERIFY" -> line.contains(" VERIFY]")
+            "ERROR" -> line.contains(" ERROR]")
+            else -> true
+        }
+    }
+    val traceText = filteredTrace.joinToString("\n")
 
     Column(modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text("Журнал  •  " + log.size, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onClear) {
+            Column(Modifier.weight(1f)) {
+                Text("Диагностика фона", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text("Сохранено: ${trace.size} событий", style = MaterialTheme.typography.bodySmall)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                OutlinedButton(onClick = {
+                    DiagnosticTrace.clear()
+                    trace = emptyList()
+                }) {
                     Text("Очистить")
                 }
                 OutlinedButton(onClick = {
                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("MQTT Log", logText))
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Diagnostic Trace", traceText))
                 }) {
                     Text("Копировать")
                 }
             }
         }
+
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            listOf("ALL" to "Все", "MQTT" to "MQTT", "SCENARIO" to "Сценарии", "ACTION" to "Действия", "VERIFY" to "Проверка", "ERROR" to "Ошибки").forEach { (id, title) ->
+                OutlinedButton(
+                    onClick = { filter = id },
+                    modifier = Modifier
+                ) {
+                    Text(if (filter == id) "● $title" else title)
+                }
+            }
+        }
+
+        HorizontalDivider()
+
         SelectionContainer {
-            LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(log) { Text(it) }
+            LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                items(filteredTrace) { line -> Text(line, style = MaterialTheme.typography.bodySmall) }
             }
         }
     }
