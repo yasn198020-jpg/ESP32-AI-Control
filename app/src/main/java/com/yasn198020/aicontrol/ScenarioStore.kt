@@ -372,10 +372,21 @@ class ScenarioActionExecutor {
             if (scenario.actionDeviceId.isNotBlank() && scenario.actionWidgetId.isNotBlank()) {
                 listOf(ScenarioAction(scenario.actionDeviceId, scenario.actionWidgetId, scenario.actionValue.ifBlank { "1" }))
             } else emptyList()
-        }
-        actions.forEach { action ->
-            if (action.deviceId.isNotBlank() && action.widgetId.isNotBlank()) {
-                manager.publishControl(action.deviceId, action.widgetId, action.value.ifBlank { "1" })
+        }.toList()
+
+        // Execute a stable snapshot of the action list. One bad action must not
+        // prevent the remaining actions from being attempted.
+        for (action in actions) {
+            if (action.deviceId.isBlank() || action.widgetId.isBlank()) continue
+            try {
+                manager.publishControl(
+                    action.deviceId,
+                    action.widgetId,
+                    action.value.ifBlank { "1" }
+                )
+            } catch (_: Exception) {
+                // publishControl normally handles its own failures. Keep the
+                // scenario action chain alive if a connector throws unexpectedly.
             }
         }
     }
