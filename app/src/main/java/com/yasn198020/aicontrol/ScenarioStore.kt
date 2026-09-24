@@ -322,7 +322,21 @@ class ScenarioEngine(
         val value = rawValue.trim().replace(',', '.').toDoubleOrNull() ?: return
         values[key(deviceId, widgetId)] = value
 
-        store.load().forEach { scenario ->
+        val scenarios = store.load()
+
+        // Clean up verification callbacks that no longer belong to a live
+        // verification-enabled scenario. This also covers changes made
+        // outside the scenario editor or while a stale MQTT callback is queued.
+        val activeScenarioIds = scenarios
+            .filter { it.enabled && it.verifyEnabled }
+            .mapTo(mutableSetOf()) { it.id }
+        val staleIds = verificationTasks.keys.filter { it !in activeScenarioIds }
+        staleIds.forEach { id ->
+            verificationTasks.remove(id)?.cancel(false)
+            verificationGenerations[id] = (verificationGenerations[id] ?: 0L) + 1L
+        }
+
+        scenarios.forEach { scenario ->
             if (!scenario.enabled) return@forEach
 
             if (scenario.verifyEnabled &&
