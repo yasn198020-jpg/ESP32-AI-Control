@@ -1,7 +1,6 @@
 package com.yasn198020.aicontrol
 
 import com.yasn198020.aicontrol.core.WidgetState
-
 import com.yasn198020.aicontrol.voice.TRAINED_READ_VALUE
 
 /** Returns whether a widget can be attached to a trained voice command. */
