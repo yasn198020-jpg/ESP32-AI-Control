@@ -469,18 +469,20 @@ private fun ScenarioEditorDialog(
                                         }
                                     }
                                 }
-                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Box {
-                                        OutlinedButton(onClick = { actionValueMenuIndex = actionNumber }) {
-                                            Text(if (actionDraft.value == "1") "Включить / Нажать" else "Выключить")
-                                        }
-                                        DropdownMenu(expanded = actionValueMenuIndex == actionNumber, onDismissRequest = { actionValueMenuIndex = -1 }) {
-                                            DropdownMenuItem(text = { Text("Включить / Нажать (1)") }, onClick = { actionDrafts[actionNumber] = actionDraft.copy(value = "1"); actionValueMenuIndex = -1 })
-                                            DropdownMenuItem(text = { Text("Выключить (0)") }, onClick = { actionDrafts[actionNumber] = actionDraft.copy(value = "0"); actionValueMenuIndex = -1 })
+                                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                        Box {
+                                            OutlinedButton(onClick = { actionValueMenuIndex = actionNumber }) {
+                                                Text(if (actionDraft.value == "1") "Включить / Нажать" else "Выключить")
+                                            }
+                                            DropdownMenu(expanded = actionValueMenuIndex == actionNumber, onDismissRequest = { actionValueMenuIndex = -1 }) {
+                                                DropdownMenuItem(text = { Text("Включить / Нажать (1)") }, onClick = { actionDrafts[actionNumber] = actionDraft.copy(value = "1"); actionValueMenuIndex = -1 })
+                                                DropdownMenuItem(text = { Text("Выключить (0)") }, onClick = { actionDrafts[actionNumber] = actionDraft.copy(value = "0"); actionValueMenuIndex = -1 })
+                                            }
                                         }
                                     }
                                     Row(
-                                        Modifier.weight(1f),
+                                        Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
