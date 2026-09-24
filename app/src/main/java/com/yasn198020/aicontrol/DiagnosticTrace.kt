@@ -35,6 +35,7 @@ object DiagnosticTrace {
     )
 
     fun init(context: Context) {
+        BackgroundTrace.init(context)
         if (initialized) return
         synchronized(lock) {
             if (initialized) return
@@ -48,12 +49,16 @@ object DiagnosticTrace {
         ensureInitialized()
         val id = eventCounter.incrementAndGet()
         currentEvent.set(id)
+        val state = if (foreground.get()) "FOREGROUND" else "BACKGROUND"
+        BackgroundTrace.event("MQTT", "RX state=$state topic=$topic payload=${compact(payload)}", id)
         stepForEvent(id, "MQTT", "RX $topic payload=${compact(payload)}")
         return id
     }
 
     fun setForeground(active: Boolean) {
+        ensureInitialized()
         foreground.set(active)
+        BackgroundTrace.setForeground(active)
     }
 
     fun isForeground(): Boolean = foreground.get()
@@ -101,6 +106,9 @@ object DiagnosticTrace {
             val timestamp = formatter.format(Date())
             val idPart = eventId?.let { " #$it" } ?: ""
             val line = "$timestamp [$safeStage$idPart] ${compact(message)}"
+            if (!foreground.get() && safeStage in setOf("CONDITION", "EDGE", "TRIGGER", "ACTION", "VERIFY", "NOTIFY", "ERROR")) {
+                BackgroundTrace.event(safeStage, message, eventId)
+            }
             lines.addLast(line)
             while (lines.size > MAX_LINES) lines.removeFirst()
 
