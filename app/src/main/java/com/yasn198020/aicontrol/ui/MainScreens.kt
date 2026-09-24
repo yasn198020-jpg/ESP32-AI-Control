@@ -388,7 +388,7 @@ fun VoiceSettingsScreen(
 
     val selectedVoice = voices.firstOrNull { it.name == selectedVoiceName }
     val russianVoices = voices.filter { it.locale.language == "ru" }
-    val voicesByLanguage = voices.groupBy { languageLabel(it.locale) }
+    val voicesByLanguage = voices.groupBy { voiceLanguageLabel(it.locale) }
         .toSortedMap(compareBy { it.lowercase(Locale.ROOT) })
 
     Column(
