@@ -5,7 +5,6 @@ import android.content.SharedPreferences
 import android.os.Handler
 import android.os.Looper
 import java.util.concurrent.CopyOnWriteArraySet
-import java.util.concurrent.Executors
 
 /**
  * Single process-wide owner of MQTT, telemetry history and scenario execution.
@@ -76,19 +75,18 @@ class AppRuntime private constructor(private val appContext: Context) {
             uiListeners.forEach { it.onConnected(connected) }
         },
         onStatus = { deviceId, widgetId, value ->
-            // Scenario execution must not depend on the Activity/main UI thread.
-            backgroundExecutor.execute {
-                try {
-                    historyStore.add(deviceId, widgetId, value)
-                    scenarioEngine.onValue(deviceId, widgetId, value)
-                } catch (e: Exception) {
-                    android.util.Log.e("MQTT_RUNTIME", "Background status processing failed", e)
-                }
+            // Paho delivers MQTT messages on its own callback thread, which is
+            // already independent of Activity/main UI. Process scenarios directly
+            // here so background execution cannot depend on an Activity-owned
+            // executor or its lifecycle.
+            try {
+                historyStore.add(deviceId, widgetId, value)
+                scenarioEngine.onValue(deviceId, widgetId, value)
+            } catch (e: Exception) {
+                android.util.Log.e("MQTT_RUNTIME", "Background status processing failed", e)
             }
 
-            // MQTT status arrives on the Paho callback thread. Only the UI
-            // notification is marshalled to main; history/scenarios stay fully
-            // independent of Activity and main-thread lifecycle.
+            // Only UI rendering is marshalled to the main thread.
             mainHandler.post {
                 uiListeners.forEach { it.onStatus(deviceId, widgetId, value) }
             }
