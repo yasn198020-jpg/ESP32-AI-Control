@@ -58,7 +58,7 @@ import com.yasn198020.aicontrol.devices.DeviceManager
 import com.yasn198020.aicontrol.*
 
 @Composable
-private fun DashboardPageTabs(devices: List<Device>, selectedPage: String?, onSelect: (String) -> Unit) {
+fun DashboardPageTabs(devices: List<Device>, selectedPage: String?, onSelect: (String) -> Unit) {
     val pages = devices
         .flatMap { it.widgets.map { w -> w.page.ifBlank { "Основная" } } }
         .distinct()
@@ -91,7 +91,7 @@ private fun DashboardPageTabs(devices: List<Device>, selectedPage: String?, onSe
 }
 
 @Composable
-private fun DevicesScreen(
+fun DevicesScreen(
     modifier: Modifier,
     devices: List<Device>,
     selectedPage: String?,
@@ -269,7 +269,7 @@ private fun DashboardWidgetRow(
 }
 
 @Composable
-private fun TrainedCommandsScreen(modifier: Modifier, trainedCommands: List<TrainedVoiceCommand>, devices: List<Device>, onDelete: (TrainedVoiceCommand) -> Unit, onClearAll: () -> Unit, onAddVariant: (String) -> Unit) {
+fun TrainedCommandsScreen(modifier: Modifier, trainedCommands: List<TrainedVoiceCommand>, devices: List<Device>, onDelete: (TrainedVoiceCommand) -> Unit, onClearAll: () -> Unit, onAddVariant: (String) -> Unit) {
     var showClearDialog by remember { mutableStateOf(false) }
 
     if (showClearDialog) {
@@ -338,7 +338,7 @@ private fun InputWidget(widget: WidgetState, onSend: (String) -> Unit) {
 }
 
 @Composable
-private fun MqttScreen(modifier: Modifier, host: String, port: String, prefix: String, username: String, password: String, tls: Boolean, connected: Boolean,
+fun MqttScreen(modifier: Modifier, host: String, port: String, prefix: String, username: String, password: String, tls: Boolean, connected: Boolean,
     onHost: (String) -> Unit, onPort: (String) -> Unit, onPrefix: (String) -> Unit, onUser: (String) -> Unit, onPass: (String) -> Unit, onTls: (Boolean) -> Unit,
     onSave: () -> Unit, onConnect: () -> Unit, onHello: () -> Unit) {
     Column(modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -370,7 +370,7 @@ private fun MqttScreen(modifier: Modifier, host: String, port: String, prefix: S
 }
 
 @Composable
-private fun VoiceSettingsScreen(
+fun VoiceSettingsScreen(
     modifier: Modifier,
     preset: String,
     rate: Float,
@@ -496,7 +496,7 @@ private fun VoiceSettingsScreen(
 }
 
 @Composable
-private fun LogScreen(modifier: Modifier, log: List<String>, onClear: () -> Unit) {
+fun LogScreen(modifier: Modifier, log: List<String>, onClear: () -> Unit) {
     val context = LocalContext.current
     val logText = remember(log) { log.joinToString("\n") }
 
