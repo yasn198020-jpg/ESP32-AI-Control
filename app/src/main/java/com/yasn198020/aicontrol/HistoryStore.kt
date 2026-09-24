@@ -15,6 +15,15 @@ class HistoryStore(private val prefs: SharedPreferences) {
         val json = JSONArray(); kept.forEach { p -> json.put(JSONObject().apply { put("t", p.timestamp); put("d", p.deviceId); put("w", p.widgetId); put("v", p.value) }) }
         prefs.edit().putString(KEY, json.toString()).apply()
     }
+    @Synchronized
+    fun latestValues(): Map<String, Double> {
+        val latest = LinkedHashMap<String, HistoryPoint>()
+        load().forEach { point ->
+            latest["${point.deviceId}/${point.widgetId}"] = point
+        }
+        return latest.mapValues { it.value.value }
+    }
+
     fun load(): List<HistoryPoint> {
         val raw = prefs.getString(KEY, null) ?: return emptyList()
         return try { val json = JSONArray(raw); buildList(json.length()) { for (i in 0 until json.length()) { val o=json.getJSONObject(i); add(HistoryPoint(o.optLong("t"),o.optString("d"),o.optString("w"),o.optDouble("v",Double.NaN))) } }.filter { it.value.isFinite() } } catch (_: Exception) { emptyList() }
