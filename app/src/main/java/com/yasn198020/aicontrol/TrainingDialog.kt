@@ -70,7 +70,7 @@ fun TrainingDialog(
                     Text("Эта фраза будет читать текущее значение виджета вслух. Например: «Какая температура в помидорах?» → приложение скажет текущее значение этого датчика.")
                 } else {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(selected = trainingValue == "1", onClick = { onTrainingValueChange("1") }, label = { Text("Открыть / включить") })
+                        FilterChip(\n                            selected = trainingValue == "1",\n                            onClick = { onTrainingValueChange("1") },\n                            label = { Text("Открыть / включить") }\n                        )
                         FilterChip(selected = trainingValue == "0", onClick = { onTrainingValueChange("0") }, label = { Text("Закрыть / выключить") })
                     }
                     Text("Одну и ту же фразу можно записать для нескольких виджетов. Например, для «Доброе утро» обучите свет и шторы отдельно — при произнесении сработают оба действия.")
