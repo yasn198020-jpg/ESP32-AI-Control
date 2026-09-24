@@ -885,7 +885,6 @@ private fun App(
 
                 { mqttHost = it }, { mqttPort = it }, { mqttPrefix = it }, { username = it }, { password = it }, { mqttTls = it },
                 ::saveSettings,
-                ::setBackgroundEnabled,
                 {
                     if (connected) {
                         manualMqttDisconnect = true
@@ -1211,8 +1210,8 @@ private fun InputWidget(widget: WidgetState, onSend: (String) -> Unit) {
 @Composable
 private fun MqttScreen(modifier: Modifier, host: String, port: String, prefix: String, username: String, password: String, tls: Boolean, connected: Boolean,
 
-    onHost: (String) -> Unit, onPort: (String) -> Unit, onPrefix: (String) -> Unit, onUser: (String) -> Unit, onPass: (String) -> Unit, onTls: (Boolean) -> Unit,
-    onSave: () -> Unit, onBackgroundEnabled: (Boolean) -> Unit, onConnect: () -> Unit, onHello: () -> Unit) {
+    onHost: (String) -> Unit, onPort: (String) -> Unit, onPrefix: (String) -> Unit, onUser: (String) -> Unit, onPass: (String) -> Unit,
+    onTls: (Boolean) -> Unit, onSave: () -> Unit, onConnect: () -> Unit, onHello: () -> Unit) {
     Column(modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         OutlinedTextField(host, onHost, label = { Text("MQTT host / IP") }, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(port, onPort, label = { Text("MQTT port") }, modifier = Modifier.fillMaxWidth())
@@ -1222,19 +1221,6 @@ private fun MqttScreen(modifier: Modifier, host: String, port: String, prefix: S
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text("TLS / SSL")
             Switch(checked = tls, onCheckedChange = onTls)
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("Работа в фоне", fontWeight = FontWeight.Medium)
-                Text(
-                    if (backgroundEnabled)
-                        "MQTT продолжит работать после выхода из приложения"
-                    else
-                        "MQTT работает только пока приложение открыто",
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-            Switch(checked = backgroundEnabled, onCheckedChange = onBackgroundEnabled)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onSave) { Text("Save") }
