@@ -77,7 +77,7 @@ class MqttBackgroundService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // START_STICKY lets Android recreate this service after a process kill.
         val runtime = AppRuntime.get(applicationContext)
-        runtime.scenarioEngine.setRuntimeActive(false)
+        runtime.scenarioEngine.setRuntimeActive(true)
         runtime.ensureConnected()
         return START_STICKY
     }
@@ -99,7 +99,7 @@ class MqttBackgroundService : Service() {
         scheduleServiceRestart()
         // Keep the service independent from the Activity task.
         val runtime = AppRuntime.get(applicationContext)
-        runtime.scenarioEngine.setRuntimeActive(false)
+        runtime.scenarioEngine.setRuntimeActive(true)
         runtime.ensureConnected()
         super.onTaskRemoved(rootIntent)
     }
