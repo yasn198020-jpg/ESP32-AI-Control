@@ -62,7 +62,7 @@ class MqttBackgroundService : Service() {
                 if (scenario.notificationEnabled) {
                     ScenarioNotifier.notify(this, scenario, rawValue)
                 }
-                scenarioActionExecutor.execute(scenario)
+                scenarioActionExecutor?.execute(scenario)
             },
             onVerificationResult = { scenario, success, rawValue ->
                 if (scenario.notificationEnabled) {
