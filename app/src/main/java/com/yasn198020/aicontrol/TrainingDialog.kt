@@ -11,6 +11,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import com.yasn198020.aicontrol.voice.TRAINED_READ_VALUE
 import com.yasn198020.aicontrol.voice.TrainedVoiceCommand
 import com.yasn198020.aicontrol.voice.TrainingTarget
