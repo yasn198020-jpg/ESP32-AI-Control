@@ -1,7 +1,7 @@
 package com.yasn198020.aicontrol.marfa
 
 import com.yasn198020.aicontrol.*
-import com.yasn198020.aicontrol.voice.*
+import com.yasn198020.aicontrol.voice.MarfaVoiceService
 
 import android.app.Activity
 import android.content.Intent
@@ -12,8 +12,8 @@ class MarfaToggleActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val prefs = getSharedPreferences("settings", MODE_PRIVATE)
-        val active = prefs.getBoolean("marfa_voice_active", false)
+        val prefs = getSharedPreferences(APP_SETTINGS_PREFS, MODE_PRIVATE)
+        val active = prefs.getBoolean(MARFA_ACTIVE_PREF, false)
 
         if (active) {
             stopService(Intent(this, MarfaVoiceService::class.java))
