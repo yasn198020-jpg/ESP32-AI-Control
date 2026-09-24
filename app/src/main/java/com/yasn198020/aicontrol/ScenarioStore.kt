@@ -226,7 +226,7 @@ class ScenarioEngine(
     private val onVerificationResult: (Scenario, Boolean, String) -> Unit
 ) {
     private val values = mutableMapOf<String, Double>()
-    private val verificationTasks = mutableMapOf<String, java.util.concurrent.ScheduledFuture<*>>()
+    private val verificationTasks = mutableMapOf<String, java.util.concurrent.ScheduledFuture<*>>()\n    private val verificationGenerations = mutableMapOf<String, Long>()
     private val scheduler = java.util.concurrent.Executors.newSingleThreadScheduledExecutor()
     private var shutdown = false
 
@@ -271,14 +271,24 @@ class ScenarioEngine(
         if (scheduler.isShutdown || scheduler.isTerminated) return
 
         verificationTasks.remove(scenario.id)?.cancel(false)
+        val generation = (verificationGenerations[scenario.id] ?: 0L) + 1L
+        verificationGenerations[scenario.id] = generation
         val task = try {
             scheduler.schedule({
                 val current: Scenario?
+                val stillCurrent: Boolean
                 synchronized(this) {
-                    verificationTasks.remove(scenario.id)
-                    current = store.load().firstOrNull { it.id == scenario.id }
+                    stillCurrent = !shutdown && verificationGenerations[scenario.id] == generation
+                    if (stillCurrent) {
+                        verificationTasks.remove(scenario.id)
+                    }
+                    current = if (stillCurrent) {
+                        store.load().firstOrNull { it.id == scenario.id }
+                    } else {
+                        null
+                    }
                 }
-                if (current?.enabled == true && current.verifyEnabled && !shutdown) {
+                if (stillCurrent && current?.enabled == true && current.verifyEnabled) {
                     onVerificationResult(current, false, "")
                 }
             }, scenario.verifyTimeoutSec.coerceIn(1, 300).toLong(), java.util.concurrent.TimeUnit.SECONDS)
@@ -294,6 +304,7 @@ class ScenarioEngine(
         shutdown = true
         verificationTasks.values.forEach { it.cancel(false) }
         verificationTasks.clear()
+        verificationGenerations.clear()
         values.clear()
         scheduler.shutdownNow()
     }
@@ -315,6 +326,7 @@ class ScenarioEngine(
                 val task = verificationTasks.remove(scenario.id)
                 if (task != null) {
                     task.cancel(false)
+                    verificationGenerations[scenario.id] = (verificationGenerations[scenario.id] ?: 0L) + 1L
                     onVerificationResult(scenario, true, rawValue)
                 }
             }
