@@ -43,6 +43,7 @@ class AppRuntime private constructor(private val appContext: Context) {
     private val currentTriggeredScenario = ThreadLocal<((Scenario, String) -> Unit)?>()
 
     val scenarioEngine: ScenarioEngine = ScenarioEngine(
+        scenarioStore,
         onTrigger = { scenario, rawValue, _ ->
             // This callback executes the action synchronously. The MQTT event
             // handler captures the scenario/raw value and sends the notification
