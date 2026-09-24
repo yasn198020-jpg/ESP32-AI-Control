@@ -29,7 +29,9 @@ fun VariantPhraseDialog(
         title = { Text("Добавить вариант фразы") },
         text = {
             Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text("Команда: «$phrase»")
