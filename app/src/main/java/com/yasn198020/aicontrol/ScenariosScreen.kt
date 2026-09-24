@@ -114,6 +114,9 @@ fun ScenariosScreen(
 
                                 OutlinedButton(
                                     onClick = {
+                                        // Remove any pending verification callback before deleting
+                                        // the scenario so a stale timeout can never report its result.
+                                        engine.cancelScenario(scenario.id)
                                         store.delete(scenario.id)
                                         refresh()
                                     },
@@ -139,10 +142,19 @@ fun ScenariosScreen(
     }
     editing?.let { scenario ->
         ScenarioEditorDialog(devices, scenario, onDismiss = { editing = null }, onSave = { updated ->
+            // Editing a scenario invalidates its previous verification lifecycle
+            // regardless of whether notifications are enabled.
+            engine.cancelScenario(updated.id)
             if (updated.notificationEnabled) {
-                onRequestNotifications { engine.cancelScenario(updated.id); engine.cancelScenario(updated.id); store.update(updated); refresh(); editing = null }
+                onRequestNotifications {
+                    store.update(updated)
+                    refresh()
+                    editing = null
+                }
             } else {
-                store.update(updated); refresh(); editing = null
+                store.update(updated)
+                refresh()
+                editing = null
             }
         })
     }
