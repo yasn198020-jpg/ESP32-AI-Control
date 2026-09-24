@@ -55,6 +55,16 @@ class MainActivity : ComponentActivity() {
         const val ACTION_WIDGET_VOICE = "com.yasn198020.aicontrol.action.WIDGET_VOICE"
     }
 
+    override fun onStart() {
+        super.onStart()
+        DiagnosticTrace.setForeground(true)
+    }
+
+    override fun onStop() {
+        DiagnosticTrace.setForeground(false)
+        super.onStop()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
