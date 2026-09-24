@@ -32,7 +32,7 @@ DisposableEffect(context, voiceManager) {
     val observer = LifecycleEventObserver { _, event ->
         if (event == Lifecycle.Event.ON_STOP) {
             voiceManager.stop()
-            voiceStatus = "Микрофон выключен"
+            voiceStatus("Микрофон выключен")
         }
     }
     lifecycle?.addObserver(observer)
