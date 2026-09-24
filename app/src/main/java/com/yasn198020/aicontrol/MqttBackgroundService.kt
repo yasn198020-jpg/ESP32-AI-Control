@@ -23,8 +23,8 @@ class MqttBackgroundService : Service() {
     private val handler = Handler(Looper.getMainLooper())
     private var mqtt: MqttManager? = null
     private lateinit var historyStore: HistoryStore
-    private lateinit var scenarioEngine: ScenarioEngine
-    private lateinit var scenarioActionExecutor: ScenarioActionExecutor
+    private var scenarioEngine: ScenarioEngine? = null
+    private var scenarioActionExecutor: ScenarioActionExecutor? = null
 
     private val reconnectTask = object : Runnable {
         override fun run() {
@@ -78,13 +78,13 @@ class MqttBackgroundService : Service() {
             onStatus = { deviceId, widgetId, value ->
                 android.util.Log.d("MQTT_BG", "status $deviceId/$widgetId=$value")
                 historyStore.add(deviceId, widgetId, value)
-                scenarioEngine.onValue(deviceId, widgetId, value)
+                scenarioEngine?.onValue(deviceId, widgetId, value)
             },
             onConfig = { deviceId, widgetId, label, type, page, topic, order, raw ->
                 android.util.Log.d("MQTT_BG", "config $deviceId/$widgetId type=$type topic=$topic")
             }
         )
-        scenarioActionExecutor.mqtt = mqtt
+        scenarioActionExecutor?.mqtt = mqtt
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -169,8 +169,10 @@ class MqttBackgroundService : Service() {
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
-        scenarioEngine.shutdown()
-        scenarioActionExecutor.mqtt = null
+        scenarioEngine?.shutdown()
+        scenarioEngine = null
+        scenarioActionExecutor?.mqtt = null
+        scenarioActionExecutor = null
         mqtt?.disconnect()
         mqtt = null
         super.onDestroy()
