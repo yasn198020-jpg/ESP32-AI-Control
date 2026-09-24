@@ -40,7 +40,9 @@ fun TrainingDialog(
         title = { Text("Обучить голосовую команду") },
         text = {
             Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text("Виджет: ${target.title}")
