@@ -12,6 +12,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.yasn198020.aicontrol.voice.TRAINED_READ_VALUE
@@ -50,7 +51,7 @@ fun TrainingDialog(
                 }
                 if (attachToExisting) {
                     Text("Выберите существующую команду:")
-                    val existingPhrases = trainedCommands.map { it.phrase }.distinct()
+                    val existingPhrases = remember(trainedCommands) { trainedCommands.map { it.phrase }.distinct() }
                     if (existingPhrases.isEmpty()) Text("Существующих команд пока нет.")
                     else {
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
