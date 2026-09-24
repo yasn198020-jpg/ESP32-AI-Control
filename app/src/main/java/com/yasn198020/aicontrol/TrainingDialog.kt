@@ -36,6 +36,7 @@ fun TrainingDialog(
 ) {
     // A null target means the dialog is closed.
     target ?: return
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Обучить голосовую команду") },
