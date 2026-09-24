@@ -75,7 +75,14 @@ class AppRuntime private constructor(private val appContext: Context) {
             // executor or its lifecycle.
             try {
                 historyStore.add(deviceId, widgetId, value)
-                scenarioEngine.onValue(deviceId, widgetId, value)
+                // Temporary diagnostic mode: wake scenario processing only for
+                // this MQTT event, execute action/notification, then deactivate.
+                scenarioEngine.setRuntimeActive(true)
+                try {
+                    scenarioEngine.onValue(deviceId, widgetId, value)
+                } finally {
+                    scenarioEngine.setRuntimeActive(false)
+                }
             } catch (e: Exception) {
                 android.util.Log.e("MQTT_RUNTIME", "Background status processing failed", e)
             }
