@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.os.Build
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.core.content.ContextCompat
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -452,21 +453,20 @@ private fun App(
         onDispose { lifecycle?.removeObserver(observer) }
     }
 
-    // Automatically connect when the application opens and periodically
-    // restore the connection if it was lost.
+    // Automatically connect only while the activity is in the foreground.
+    // The background service owns MQTT while the activity is stopped, so this
+    // loop must never reconnect a second client behind its back.
+    val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(Unit) {
         delay(500)
-        if (!manualMqttDisconnect && !mqtt.isConnected()) {
-            addLog("MQTT auto-connect: starting")
-            connect()
-        }
-
         while (true) {
-            delay(15_000)
-            if (!manualMqttDisconnect && !mqtt.isConnected()) {
-                addLog("MQTT auto-check: disconnected, reconnecting")
-                connect()
+            if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                if (!manualMqttDisconnect && !mqtt.isConnected()) {
+                    addLog("MQTT auto-check: disconnected, reconnecting")
+                    connect()
+                }
             }
+            delay(15_000)
         }
     }
 
