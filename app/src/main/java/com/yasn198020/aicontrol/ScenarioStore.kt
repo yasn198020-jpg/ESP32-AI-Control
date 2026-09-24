@@ -231,6 +231,7 @@ class ScenarioEngine(
 
     private fun startVerification(scenario: Scenario) {
         if (!scenario.verifyEnabled || scenario.verifyDeviceId.isBlank() || scenario.verifyWidgetId.isBlank()) return
+        if (scheduler.isShutdown || scheduler.isTerminated) return
         verificationTasks.remove(scenario.id)?.cancel(false)
         verificationTasks[scenario.id] = scheduler.schedule({
             synchronized(this) {
