@@ -50,6 +50,7 @@ data class Scenario(
 class ScenarioStore(private val prefs: android.content.SharedPreferences) {
     companion object { private const val KEY = "scenarios_v1" }
 
+    @Synchronized
     fun load(): List<Scenario> {
         val raw = prefs.getString(KEY, "[]") ?: "[]"
         return runCatching {
@@ -157,6 +158,7 @@ class ScenarioStore(private val prefs: android.content.SharedPreferences) {
     private fun normalizeConnector(value: String): String =
         if (value.trim().equals("OR", ignoreCase = true)) "OR" else "AND"
 
+    @Synchronized
     fun save(items: List<Scenario>) {
         val array = JSONArray()
         items.forEach { s ->
@@ -208,9 +210,13 @@ class ScenarioStore(private val prefs: android.content.SharedPreferences) {
         prefs.edit().putString(KEY, array.toString()).apply()
     }
 
+    @Synchronized
     fun add(scenario: Scenario) = save(load() + scenario)
+    @Synchronized
     fun update(scenario: Scenario) = save(load().map { if (it.id == scenario.id) scenario else it })
+    @Synchronized
     fun delete(id: String) = save(load().filterNot { it.id == id })
+    @Synchronized
     fun clear() = prefs.edit().remove(KEY).apply()
 }
 
