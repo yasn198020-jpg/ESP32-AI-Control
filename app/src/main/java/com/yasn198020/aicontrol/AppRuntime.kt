@@ -124,6 +124,13 @@ class AppRuntime private constructor(private val appContext: Context) {
         mqtt.connect(host, port, prefix, username, password, tls)
     }
 
+
+
+    fun reconnect() {
+        mqtt.disconnect()
+        ensureConnected()
+    }
+
     companion object {
         @Volatile
         private var instance: AppRuntime? = null
