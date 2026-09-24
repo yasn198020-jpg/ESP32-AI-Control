@@ -473,26 +473,12 @@ fun App(
         )
     }
 
-    if (textSizeDialogOpen) {
-        AlertDialog(
-            onDismissRequest = { textSizeDialogOpen = false },
-            title = { Text("Размер текста") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("${(fontScale * 100f).toInt()}%", fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-                    Slider(value = fontScale, onValueChange = onFontScaleChange, valueRange = 0.70f..1.10f, steps = 7)
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Мельче")
-                        Text("Обычный")
-                        Text("Крупнее")
-                    }
-                    Text("Настройка применяется ко всему тексту приложения и сохраняется автоматически.", style = MaterialTheme.typography.bodySmall)
-                }
-            },
-            confirmButton = { TextButton(onClick = { textSizeDialogOpen = false }) { Text("Готово") } },
-            dismissButton = { TextButton(onClick = { onFontScaleChange(0.85f) }) { Text("По умолчанию") } }
-        )
-    }
+    TextSizeDialog(
+        open = textSizeDialogOpen,
+        fontScale = fontScale,
+        onFontScaleChange = onFontScaleChange,
+        onDismiss = { textSizeDialogOpen = false }
+    )
 
     trainingTarget?.let { target ->
         AlertDialog(
