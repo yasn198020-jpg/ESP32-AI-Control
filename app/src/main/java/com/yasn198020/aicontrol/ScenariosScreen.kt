@@ -20,6 +20,7 @@ fun ScenariosScreen(
     modifier: Modifier,
     devices: List<Device>,
     store: ScenarioStore,
+    engine: ScenarioEngine,
     onRequestNotifications: (() -> Unit) -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -84,7 +85,7 @@ fun ScenariosScreen(
                                 ) {
                                     OutlinedButton(
                                         onClick = {
-                                            store.update(scenario.copy(enabled = !scenario.enabled, armed = true))
+                                            engine.cancelScenario(scenario.id)\n                                            store.update(scenario.copy(enabled = !scenario.enabled, armed = true))
                                             refresh()
                                         },
                                         modifier = Modifier.weight(1f)
@@ -138,7 +139,7 @@ fun ScenariosScreen(
     editing?.let { scenario ->
         ScenarioEditorDialog(devices, scenario, onDismiss = { editing = null }, onSave = { updated ->
             if (updated.notificationEnabled) {
-                onRequestNotifications { store.update(updated); refresh(); editing = null }
+                onRequestNotifications { engine.cancelScenario(updated.id); engine.cancelScenario(updated.id); store.update(updated); refresh(); editing = null }
             } else {
                 store.update(updated); refresh(); editing = null
             }
