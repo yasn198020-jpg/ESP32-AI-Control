@@ -456,27 +456,62 @@ class ScenarioActionExecutor {
     @Volatile var mqtt: MqttManager? = null
 
     fun execute(scenario: Scenario) {
-        if (scenario.actionType != "MQTT_CONTROL") return
-        val manager = mqtt ?: return
+        if (scenario.actionType != "MQTT_CONTROL") {
+            DiagnosticTrace.step("ACTION", "SKIP scenario=${scenario.id} type=${scenario.actionType}")
+            return
+        }
+
+        val manager = mqtt
+        if (manager == null) {
+            DiagnosticTrace.error("ACTION MQTT manager is null scenario=${scenario.id}")
+            return
+        }
+
         val actions = scenario.actions.ifEmpty {
             if (scenario.actionDeviceId.isNotBlank() && scenario.actionWidgetId.isNotBlank()) {
                 listOf(ScenarioAction(scenario.actionDeviceId, scenario.actionWidgetId, scenario.actionValue.ifBlank { "1" }))
             } else emptyList()
         }.toList()
 
-        DiagnosticTrace.step("ACTION", "executor scenario=${scenario.id} actionCount=${actions.size}")
-        for (action in actions) {
+        DiagnosticTrace.step(
+            "ACTION",
+            "START scenario=${scenario.id} type=MQTT_CONTROL actionCount=${actions.size}"
+        )
+
+        if (actions.isEmpty()) {
+            DiagnosticTrace.step("ACTION", "NO ACTIONS scenario=${scenario.id}")
+            return
+        }
+
+        actions.forEachIndexed { index, action ->
+            val number = index + 1
             if (action.deviceId.isBlank() || action.widgetId.isBlank()) {
-                DiagnosticTrace.step("ACTION", "skip blank action target")
-                continue
+                DiagnosticTrace.step(
+                    "ACTION",
+                    "#$number SKIP blank target device=${action.deviceId} widget=${action.widgetId}"
+                )
+                return@forEachIndexed
             }
+
+            val actionValue = action.value.ifBlank { "1" }
+            DiagnosticTrace.step(
+                "ACTION",
+                "#$number SEND target=${action.deviceId}/${action.widgetId} value=$actionValue"
+            )
+
             try {
-                val actionValue = action.value.ifBlank { "1" }
                 val result = manager.publishControl(action.deviceId, action.widgetId, actionValue)
-                DiagnosticTrace.step("ACTION", "publish ${action.deviceId}/${action.widgetId} value=$actionValue result=$result")
+                DiagnosticTrace.step(
+                    "ACTION",
+                    "#$number RESULT target=${action.deviceId}/${action.widgetId} value=$actionValue result=$result"
+                )
             } catch (e: Exception) {
-                DiagnosticTrace.error("action exception ${e.message ?: e.javaClass.simpleName}")
+                DiagnosticTrace.error(
+                    "ACTION #$number EXCEPTION target=${action.deviceId}/${action.widgetId} error=${e.message ?: e.javaClass.simpleName}"
+                )
             }
         }
+
+        DiagnosticTrace.step("ACTION", "COMPLETE scenario=${scenario.id} actionCount=${actions.size}")
     }
 }
