@@ -97,10 +97,11 @@ fun App(
     var latestApkUrl by remember { mutableStateOf<String?>(null) }
     var updateDialogOpen by remember { mutableStateOf(false) }
     var updateDownloading by remember { mutableStateOf(false) }
-    var voicePreset by remember { mutableStateOf(prefs.getString("voice_preset", "friendly") ?: "friendly") }
-    var voiceRate by remember { mutableFloatStateOf(prefs.getFloat("voice_rate", 0.92f)) }
-    var voicePitch by remember { mutableFloatStateOf(prefs.getFloat("voice_pitch", 1.05f)) }
-    var selectedVoiceName by remember { mutableStateOf(prefs.getString("tts_voice", "") ?: "") }
+    val voiceSettings = remember { VoiceSettingsStore(prefs) }
+    var voicePreset by remember { mutableStateOf(voiceSettings.preset) }
+    var voiceRate by remember { mutableFloatStateOf(voiceSettings.rate) }
+    var voicePitch by remember { mutableFloatStateOf(voiceSettings.pitch) }
+    var selectedVoiceName by remember { mutableStateOf(voiceSettings.voiceName) }
     var availableVoices by remember { mutableStateOf(emptyList<android.speech.tts.Voice>()) }
 
     fun applyVoiceSettings() {
@@ -117,7 +118,7 @@ fun App(
 
     fun selectInstalledVoice(name: String) {
         selectedVoiceName = name
-        prefs.edit().putString("tts_voice", name).apply()
+        voiceSettings.saveVoiceName(name)
         applyVoiceSettings()
     }
 
@@ -152,14 +153,12 @@ fun App(
             "natural" -> { voiceRate = 0.98f; voicePitch = 1.00f }
             "assistant" -> { voiceRate = 0.94f; voicePitch = 0.96f }
         }
-        prefs.edit().putString("voice_preset", voicePreset)
-            .putFloat("voice_rate", voiceRate).putFloat("voice_pitch", voicePitch).apply()
+        voiceSettings.savePreset(voicePreset, voiceRate, voicePitch)
         applyVoiceSettings()
     }
 
     fun saveVoiceSettings() {
-        prefs.edit().putString("voice_preset", voicePreset)
-            .putFloat("voice_rate", voiceRate).putFloat("voice_pitch", voicePitch).apply()
+        voiceSettings.savePreset(voicePreset, voiceRate, voicePitch)
         applyVoiceSettings()
         voiceStatus = "Настройки голоса сохранены"
     }
