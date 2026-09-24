@@ -412,10 +412,16 @@ class ScenarioEngine(
             }
 
             DiagnosticTrace.stepForEvent(eventId, "CONDITION", "id=${scenario.id} result=$matched conditions=${conditions.size}")
+            if (conditions.any { it.deviceId == deviceId && it.widgetId == "vbtn90" }) {
+                DiagnosticTrace.stepForEvent(eventId, "CONDITION", "VBTN90 CONDITION value=$value result=$matched scenario=${scenario.id}")
+            }
 
             if (!matched) {
                 conditionStates[scenario.id] = false
                 DiagnosticTrace.stepForEvent(eventId, "EDGE", "id=${scenario.id} false -> reset")
+                if (conditions.any { it.deviceId == deviceId && it.widgetId == "vbtn90" }) {
+                    DiagnosticTrace.stepForEvent(eventId, "EDGE", "VBTN90 EDGE RESET value=$value scenario=${scenario.id}")
+                }
                 if (scenario.armed) {
                     store.update(scenario.copy(armed = false))
                 }
@@ -424,11 +430,17 @@ class ScenarioEngine(
 
             if (conditionStates[scenario.id] == true) {
                 DiagnosticTrace.stepForEvent(eventId, "EDGE", "id=${scenario.id} true -> true, ignored")
+                if (conditions.any { it.deviceId == deviceId && it.widgetId == "vbtn90" }) {
+                    DiagnosticTrace.stepForEvent(eventId, "EDGE", "VBTN90 EDGE IGNORED value=$value scenario=${scenario.id}")
+                }
                 return@forEach
             }
 
             conditionStates[scenario.id] = true
             DiagnosticTrace.stepForEvent(eventId, "EDGE", "id=${scenario.id} false -> true, TRIGGER")
+            if (conditions.any { it.deviceId == deviceId && it.widgetId == "vbtn90" }) {
+                DiagnosticTrace.stepForEvent(eventId, "EDGE", "VBTN90 EDGE TRIGGER value=$value scenario=${scenario.id}")
+            }
 
             if (scenario.verifyEnabled) startVerification(scenario)
 
