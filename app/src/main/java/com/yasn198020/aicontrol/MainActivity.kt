@@ -1385,6 +1385,7 @@ private fun LogScreen(modifier: Modifier, log: List<String>, onClear: () -> Unit
             "ACTION" -> line.contains(" ACTION]")
             "VERIFY" -> line.contains(" VERIFY]")
             "ERROR" -> line.contains(" ERROR]")
+            "VBTN90" -> line.contains("[VBTN90")
             else -> true
         }
     }
@@ -1438,7 +1439,7 @@ private fun LogScreen(modifier: Modifier, log: List<String>, onClear: () -> Unit
                 modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                listOf("ALL" to "Все", "MQTT" to "MQTT", "SCENARIO" to "Сценарии", "ACTION" to "Действия", "VERIFY" to "Проверка", "ERROR" to "Ошибки").forEach { (id, title) ->
+                listOf("ALL" to "Все", "MQTT" to "MQTT", "VBTN90" to "vbtn90", "SCENARIO" to "Сценарии", "ACTION" to "Действия", "VERIFY" to "Проверка", "ERROR" to "Ошибки").forEach { (id, title) ->
                     OutlinedButton(onClick = { filter = id }) {
                         Text(if (filter == id) "● " + title else title)
                     }
