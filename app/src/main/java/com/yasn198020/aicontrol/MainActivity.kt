@@ -388,9 +388,9 @@ private fun App(
         addLog("Settings saved")
     }
 
-    fun connect() {
+    fun connect(save: Boolean = true) {
         manualMqttDisconnect = false
-        saveSettings()
+        if (save) saveSettings()
         mqtt.connect(mqttHost, mqttPort.toIntOrNull() ?: 1883, mqttPrefix, username, password, mqttTls)
     }
 
@@ -438,12 +438,21 @@ private fun App(
                     val marfaActive = context.getSharedPreferences("settings", Context.MODE_PRIVATE).getBoolean("marfa_voice_active", false)
                     if (!marfaActive) {
                         try {
-                            context.stopService(Intent(context, MqttBackgroundService::class.java))
-                        } catch (_: Exception) {}
+                            context.startService(
+                                Intent(context, MqttBackgroundService::class.java)
+                                    .setAction(MqttBackgroundService.ACTION_STOP)
+                            )
+                        } catch (_: Exception) {
+                            try { context.stopService(Intent(context, MqttBackgroundService::class.java)) } catch (_: Exception) {}
+                        }
                     }
                     if (!manualMqttDisconnect && !marfaActive) {
                         addLog("MQTT foreground mode: restoring connection")
-                        connect()
+                        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                            if (!manualMqttDisconnect && lifecycle?.currentState?.isAtLeast(Lifecycle.State.STARTED) == true) {
+                                connect(save = false)
+                            }
+                        }, 500)
                     }
                 }
                 else -> Unit
@@ -463,7 +472,7 @@ private fun App(
             if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
                 if (!manualMqttDisconnect && !mqtt.isConnected()) {
                     addLog("MQTT auto-check: disconnected, reconnecting")
-                    connect()
+                    connect(save = false)
                 }
             }
             delay(15_000)
