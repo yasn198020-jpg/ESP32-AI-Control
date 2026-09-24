@@ -29,7 +29,8 @@ class MqttBackgroundService : Service() {
     private val reconnectTask = object : Runnable {
         override fun run() {
             val prefs = getSharedPreferences("settings", Context.MODE_PRIVATE)
-            if (prefs.getBoolean("mqtt_foreground_owner", false)) {
+            if (!prefs.getBoolean("mqtt_background_enabled", false) ||
+                prefs.getBoolean("mqtt_foreground_owner", false)) {
                 handler.removeCallbacks(this)
                 stopSelf()
                 return
@@ -45,9 +46,13 @@ class MqttBackgroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        val prefs = getSharedPreferences("settings", Context.MODE_PRIVATE)
+        if (!prefs.getBoolean("mqtt_background_enabled", false)) {
+            stopSelf()
+            return
+        }
         createNotificationChannel()
         startAsForeground()
-        val prefs = getSharedPreferences("settings", Context.MODE_PRIVATE)
         historyStore = HistoryStore(prefs)
         val scenarioStore = ScenarioStore(prefs)
         scenarioActionExecutor = ScenarioActionExecutor()
@@ -85,6 +90,12 @@ class MqttBackgroundService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val prefs = getSharedPreferences("settings", Context.MODE_PRIVATE)
 
+        if (!prefs.getBoolean("mqtt_background_enabled", false)) {
+            handler.removeCallbacksAndMessages(null)
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
+
         // If the activity has already returned to the foreground, this service
         // is no longer the MQTT owner. Stop without creating/reconnecting a client.
         if (prefs.getBoolean("mqtt_foreground_owner", false)) {
@@ -105,7 +116,8 @@ class MqttBackgroundService : Service() {
 
     private fun connectFromSavedSettings(manager: MqttManager) {
         val prefs = getSharedPreferences("settings", Context.MODE_PRIVATE)
-        if (prefs.getBoolean("mqtt_foreground_owner", false)) {
+        if (!prefs.getBoolean("mqtt_background_enabled", false) ||
+            prefs.getBoolean("mqtt_foreground_owner", false)) {
             handler.removeCallbacks(reconnectTask)
             return
         }
