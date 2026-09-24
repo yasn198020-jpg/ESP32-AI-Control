@@ -230,6 +230,7 @@ class ScenarioEngine(
     private val verificationGenerations = mutableMapOf<String, Long>()
     private val scheduler = java.util.concurrent.Executors.newSingleThreadScheduledExecutor()
     private var shutdown = false
+    private var runtimeActive = true
 
     private fun key(deviceId: String, widgetId: String) = "$deviceId/$widgetId"
 
@@ -305,6 +306,24 @@ class ScenarioEngine(
         verificationGenerations[scenarioId] = (verificationGenerations[scenarioId] ?: 0L) + 1L
     }
 
+    /**
+     * Enables/disables this engine as the active scenario runtime owner.
+     * The foreground Activity is paused while MqttBackgroundService owns MQTT,
+     * preventing a queued MQTT callback from executing a scenario twice.
+     */
+    @Synchronized
+    fun setRuntimeActive(active: Boolean) {
+        if (shutdown) return
+        if (!active) {
+            verificationTasks.values.forEach { it.cancel(false) }
+            verificationTasks.clear()
+            verificationGenerations.keys.toList().forEach { id ->
+                verificationGenerations[id] = (verificationGenerations[id] ?: 0L) + 1L
+            }
+        }
+        runtimeActive = active
+    }
+
     @Synchronized
     fun shutdown() {
         if (shutdown) return
@@ -318,7 +337,7 @@ class ScenarioEngine(
 
     @Synchronized
     fun onValue(deviceId: String, widgetId: String, rawValue: String) {
-        if (shutdown) return
+        if (shutdown || !runtimeActive) return
         val value = rawValue.trim().replace(',', '.').toDoubleOrNull() ?: return
         values[key(deviceId, widgetId)] = value
 
