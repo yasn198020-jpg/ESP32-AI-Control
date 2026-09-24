@@ -38,7 +38,7 @@ fun VariantPhraseDialog(
             ) {
                 Text("Команда: «$phrase»")
                 Text("Произнесите или введите другой вариант этой команды.")
-                OutlinedTextField(value = text, onValueChange = onTextChange, label = { Text("Новый вариант") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                OutlinedTextField(\n                    value = text,\n                    onValueChange = onTextChange,\n                    label = { Text("Новый вариант") },\n                    modifier = Modifier.fillMaxWidth(),\n                    singleLine = true\n                )
                 Button(onClick = onRequestMic, modifier = Modifier.fillMaxWidth()) { Text("🎤 Произнести вариант") }
             }
         },
