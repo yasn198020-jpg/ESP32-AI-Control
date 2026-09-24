@@ -39,7 +39,7 @@ fun ScenariosScreen(
                         else ScenarioNotifier.test(context)
                     }
                 }) { Text("🔔 Тест") }
-                Button(onClick = { onRequestNotifications { adding = true } }) { Text("+ Добавить") }
+                Button(onClick = { adding = true }) { Text("+ Добавить") }
             }
         }
         Spacer(Modifier.height(8.dp))
@@ -638,7 +638,7 @@ private fun ScenarioEditorDialog(
                         }
                     } else emptyList()
                     val firstAction = actions.firstOrNull()
-                    onSave(Scenario(
+                    val scenarioToSave = Scenario(
                         id = initialScenario?.id ?: java.util.UUID.randomUUID().toString(),
                         enabled = initialScenario?.enabled ?: true,
                         armed = initialScenario?.armed ?: true,
@@ -663,7 +663,12 @@ private fun ScenarioEditorDialog(
                         verifySuccessMessage = verifySuccessMessage.trim().ifBlank { "Подтверждение получено: {value}" },
                         verifyFailureMessage = verifyFailureMessage.trim().ifBlank { "Подтверждение не получено" },
                         conditions = parsed
-                    ))
+                    )
+                    if (scenarioToSave.notificationEnabled) {
+                        onRequestNotifications { onSave(scenarioToSave) }
+                    } else {
+                        onSave(scenarioToSave)
+                    }
                 }
             }) { Text("Сохранить") }
         },
