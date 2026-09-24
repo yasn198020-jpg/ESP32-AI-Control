@@ -310,6 +310,7 @@ private fun App(
     val runtime = remember { AppRuntime.get(context.applicationContext) }
     val mqtt = runtime.mqtt
     val historyStore = runtime.historyStore
+    val scenarioStore = runtime.scenarioStore
     val scenarioEngine = runtime.scenarioEngine
     val scenarioActionExecutor = runtime.scenarioActionExecutor
 
