@@ -79,7 +79,8 @@ class MqttManager(
 
                     val traceId = DiagnosticTrace.beginEvent(topic, payload)
 
-                    emitLog(
+                    try {
+                        emitLog(
                         "MQTT RX [" + messageType + "] " +
                             "topic=" + topic +
                             " payload=" + payload +
@@ -147,8 +148,13 @@ class MqttManager(
                             }
                         }
                     }
-                    DiagnosticTrace.stepForEvent(traceId, "MQTT", "RX processing finished")
-                    DiagnosticTrace.clearCurrentEvent()
+                    } catch (e: Exception) {
+                        DiagnosticTrace.stepForEvent(traceId, "ERROR", "unexpected RX error: " + (e.message ?: e.javaClass.simpleName))
+                        emitLog("MQTT message processing failed: " + (e.message ?: e.javaClass.simpleName))
+                    } finally {
+                        DiagnosticTrace.stepForEvent(traceId, "MQTT", "RX processing finished")
+                        DiagnosticTrace.clearCurrentEvent()
+                    }
                 }
 
                 override fun deliveryComplete(token: IMqttDeliveryToken?) = Unit
