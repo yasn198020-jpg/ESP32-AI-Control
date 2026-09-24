@@ -15,6 +15,10 @@ class MqttManager(
     private val main = Handler(Looper.getMainLooper())
     private var client: MqttAsyncClient? = null
     private var prefix = ""
+    private data class PendingPublish(val topic: String, val payload: String)
+    private val pendingPublishes = ArrayDeque<PendingPublish>()
+    private val publishLock = Any()
+    private val maxPendingPublishes = 100
 
     fun connect(host: String, port: Int, mqttPrefix: String, username: String, password: String, tls: Boolean) {
         disconnect()
@@ -253,7 +257,11 @@ class MqttManager(
         val c = client
 
         if (c == null || !c.isConnected) {
-            emitLog("MQTT publish skipped: not connected")
+            synchronized(publishLock) {
+                if (pendingPublishes.size >= maxPendingPublishes) pendingPublishes.removeFirst()
+                pendingPublishes.addLast(PendingPublish(topic, payload))
+            }
+            emitLog("MQTT publish queued: not connected topic=" + topic)
             return false
         }
 
@@ -269,8 +277,38 @@ class MqttManager(
             emitLog("MQTT TX topic=" + topic + " payload=" + payload)
             true
         } catch (e: Exception) {
+            synchronized(publishLock) {
+                if (pendingPublishes.size >= maxPendingPublishes) pendingPublishes.removeFirst()
+                pendingPublishes.addLast(PendingPublish(topic, payload))
+            }
             emitLog(mqttExceptionText("MQTT publish failed", e))
             false
+        }
+    }
+
+    private fun flushPendingPublishes() {
+        val c = client ?: return
+        if (!c.isConnected) return
+
+        while (true) {
+            val pending = synchronized(publishLock) {
+                if (pendingPublishes.isEmpty()) null else pendingPublishes.removeFirst()
+            } ?: break
+            try {
+                val message = MqttMessage(pending.payload.toByteArray(Charsets.UTF_8)).apply {
+                    qos = 1
+                    isRetained = false
+                }
+                c.publish(pending.topic, message)
+                emitLog("MQTT TX queued topic=" + pending.topic + " payload=" + pending.payload)
+            } catch (e: Exception) {
+                synchronized(publishLock) {
+                    if (pendingPublishes.size >= maxPendingPublishes) pendingPublishes.removeFirst()
+                    pendingPublishes.addFirst(pending)
+                }
+                emitLog(mqttExceptionText("MQTT queued publish failed", e))
+                break
+            }
         }
     }
 
