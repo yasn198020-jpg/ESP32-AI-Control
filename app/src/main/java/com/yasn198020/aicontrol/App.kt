@@ -9,12 +9,11 @@ import com.yasn198020.aicontrol.history.HistoryStore
 import com.yasn198020.aicontrol.updates.UpdateManager
 import com.yasn198020.aicontrol.marfa.MarfaShortcutInstaller
 import com.yasn198020.aicontrol.ui.DashboardPageTabs
-import com.yasn198020.aicontrol.ui.Dashboard
 import com.yasn198020.aicontrol.ui.DevicesScreen
-import com.yasn198020.aicontrol.ui.HistoryScreen
+import com.yasn198020.aicontrol.HistoryScreen
 import com.yasn198020.aicontrol.ui.LogScreen
 import com.yasn198020.aicontrol.ui.MqttScreen
-import com.yasn198020.aicontrol.ui.ScenariosScreen
+import com.yasn198020.aicontrol.ScenariosScreen
 import com.yasn198020.aicontrol.ui.TrainedCommandsScreen
 import com.yasn198020.aicontrol.ui.VoiceSettingsScreen
 import android.Manifest
