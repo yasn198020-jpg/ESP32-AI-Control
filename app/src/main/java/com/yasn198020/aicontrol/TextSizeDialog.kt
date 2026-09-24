@@ -37,7 +37,7 @@ fun TextSizeDialog(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text("${(fontScale * 100f).toInt()}%", fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-                Slider(value = fontScale, onValueChange = onFontScaleChange, valueRange = 0.70f..1.10f, steps = 7)
+                Slider(\n                    value = fontScale,\n                    onValueChange = onFontScaleChange,\n                    valueRange = 0.70f..1.10f,\n                    steps = 7\n                )
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("Мельче")
                     Text("Обычный")
