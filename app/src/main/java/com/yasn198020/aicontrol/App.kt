@@ -328,37 +328,17 @@ fun App(
         connect = ::connect
     )
 
-    fun sendWidget(deviceId: String, widgetId: String, value: String): Boolean {
-        val widget = devices.firstOrNull { it.id == deviceId }?.widgets?.firstOrNull { it.id == widgetId }
-        if (widget == null) {
-            addLog("MQTT TX skipped: widget not found: " + deviceId + "/" + widgetId)
-            return false
-        }
-
-        // Control commands use the standard device/widget/control topic.
-        // They do not require the CONFIG message to contain a separate topic.
-        val published = when (widget.type) {
-            WidgetState.Type.TOGGLE, WidgetState.Type.BUTTON ->
-                mqtt.publishControl(deviceId, widgetId, value)
-            else -> {
-                if (widget.topic.isBlank()) {
-                    addLog("MQTT TX skipped: config has no topic for " + widgetId)
-                    false
-                } else {
-                    mqtt.publishWidget(widget.topic, value)
-                }
-            }
-        }
-
-        if (published) {
-            devices = devices.map { device ->
-                if (device.id != deviceId) device else device.copy(
-                    widgets = device.widgets.map { w -> if (w.id == widgetId) w.copy(value = value) else w }
-                )
-            }
-        }
-        return published
+    val widgetCommandDispatcher = remember(mqtt) {
+        WidgetCommandDispatcher(
+            mqtt = mqtt,
+            getDevices = { devices },
+            setDevices = { devices = it },
+            log = ::addLog
+        )
     }
+
+    fun sendWidget(deviceId: String, widgetId: String, value: String): Boolean =
+        widgetCommandDispatcher.send(deviceId, widgetId, value)
 
     LaunchedEffect(voiceText) {
         val command = voiceText.trim()
