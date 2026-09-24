@@ -53,7 +53,7 @@ class MarfaVoiceService : Service() {
         runtime = AppRuntime.get(applicationContext)
         mqtt = runtime!!.mqtt
 
-        val runtimeListener = object : AppRuntime.UiListener {
+        runtimeListener = object : AppRuntime.UiListener {
             override fun onLog(message: String) {
                 android.util.Log.d("MARFA_MQTT", message)
             }
@@ -128,7 +128,7 @@ class MarfaVoiceService : Service() {
                 }
             }
         }
-        runtime!!.addUiListener(runtimeListener)
+        runtime!!.addUiListener(runtimeListener!!)
         runtime!!.ensureConnected()
 
 
@@ -278,7 +278,9 @@ class MarfaVoiceService : Service() {
     override fun onDestroy() {
         voiceManager?.stop()
         voiceManager = null
-        runtime?.removeUiListener(runtimeListener ?: return@onDestroy)
+        runtimeListener?.let { listener ->
+            runtime?.removeUiListener(listener)
+        }
         runtimeListener = null
         mqtt = null
         runtime = null
