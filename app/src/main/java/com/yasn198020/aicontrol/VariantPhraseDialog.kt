@@ -23,6 +23,7 @@ fun VariantPhraseDialog(
     onRequestMic: () -> Unit,
     onAdd: (String) -> Unit
 ) {
+    // A null target means the dialog is closed.
     phrase ?: return
     AlertDialog(
         onDismissRequest = onDismiss,
