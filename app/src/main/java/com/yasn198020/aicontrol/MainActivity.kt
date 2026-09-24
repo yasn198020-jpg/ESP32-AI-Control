@@ -420,7 +420,6 @@ private fun App(
         var handoffGeneration = 0L
 
         fun markForegroundOwner() {
-            handoffGeneration += 1L
             prefs.edit().putBoolean("mqtt_foreground_owner", true).apply()
         }
 
