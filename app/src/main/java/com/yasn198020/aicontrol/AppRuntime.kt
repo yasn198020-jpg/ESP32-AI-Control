@@ -35,7 +35,7 @@ class AppRuntime private constructor(private val appContext: Context) {
     private val uiListeners = CopyOnWriteArraySet<UiListener>()
 
     val historyStore: HistoryStore = HistoryStore(prefs)
-    private val scenarioStore: ScenarioStore = ScenarioStore(prefs)
+    val scenarioStore: ScenarioStore = ScenarioStore(prefs)
     val scenarioActionExecutor: ScenarioActionExecutor = ScenarioActionExecutor()
 
     val scenarioEngine: ScenarioEngine = ScenarioEngine(
