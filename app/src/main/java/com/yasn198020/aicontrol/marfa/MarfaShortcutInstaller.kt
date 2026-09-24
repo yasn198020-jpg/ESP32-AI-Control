@@ -1,7 +1,6 @@
 package com.yasn198020.aicontrol.marfa
 
 import com.yasn198020.aicontrol.*
-
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ShortcutInfo
@@ -11,16 +10,15 @@ import android.os.Build
 
 object MarfaShortcutInstaller {
     private const val SHORTCUT_ID = "marfa_voice"
-    private const val PREFS = "settings"
     private const val PREF_REQUESTED = "marfa_shortcut_requested"
 
     private fun buildShortcut(context: Context): ShortcutInfo {
-        val active = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getBoolean("marfa_voice_active", false)
+        val active = context.getSharedPreferences(APP_SETTINGS_PREFS, Context.MODE_PRIVATE)
+            .getBoolean(MARFA_ACTIVE_PREF, false)
 
         val intent = Intent(context, MainActivity::class.java).apply {
-            action = "com.yasn198020.aicontrol.action.MARFA_SHORTCUT"
-            putExtra("marfa_shortcut_toggle", true)
+            action = ACTION_MARFA_SHORTCUT
+            putExtra(EXTRA_MARFA_SHORTCUT_TOGGLE, true)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }
 
@@ -37,9 +35,9 @@ object MarfaShortcutInstaller {
 
     fun ensurePinned(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val prefs = context.getSharedPreferences(APP_SETTINGS_PREFS, Context.MODE_PRIVATE)
         if (prefs.getBoolean(PREF_REQUESTED, false)) {
-            setActive(context, prefs.getBoolean("marfa_voice_active", false))
+            setActive(context, prefs.getBoolean(MARFA_ACTIVE_PREF, false))
         }
     }
 
@@ -63,7 +61,7 @@ object MarfaShortcutInstaller {
             val accepted = manager.requestPinShortcut(pinRequest, null)
 
             if (accepted) {
-                context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                context.getSharedPreferences(APP_SETTINGS_PREFS, Context.MODE_PRIVATE)
                     .edit()
                     .putBoolean(PREF_REQUESTED, true)
                     .apply()
@@ -75,12 +73,9 @@ object MarfaShortcutInstaller {
     }
 
     fun setActive(context: Context, active: Boolean) {
-        // Persist the state here as well as updating the launcher shortcut.
-        // If Android kills the service before onDestroy(), the old implementation
-        // could leave marfa_voice_active=true forever and the shortcut would stay ON.
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        context.getSharedPreferences(APP_SETTINGS_PREFS, Context.MODE_PRIVATE)
             .edit()
-            .putBoolean("marfa_voice_active", active)
+            .putBoolean(MARFA_ACTIVE_PREF, active)
             .apply()
 
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
