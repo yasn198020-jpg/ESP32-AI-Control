@@ -320,12 +320,19 @@ class ScenarioEngine(
 
             val matched = expressionMatches(conditions) ?: return@forEach
             if (matched && scenario.armed) {
-                // Arm verification before executing the action so a very fast
-                // device response cannot arrive before the verification timer
-                // starts listening.
+                // Commit the disarmed state before executing the action.
+                // Some MQTT clients can deliver the device response synchronously
+                // from publishControl(). Updating the state first prevents that
+                // re-entrant status callback from triggering the scenario twice.
                 if (scenario.verifyEnabled) startVerification(scenario)
-                onTrigger(scenario, rawValue, value)
-                store.update(scenario.copy(armed = false))
+                val disarmed = scenario.copy(armed = false)
+                store.update(disarmed)
+                try {
+                    onTrigger(disarmed, rawValue, value)
+                } catch (_: Throwable) {
+                    // The scenario remains disarmed even if an action/notification
+                    // callback fails, preventing an immediate duplicate trigger.
+                }
             } else if (!matched && !scenario.armed) {
                 store.update(scenario.copy(armed = true))
             }
