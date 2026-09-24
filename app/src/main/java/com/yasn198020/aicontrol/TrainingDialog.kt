@@ -49,7 +49,9 @@ fun TrainingDialog(
             ) {
                 Text("Виджет: ${target.title}")
                 Text("Что должна делать фраза?")
-                Row(\n                    horizontalArrangement = Arrangement.spacedBy(8.dp)\n                ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     FilterChip(selected = !attachToExisting, onClick = { onAttachChange(false) }, label = { Text("Новая команда") })
                     FilterChip(selected = attachToExisting, onClick = { onAttachChange(true) }, label = { Text("К существующей") })
                 }
@@ -58,9 +60,16 @@ fun TrainingDialog(
                     val existingPhrases = remember(trainedCommands) { trainedCommands.map { it.phrase }.distinct() }
                     if (existingPhrases.isEmpty()) Text("Существующих команд пока нет.")
                     else {
-                        Column(\n                            verticalArrangement = Arrangement.spacedBy(4.dp)\n                        ) {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
                             existingPhrases.forEach { phrase ->
-                                FilterChip(\n                                    selected = selectedExistingPhrase == phrase,\n                                    onClick = { onSelectPhrase(phrase) },\n                                    label = { Text("«$phrase»") },\n                                    modifier = Modifier.fillMaxWidth()\n                                )
+                                FilterChip(
+                                    selected = selectedExistingPhrase == phrase,
+                                    onClick = { onSelectPhrase(phrase) },
+                                    label = { Text("«$phrase»") },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
                             }
                         }
                         Button(onClick = onSaveExisting, enabled = selectedExistingPhrase != null, modifier = Modifier.fillMaxWidth()) { Text("➕ Добавить действие к этой команде") }
@@ -70,15 +79,25 @@ fun TrainingDialog(
                     Text("Эта фраза будет читать текущее значение виджета вслух. Например: «Какая температура в помидорах?» → приложение скажет текущее значение этого датчика.")
                 } else {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(\n                            selected = trainingValue == "1",\n                            onClick = { onTrainingValueChange("1") },\n                            label = { Text("Открыть / включить") }\n                        )
-                        FilterChip(\n                            selected = trainingValue == "0",\n                            onClick = { onTrainingValueChange("0") },\n                            label = { Text("Закрыть / выключить") }\n                        )
+                        FilterChip(
+                            selected = trainingValue == "1",
+                            onClick = { onTrainingValueChange("1") },
+                            label = { Text("Открыть / включить") }
+                        )
+                        FilterChip(
+                            selected = trainingValue == "0",
+                            onClick = { onTrainingValueChange("0") },
+                            label = { Text("Закрыть / выключить") }
+                        )
                     }
                     Text("Одну и ту же фразу можно записать для нескольких виджетов. Например, для «Доброе утро» обучите свет и шторы отдельно — при произнесении сработают оба действия.")
                 }
                 if (!attachToExisting) {
                     Text("Нажмите микрофон и произнесите фразу.")
                     Button(onClick = onRequestMic, modifier = Modifier.fillMaxWidth()) { Text("🎤 Записать фразу") }
-                    if (trainingPhrase.isNotBlank()) {\n                        Text("Распознано: $trainingPhrase")\n                    }
+                    if (trainingPhrase.isNotBlank()) {
+                        Text("Распознано: $trainingPhrase")
+                    }
                 }
             }
         },
