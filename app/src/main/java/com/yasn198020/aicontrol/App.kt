@@ -413,65 +413,32 @@ fun App(
         }
     )
 
-    variantPhraseTarget?.let { phrase ->
-        AlertDialog(
-            onDismissRequest = {
+    VariantPhraseDialog(
+        phrase = variantPhraseTarget,
+        text = variantPhraseText,
+        onTextChange = { variantPhraseText = it },
+        onDismiss = {
+            variantPhraseTarget = null
+            variantPhraseText = ""
+        },
+        onRequestMic = {
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                voiceManager.startRussian()
+            } else {
+                requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
+            }
+        },
+        onAdd = { variant ->
+            val phrase = variantPhraseTarget ?: return@VariantPhraseDialog
+            if (variant.isNotBlank()) {
+                trainedStore.addVariant(phrase, variant)
+                trainedCommands = trainedStore.load()
                 variantPhraseTarget = null
                 variantPhraseText = ""
-            },
-            title = { Text("Добавить вариант фразы") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Команда: «$phrase»")
-                    Text("Произнесите или введите другой вариант этой команды.")
-                    OutlinedTextField(
-                        value = variantPhraseText,
-                        onValueChange = { variantPhraseText = it },
-                        label = { Text("Новый вариант") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                    Button(
-                        onClick = {
-                            if (androidx.core.content.ContextCompat.checkSelfPermission(
-                                    context,
-                                    Manifest.permission.RECORD_AUDIO
-                                ) == PackageManager.PERMISSION_GRANTED
-                            ) {
-                                voiceManager.startRussian()
-                            } else {
-                                requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("🎤 Произнести вариант")
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        val variant = variantPhraseText.trim()
-                        if (variant.isNotBlank()) {
-                            trainedStore.addVariant(phrase, variant)
-                            trainedCommands = trainedStore.load()
-                            variantPhraseTarget = null
-                            variantPhraseText = ""
-                            voiceStatus = "Вариант добавлен к команде: $phrase"
-                        }
-                    },
-                    enabled = variantPhraseText.trim().isNotBlank()
-                ) { Text("Добавить") }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    variantPhraseTarget = null
-                    variantPhraseText = ""
-                }) { Text("Отмена") }
+                voiceStatus = "Вариант добавлен к команде: $phrase"
             }
-        )
-    }
+        }
+    )
 
     TextSizeDialog(
         open = textSizeDialogOpen,
@@ -480,106 +447,29 @@ fun App(
         onDismiss = { textSizeDialogOpen = false }
     )
 
-    trainingTarget?.let { target ->
-        AlertDialog(
-            onDismissRequest = { trainingTarget = null },
-            title = { Text("Обучить голосовую команду") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Виджет: ${target.title}")
-                    Text("Что должна делать фраза?")
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(
-                            selected = !attachToExisting,
-                            onClick = { attachToExisting = false; selectedExistingPhrase = null },
-                            label = { Text("Новая команда") }
-                        )
-                        FilterChip(
-                            selected = attachToExisting,
-                            onClick = { attachToExisting = true },
-                            label = { Text("К существующей") }
-                        )
-                    }
-                    if (attachToExisting) {
-                        Text("Выберите существующую команду:")
-                        val existingPhrases = trainedCommands.map { it.phrase }.distinct()
-                        if (existingPhrases.isEmpty()) {
-                            Text("Существующих команд пока нет.")
-                        } else {
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                existingPhrases.forEach { phrase ->
-                                    FilterChip(
-                                        selected = selectedExistingPhrase == phrase,
-                                        onClick = { selectedExistingPhrase = phrase },
-                                        label = { Text("«$phrase»") },
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                }
-                            }
-                            Button(
-                                onClick = { saveTraining(selectedExistingPhrase.orEmpty()) },
-                                enabled = selectedExistingPhrase != null,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text("➕ Добавить действие к этой команде")
-                            }
-                        }
-                    }
-                    val isReadValueTraining = trainingValue == TRAINED_READ_VALUE
-                    if (isReadValueTraining) {
-                        Text(
-                            "Эта фраза будет читать текущее значение виджета вслух. " +
-                                "Например: «Какая температура в помидорах?» → приложение скажет текущее значение этого датчика."
-                        )
-                    } else {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilterChip(
-                                selected = trainingValue == "1",
-                                onClick = { trainingValue = "1" },
-                                label = { Text("Открыть / включить") }
-                            )
-                            FilterChip(
-                                selected = trainingValue == "0",
-                                onClick = { trainingValue = "0" },
-                                label = { Text("Закрыть / выключить") }
-                            )
-                        }
-                        Text(
-                            "Одну и ту же фразу можно записать для нескольких виджетов. " +
-                                "Например, для «Доброе утро» обучите свет и шторы отдельно — при произнесении сработают оба действия."
-                        )
-                    }
-                    if (!attachToExisting) {
-                        Text("Нажмите микрофон и произнесите фразу.")
-                    }
-                    if (!attachToExisting) {
-                    Button(
-                        onClick = {
-                            if (androidx.core.content.ContextCompat.checkSelfPermission(
-                                    context,
-                                    Manifest.permission.RECORD_AUDIO
-                                ) == PackageManager.PERMISSION_GRANTED
-                            ) {
-                                voiceManager.startRussian()
-                            } else {
-                                requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("🎤 Записать фразу")
-                    }
-                    }
-                    if (trainingPhrase.isNotBlank()) {
-                        Text("Распознано: $trainingPhrase")
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { trainingTarget = null }) { Text("Готово") }
+    TrainingDialog(
+        target = trainingTarget,
+        trainedCommands = trainedCommands,
+        trainingValue = trainingValue,
+        trainingPhrase = trainingPhrase,
+        attachToExisting = attachToExisting,
+        selectedExistingPhrase = selectedExistingPhrase,
+        onAttachChange = {
+            attachToExisting = it
+            if (!it) selectedExistingPhrase = null
+        },
+        onSelectPhrase = { selectedExistingPhrase = it },
+        onTrainingValueChange = { trainingValue = it },
+        onRequestMic = {
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                voiceManager.startRussian()
+            } else {
+                requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
             }
-        )
-    }
+        },
+        onSaveExisting = { saveTraining(selectedExistingPhrase.orEmpty()) },
+        onDismiss = { trainingTarget = null }
+    )
 
     Scaffold(containerColor = Color(0xFF202020),
         topBar = {
