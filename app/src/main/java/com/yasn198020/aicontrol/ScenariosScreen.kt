@@ -102,13 +102,21 @@ fun ScenariosScreen(
         }
     }
     if (adding) {
-        ScenarioEditorDialog(devices, null, onDismiss = { adding = false }, onSave = {
-            store.add(it); refresh(); adding = false
+        ScenarioEditorDialog(devices, null, onDismiss = { adding = false }, onSave = { scenario ->
+            if (scenario.notificationEnabled) {
+                onRequestNotifications { store.add(scenario); refresh(); adding = false }
+            } else {
+                store.add(scenario); refresh(); adding = false
+            }
         })
     }
     editing?.let { scenario ->
-        ScenarioEditorDialog(devices, scenario, onDismiss = { editing = null }, onSave = {
-            store.update(it); refresh(); editing = null
+        ScenarioEditorDialog(devices, scenario, onDismiss = { editing = null }, onSave = { updated ->
+            if (updated.notificationEnabled) {
+                onRequestNotifications { store.update(updated); refresh(); editing = null }
+            } else {
+                store.update(updated); refresh(); editing = null
+            }
         })
     }
 }
