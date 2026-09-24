@@ -5,6 +5,7 @@ import com.yasn198020.aicontrol.mqtt.MqttSettingsStore
 import com.yasn198020.aicontrol.voice.*
 import com.yasn198020.aicontrol.commands.LocalCommandAction
 import com.yasn198020.aicontrol.commands.LocalCommandManager
+import com.yasn198020.aicontrol.commands.formatTemperatureForSpeech
 import com.yasn198020.aicontrol.scenarios.*
 import com.yasn198020.aicontrol.history.HistoryStore
 import com.yasn198020.aicontrol.updates.UpdateManager
