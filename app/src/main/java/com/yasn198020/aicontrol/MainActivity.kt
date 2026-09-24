@@ -955,6 +955,7 @@ private fun App(
                 Modifier.padding(padding),
                 devices,
                 scenarioStore,
+                scenarioEngine,
                 onRequestNotifications = { action ->
                     if (Build.VERSION.SDK_INT >= 33 &&
                         ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
