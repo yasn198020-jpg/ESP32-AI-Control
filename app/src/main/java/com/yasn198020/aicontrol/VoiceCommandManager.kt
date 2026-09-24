@@ -116,8 +116,6 @@ class VoiceCommandManager(
     }
 
     private fun startListening() {
-        if (listening) return
-
         if (!available()) {
             onStatus(
                 if (!hasMicrophonePermission()) {
@@ -131,6 +129,7 @@ class VoiceCommandManager(
 
         listening = true
         finishing = false
+        if (restarting) return
 
         handler.removeCallbacksAndMessages(null)
         lastPartialText = ""
