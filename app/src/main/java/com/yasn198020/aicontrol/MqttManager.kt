@@ -16,7 +16,7 @@ class MqttManager(
     private var client: MqttAsyncClient? = null
     @Volatile private var connecting = false
     private var prefix = ""
-    private data class PendingPublish(val topic: String, val payload: String)
+    private data class PendingPublish(val topic: String, val payload: String, val eventId: Long?)
     private val pendingPublishes = ArrayDeque<PendingPublish>()
     private val publishLock = Any()
     private val maxPendingPublishes = 100
@@ -283,7 +283,7 @@ class MqttManager(
         if (c == null || !c.isConnected) {
             synchronized(publishLock) {
                 if (pendingPublishes.size >= maxPendingPublishes) pendingPublishes.removeFirst()
-                pendingPublishes.addLast(PendingPublish(topic, payload))
+                pendingPublishes.addLast(PendingPublish(topic, payload, eventId))
             }
             DiagnosticTrace.stepForEvent(eventId, "ACTION", "MQTT queued topic=" + topic + " payload=" + payload)
             emitLog("MQTT publish queued: not connected topic=" + topic)
@@ -324,6 +324,7 @@ class MqttManager(
                     isRetained = false
                 }
                 c.publish(pending.topic, message)
+                DiagnosticTrace.stepForEvent(pending.eventId, "MQTT", "TX queued result=true topic=" + pending.topic + " payload=" + pending.payload)
                 emitLog("MQTT TX queued topic=" + pending.topic + " payload=" + pending.payload)
             } catch (e: Exception) {
                 synchronized(publishLock) {
