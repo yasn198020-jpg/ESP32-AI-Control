@@ -134,6 +134,8 @@ class MqttBackgroundService : Service() {
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
+        scenarioEngine.shutdown()
+        scenarioActionExecutor.mqtt = null
         mqtt?.disconnect()
         mqtt = null
         super.onDestroy()
