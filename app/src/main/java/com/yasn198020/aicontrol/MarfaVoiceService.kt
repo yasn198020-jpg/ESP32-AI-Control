@@ -25,6 +25,8 @@ class MarfaVoiceService : Service() {
 
     private var voiceManager: VoiceCommandManager? = null
     private var mqtt: MqttManager? = null
+    private var runtime: AppRuntime? = null
+    private var runtimeListener: AppRuntime.UiListener? = null
     private var tts: TextToSpeech? = null
     private val devices = mutableListOf<Device>()
     private val pendingValues = mutableMapOf<String, String>()
@@ -48,17 +50,19 @@ class MarfaVoiceService : Service() {
             }
         }
 
-        mqtt = MqttManager(
-            onLog = { status -> android.util.Log.d("MARFA_MQTT", status) },
-            onConnected = { connected ->
+        runtime = AppRuntime.get(applicationContext)
+        mqtt = runtime!!.mqtt
+
+        val runtimeListener = object : AppRuntime.UiListener {
+            override fun onLog(message: String) {
+                android.util.Log.d("MARFA_MQTT", message)
+            }
+
+            override fun onConnected(connected: Boolean) {
                 android.util.Log.d("MARFA_MQTT", "connected=$connected")
-                if (connected) {
-                    mqtt?.publishHello()
-                    // MQTT connection must NOT start the microphone.
-                    // Listening is started only by an explicit microphone button.
-                }
-            },
-            onStatus = { deviceId, widgetId, value ->
+            }
+
+            override fun onStatus(deviceId: String, widgetId: String, value: String) {
                 synchronized(devices) {
                     val key = "$deviceId/$widgetId"
                     val deviceIndex = devices.indexOfFirst { it.id == deviceId }
@@ -78,8 +82,18 @@ class MarfaVoiceService : Service() {
                         }
                     }
                 }
-            },
-            onConfig = { deviceId, widgetId, label, widgetType, page, topic, order, raw ->
+            }
+
+            override fun onConfig(
+                deviceId: String,
+                widgetId: String,
+                label: String,
+                widgetType: String,
+                page: String,
+                topic: String,
+                order: Int,
+                raw: String
+            ) {
                 val type = when (widgetType.lowercase()) {
                     "toggle" -> WidgetState.Type.TOGGLE
                     "button", "vbtn", "btn" -> WidgetState.Type.BUTTON
@@ -113,7 +127,10 @@ class MarfaVoiceService : Service() {
                     if (pendingValue != null) pendingValues.remove(key)
                 }
             }
-        )
+        }
+        runtime!!.addUiListener(runtimeListener)
+        runtime!!.ensureConnected()
+
 
         voiceManager = VoiceCommandManager(
             context = this,
@@ -121,18 +138,6 @@ class MarfaVoiceService : Service() {
             onStatus = { status -> android.util.Log.d("MARFA_VOICE", status) }
         )
 
-        val host = prefs.getString("mqtt_host", "m4.wqtt.ru") ?: "m4.wqtt.ru"
-        val port = prefs.getString("mqtt_port", "1883")?.toIntOrNull() ?: 1883
-        val prefix = prefs.getString("mqtt_prefix", "IoTManager") ?: "IoTManager"
-        val username = prefs.getString("mqtt_user", "") ?: ""
-        val password = prefs.getString("mqtt_pass", "") ?: ""
-        val tls = prefs.getBoolean("mqtt_tls", false)
-
-        try {
-            mqtt?.connect(host, port, prefix, username, password, tls)
-        } catch (e: Exception) {
-            android.util.Log.e("MARFA_MQTT", "connect failed", e)
-        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -273,8 +278,10 @@ class MarfaVoiceService : Service() {
     override fun onDestroy() {
         voiceManager?.stop()
         voiceManager = null
-        mqtt?.disconnect()
+        runtime?.removeUiListener(runtimeListener ?: return@onDestroy)
+        runtimeListener = null
         mqtt = null
+        runtime = null
         tts?.stop()
         tts?.shutdown()
         tts = null
