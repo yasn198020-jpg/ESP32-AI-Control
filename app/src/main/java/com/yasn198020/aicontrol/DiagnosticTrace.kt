@@ -7,6 +7,7 @@ import java.util.ArrayDeque
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Background-safe diagnostic trace.
@@ -24,6 +25,7 @@ object DiagnosticTrace {
     private val lines = ArrayDeque<String>()
     private val eventCounter = AtomicLong(System.currentTimeMillis())
     private val currentEvent = ThreadLocal<Long?>()
+    private val foreground = AtomicBoolean(false)
 
     @Volatile
     private var initialized = false
@@ -48,6 +50,14 @@ object DiagnosticTrace {
         stepForEvent(id, "MQTT", "RX topic=$topic payload=$payload")
         return id
     }
+
+    /** True while the Activity is in the foreground. */
+    fun setForeground(active: Boolean) {
+        foreground.set(active)
+        system("APP_STATE=" + if (active) "FOREGROUND" else "BACKGROUND")
+    }
+
+    fun isForeground(): Boolean = foreground.get()
 
     fun currentEventId(): Long? = currentEvent.get()
 
@@ -96,7 +106,9 @@ object DiagnosticTrace {
             if (!initialized) return
             val timestamp = formatter.format(Date())
             val idPart = eventId?.let { "#$it " } ?: ""
-            val line = "$timestamp [$idPart$safeStage] ${message.replace('\n', ' ')}"
+            val mode = if (foreground.get()) "FG" else "BG"
+            val thread = Thread.currentThread().name.replace(' ', '_')
+            val line = "$timestamp [$mode $idPart$safeStage] [thread=$thread] ${message.replace('\n', ' ')}"
             lines.addLast(line)
             while (lines.size > MAX_LINES) {
                 lines.removeFirst()
