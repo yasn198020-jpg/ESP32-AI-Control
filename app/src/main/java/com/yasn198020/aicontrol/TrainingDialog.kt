@@ -71,7 +71,7 @@ fun TrainingDialog(
                 } else {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip(\n                            selected = trainingValue == "1",\n                            onClick = { onTrainingValueChange("1") },\n                            label = { Text("Открыть / включить") }\n                        )
-                        FilterChip(selected = trainingValue == "0", onClick = { onTrainingValueChange("0") }, label = { Text("Закрыть / выключить") })
+                        FilterChip(\n                            selected = trainingValue == "0",\n                            onClick = { onTrainingValueChange("0") },\n                            label = { Text("Закрыть / выключить") }\n                        )
                     }
                     Text("Одну и ту же фразу можно записать для нескольких виджетов. Например, для «Доброе утро» обучите свет и шторы отдельно — при произнесении сработают оба действия.")
                 }
