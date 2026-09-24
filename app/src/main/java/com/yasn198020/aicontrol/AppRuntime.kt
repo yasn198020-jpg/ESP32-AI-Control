@@ -3,6 +3,7 @@ package com.yasn198020.aicontrol
 import android.content.Context
 import android.content.SharedPreferences
 import java.util.concurrent.CopyOnWriteArraySet
+import java.util.concurrent.Executors
 
 /**
  * Single process-wide owner of MQTT, telemetry history and scenario execution.
@@ -33,6 +34,11 @@ class AppRuntime private constructor(private val appContext: Context) {
         appContext.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
     private val uiListeners = CopyOnWriteArraySet<UiListener>()
+    // MQTT status processing must not depend on the Activity/main UI loop.
+    // This worker keeps telemetry, scenarios and notifications alive in background.
+    private val backgroundExecutor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "AppRuntime-MQTT").apply { isDaemon = true }
+    }
 
     val historyStore: HistoryStore = HistoryStore(prefs)
     val scenarioStore: ScenarioStore = ScenarioStore(prefs)
@@ -67,10 +73,17 @@ class AppRuntime private constructor(private val appContext: Context) {
             uiListeners.forEach { it.onConnected(connected) }
         },
         onStatus = { deviceId, widgetId, value ->
-            // These operations are independent of the Activity lifecycle.
-            // They continue while the UI is completely stopped.
-            historyStore.add(deviceId, widgetId, value)
-            scenarioEngine.onValue(deviceId, widgetId, value)
+            // Scenario execution must not depend on the Activity/main UI thread.
+            backgroundExecutor.execute {
+                try {
+                    historyStore.add(deviceId, widgetId, value)
+                    scenarioEngine.onValue(deviceId, widgetId, value)
+                } catch (e: Exception) {
+                    android.util.Log.e("MQTT_RUNTIME", "Background status processing failed", e)
+                }
+            }
+
+            // UI updates remain on the MQTT manager's main-thread callback.
             uiListeners.forEach { it.onStatus(deviceId, widgetId, value) }
         },
         onConfig = { deviceId, widgetId, label, widgetType, page, topic, order, raw ->
