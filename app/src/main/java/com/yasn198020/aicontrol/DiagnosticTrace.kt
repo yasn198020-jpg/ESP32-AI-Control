@@ -31,7 +31,7 @@ object DiagnosticTrace {
 
     private val importantStages = setOf(
         "MQTT", "CONDITION", "EDGE", "TRIGGER", "ACTION",
-        "VERIFY", "NOTIFY", "ERROR", "APP_STATE"
+        "VERIFY", "NOTIFY", "VBTN90", "ERROR", "APP_STATE"
     )
 
     fun init(context: Context) {
@@ -106,7 +106,7 @@ object DiagnosticTrace {
             val timestamp = formatter.format(Date())
             val idPart = eventId?.let { " #$it" } ?: ""
             val line = "$timestamp [$safeStage$idPart] ${compact(message)}"
-            if (!foreground.get() && safeStage in setOf("CONDITION", "EDGE", "TRIGGER", "ACTION", "VERIFY", "NOTIFY", "ERROR")) {
+            if (!foreground.get() && safeStage in setOf("CONDITION", "EDGE", "TRIGGER", "ACTION", "VERIFY", "NOTIFY", "VBTN90", "ERROR")) {
                 BackgroundTrace.event(safeStage, message, eventId)
             }
             lines.addLast(line)
