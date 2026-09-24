@@ -56,8 +56,6 @@ import com.yasn198020.aicontrol.core.Device
 import com.yasn198020.aicontrol.core.WidgetState
 import com.yasn198020.aicontrol.devices.DeviceManager
 
-data class TrainingTarget(val deviceId: String, val widgetId: String, val title: String)
-
 class MainActivity : ComponentActivity() {
 
     companion object {
