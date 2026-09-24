@@ -116,6 +116,7 @@ class MainActivity : ComponentActivity() {
                 ContextCompat.startForegroundService(
                     this,
                     Intent(this, MarfaVoiceService::class.java)
+                        .putExtra("start_listening", true)
                 )
             } catch (_: Exception) {
             }
