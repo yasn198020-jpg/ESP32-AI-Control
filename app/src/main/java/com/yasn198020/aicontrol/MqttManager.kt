@@ -54,8 +54,6 @@ class MqttManager(
                     connecting = false
                     emitLog("MQTT connected: " + serverURI)
                     emitConnected(true)
-                    // Flush scenario/control messages that were queued while the
-                    // background service was reconnecting or the broker was offline.
                     flushPendingPublishes()
                     subscribeDevice()
                 }
@@ -123,6 +121,10 @@ class MqttManager(
                                     " widget=" + parts[parts.size - 2] +
                                     " value=" + value
                             )
+                            // IMPORTANT: status is delivered directly from the MQTT
+                            // callback thread. AppRuntime immediately sends scenario
+                            // processing to its background executor, so Activity/main
+                            // thread is no longer in the MQTT -> scenario path.
                             emitStatus(parts[0], parts[parts.size - 2], value)
                         }
                     } else if (topic.startsWith(root) && topic.endsWith("/event")) {
@@ -133,6 +135,7 @@ class MqttManager(
                                 val widgetId = json.optString("id", parts[parts.size - 2])
                                 val value = json.optString("val", payload)
                                 emitLog("MQTT EVENT parsed: device=" + parts[0] + " widget=" + widgetId + " value=" + value)
+                                // Same background-safe path as STATUS.
                                 emitStatus(parts[0], widgetId, value)
                             } catch (_: Exception) {
                                 emitLog("MQTT event parse failed: " + topic)
@@ -183,9 +186,7 @@ class MqttManager(
     }
 
     private fun mqttExceptionText(prefixText: String, error: Throwable?): String {
-        if (error == null) {
-            return prefixText + ": unknown error"
-        }
+        if (error == null) return prefixText + ": unknown error"
 
         return buildString {
             append(prefixText)
@@ -203,7 +204,6 @@ class MqttManager(
 
             var cause = error.cause
             var level = 1
-
             while (cause != null && level <= 5) {
                 append(" | cause")
                 append(level)
@@ -211,7 +211,6 @@ class MqttManager(
                 append(cause.javaClass.simpleName)
                 append(":")
                 append(cause.message ?: "<empty>")
-
                 cause = cause.cause
                 level++
             }
@@ -231,7 +230,6 @@ class MqttManager(
                 object : IMqttActionListener {
                     override fun onSuccess(asyncActionToken: IMqttToken?) {
                         emitLog("MQTT subscribed: " + topics.joinToString(", "))
-                        // HELLO is sent automatically after the subscription is ready.
                         publishHello()
                     }
 
@@ -259,9 +257,6 @@ class MqttManager(
 
     fun publishControl(deviceId: String, widgetId: String, value: String): Boolean {
         if (prefix.isBlank() || deviceId.isBlank() || widgetId.isBlank()) return false
-        // Device/scenario traffic uses the actual ESP32 protocol root.
-        // The UI MQTT prefix is kept for subscription compatibility,
-        // but must not redirect control commands to /IoTManager.
         return publish(
             "/dghjko/" + deviceId + "/" + widgetId + "/control",
             org.json.JSONObject().put("status", value).toString()
@@ -281,13 +276,10 @@ class MqttManager(
         }
 
         return try {
-            val message = MqttMessage(
-                payload.toByteArray(Charsets.UTF_8)
-            ).apply {
+            val message = MqttMessage(payload.toByteArray(Charsets.UTF_8)).apply {
                 qos = 0
                 isRetained = false
             }
-
             c.publish(topic, message)
             emitLog("MQTT TX topic=" + topic + " payload=" + payload)
             true
@@ -329,11 +321,8 @@ class MqttManager(
 
     fun disconnect() {
         val c = client ?: return
-
         try {
-            if (c.isConnected) {
-                c.disconnect()
-            }
+            if (c.isConnected) c.disconnect()
         } catch (e: Exception) {
             emitLog(mqttExceptionText("MQTT disconnect error", e))
         } finally {
@@ -354,8 +343,10 @@ class MqttManager(
         main.post { onConnected(value) }
     }
 
+    // STATUS/EVENT must never wait for the Activity or main UI looper.
+    // AppRuntime owns the background processing path.
     private fun emitStatus(deviceId: String, widgetId: String, value: String) {
-        main.post { onStatus(deviceId, widgetId, value) }
+        onStatus(deviceId, widgetId, value)
     }
 
     private fun emitConfig(deviceId: String, widgetId: String, label: String, widgetType: String, page: String, topic: String, order: Int, raw: String) {
