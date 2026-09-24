@@ -62,7 +62,7 @@ fun App(
     onFontScaleChange: (Float) -> Unit
 ) {
     val context = LocalContext.current
-    val prefs = remember { context.getSharedPreferences("settings", Context.MODE_PRIVATE) }
+    val prefs = remember { context.getSharedPreferences(APP_SETTINGS_PREFS, Context.MODE_PRIVATE) }
     val mqttSettings = remember { MqttSettingsStore(prefs) }
     var mqttHost by remember { mutableStateOf(mqttSettings.host) }
     var mqttPort by remember { mutableStateOf(mqttSettings.port) }
@@ -185,7 +185,7 @@ fun App(
         selectedExistingPhrase = null
     }
 
-    fun addLog(message: String) { log = (log + message).takeLast(100) }
+    fun addLog(message: String) { log = (log + message).takeLast(MAX_DIAGNOSTIC_LOG_ENTRIES) }
 
     // Training widget helpers live in AppTrainingHelpers.kt.
     val requestMicPermission = rememberLauncherForActivityResult(
@@ -279,7 +279,7 @@ fun App(
 
     DisposableEffect(mqtt, voiceManager, speech) {
         onDispose {
-            if (!context.getSharedPreferences("settings", Context.MODE_PRIVATE).getBoolean("marfa_voice_active", false)) {
+            if (!context.getSharedPreferences(APP_SETTINGS_PREFS, Context.MODE_PRIVATE).getBoolean(MARFA_ACTIVE_PREF, false)) {
                 mqtt.disconnect()
             }
             voiceManager.stop()
@@ -296,7 +296,7 @@ fun App(
     fun connect() {
         manualMqttDisconnect = false
         saveSettings()
-        mqtt.connect(mqttHost, mqttPort.toIntOrNull() ?: 1883, mqttPrefix, username, password, mqttTls)
+        mqtt.connect(mqttHost, mqttPort.toIntOrNull() ?: DEFAULT_MQTT_PORT, mqttPrefix, username, password, mqttTls)
     }
 
     AppLifecycleEffects(
