@@ -54,21 +54,20 @@ import java.util.Locale
         Canvas(
             Modifier
                 .fillMaxWidth()
-                .height(220.dp)
+                .height(190.dp)
                 .padding(vertical=8.dp)
         ){
             val w=size.width
             val h=size.height
-            val graphHeight=h-28.dp.toPx()
 
             points.forEachIndexed{index,p->
                 val x=index.toFloat()/(points.size-1)*w
-                val y=graphHeight-((p.value-min)/span*graphHeight).toFloat()
+                val y=h-((p.value-min)/span*h).toFloat()
 
                 if(index>0){
                     val prev=points[index-1]
                     val x1=(index-1).toFloat()/(points.size-1)*w
-                    val y1=graphHeight-((prev.value-min)/span*graphHeight).toFloat()
+                    val y1=h-((prev.value-min)/span*h).toFloat()
                     drawLine(
                         color=androidx.compose.ui.graphics.Color.Gray,
                         start=Offset(x1,y1),
@@ -83,28 +82,22 @@ import java.util.Locale
                     center=Offset(x,y)
                 )
             }
+        }
 
-            // Показываем время изменения под графиком.
-            // Чтобы подписи не накладывались друг на друга, выводим до 6 меток.
-            val labelCount=minOf(6,points.size)
-            val paint=android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply{
-                textSize=10.dp.toPx()
-                color=android.graphics.Color.DKGRAY
-                textAlign=android.graphics.Paint.Align.CENTER
-            }
-
-            if(labelCount>1){
-                for(labelIndex in 0 until labelCount){
-                    val pointIndex=labelIndex*(points.size-1)/(labelCount-1)
-                    val x=pointIndex.toFloat()/(points.size-1)*w
-                    val time=timeFormat.format(Date(points[pointIndex].timestamp))
-                    drawContext.canvas.drawText(
-                        time,
-                        x,
-                        h-2.dp.toPx(),
-                        paint
-                    )
-                }
+        // Время изменения измерений показываем отдельным Compose-рядом,
+        // без Android Canvas API, чтобы график стабильно собирался.
+        val labelCount=minOf(6,points.size)
+        Row(Modifier.fillMaxWidth()){
+            for(labelIndex in 0 until labelCount){
+                val pointIndex=if(labelCount==1) 0 else labelIndex*(points.size-1)/(labelCount-1)
+                Text(
+                    text=timeFormat.format(Date(points[pointIndex].timestamp)),
+                    modifier=Modifier.weight(1f),
+                    fontSize=10.sp,
+                    maxLines=1,
+                    softWrap=false,
+                    textAlign=androidx.compose.ui.text.style.TextAlign.Center
+                )
             }
         }
     }
