@@ -189,6 +189,7 @@ fun App(
 
     fun addLog(message: String) { log = (log + message).takeLast(100) }
 
+    // Training widget helpers live in AppTrainingHelpers.kt.
     val requestMicPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
