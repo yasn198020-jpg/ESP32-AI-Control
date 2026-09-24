@@ -10,16 +10,14 @@ import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Background-safe diagnostic trace.
- *
- * It does not depend on Activity, Compose, Handler or UI state.
- * The last 1000 lines are kept in memory and persisted to disk so a trace
- * survives closing/reopening the app or losing the Activity.
+ * Compact diagnostic trace used for troubleshooting MQTT -> scenario -> action flow.
+ * Only important stages are kept so the trace is easy to copy into chat.
  */
 object DiagnosticTrace {
     private const val FILE_NAME = "diagnostic_trace.log"
-    private const val MAX_LINES = 1000
-    private const val MAX_FILE_BYTES = 1024 * 1024L
+    private const val MAX_LINES = 250
+    private const val MAX_FILE_BYTES = 256 * 1024L
+    private const val MAX_MESSAGE_LENGTH = 220
 
     private val lock = Any()
     private val lines = ArrayDeque<String>()
@@ -27,11 +25,14 @@ object DiagnosticTrace {
     private val currentEvent = ThreadLocal<Long?>()
     private val foreground = AtomicBoolean(false)
 
-    @Volatile
-    private var initialized = false
-
+    @Volatile private var initialized = false
     private lateinit var file: File
-    private val formatter = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
+    private val formatter = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
+
+    private val importantStages = setOf(
+        "MQTT", "CONDITION", "EDGE", "TRIGGER", "ACTION",
+        "VERIFY", "NOTIFY", "ERROR"
+    )
 
     fun init(context: Context) {
         if (initialized) return
@@ -47,23 +48,17 @@ object DiagnosticTrace {
         ensureInitialized()
         val id = eventCounter.incrementAndGet()
         currentEvent.set(id)
-        stepForEvent(id, "MQTT", "RX topic=$topic payload=$payload")
+        stepForEvent(id, "MQTT", "RX $topic payload=${compact(payload)}")
         return id
     }
 
-    /** True while the Activity is in the foreground. */
     fun setForeground(active: Boolean) {
         foreground.set(active)
-        system("APP_STATE=" + if (active) "FOREGROUND" else "BACKGROUND")
     }
 
     fun isForeground(): Boolean = foreground.get()
-
     fun currentEventId(): Long? = currentEvent.get()
-
-    fun clearCurrentEvent() {
-        currentEvent.remove()
-    }
+    fun clearCurrentEvent() = currentEvent.remove()
 
     fun step(stage: String, message: String) {
         ensureInitialized()
@@ -76,8 +71,7 @@ object DiagnosticTrace {
     }
 
     fun system(message: String) {
-        ensureInitialized()
-        append(null, "SYSTEM", message)
+        // Intentionally ignored: connection/lifecycle noise is not useful in the compact trace.
     }
 
     fun error(message: String) {
@@ -87,9 +81,7 @@ object DiagnosticTrace {
 
     fun read(): List<String> {
         ensureInitialized()
-        synchronized(lock) {
-            return lines.toList()
-        }
+        synchronized(lock) { return lines.toList() }
     }
 
     fun clear() {
@@ -102,40 +94,40 @@ object DiagnosticTrace {
 
     private fun append(eventId: Long?, stage: String, message: String) {
         val safeStage = stage.trim().uppercase(Locale.ROOT).ifBlank { "TRACE" }
+        if (safeStage !in importantStages) return
+
         synchronized(lock) {
             if (!initialized) return
             val timestamp = formatter.format(Date())
-            val idPart = eventId?.let { "#$it " } ?: ""
-            val mode = if (foreground.get()) "FG" else "BG"
-            val thread = Thread.currentThread().name.replace(' ', '_')
-            val line = "$timestamp [$mode $idPart$safeStage] [thread=$thread] ${message.replace('\n', ' ')}"
+            val idPart = eventId?.let { " #$it" } ?: ""
+            val line = "$timestamp [$safeStage$idPart] ${compact(message)}"
             lines.addLast(line)
-            while (lines.size > MAX_LINES) {
-                lines.removeFirst()
-            }
+            while (lines.size > MAX_LINES) lines.removeFirst()
+
             runCatching {
                 file.appendText(line + "\n", Charsets.UTF_8)
                 if (file.length() > MAX_FILE_BYTES) {
-                    val kept = lines.joinToString("\n", postfix = "\n")
-                    file.writeText(kept, Charsets.UTF_8)
+                    file.writeText(lines.joinToString("\n", postfix = "\n"), Charsets.UTF_8)
                 }
             }
         }
+    }
+
+    private fun compact(value: String): String {
+        val oneLine = value.replace("\n", " ").replace("\r", " ").trim()
+        return if (oneLine.length <= MAX_MESSAGE_LENGTH) oneLine
+        else oneLine.take(MAX_MESSAGE_LENGTH) + "…"
     }
 
     private fun loadFromDiskLocked() {
         lines.clear()
         if (!file.exists()) return
         runCatching {
-            file.readLines(Charsets.UTF_8)
-                .takeLast(MAX_LINES)
-                .forEach { lines.addLast(it) }
+            file.readLines(Charsets.UTF_8).takeLast(MAX_LINES).forEach { lines.addLast(it) }
         }
     }
 
     private fun ensureInitialized() {
-        if (!initialized) {
-            throw IllegalStateException("DiagnosticTrace.init(context) must be called first")
-        }
+        if (!initialized) throw IllegalStateException("DiagnosticTrace.init(context) must be called first")
     }
 }
