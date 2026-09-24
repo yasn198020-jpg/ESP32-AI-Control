@@ -31,15 +31,15 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        if (intent?.action == "com.yasn198020.aicontrol.action.MARFA_SHORTCUT"
-            && intent?.getBooleanExtra("marfa_shortcut_toggle", false) == true) {
+        if (intent?.action == ACTION_MARFA_SHORTCUT
+            && intent?.getBooleanExtra(EXTRA_MARFA_SHORTCUT_TOGGLE, false) == true) {
             toggleMarfaFromShortcut()
             finish()
             return
         }
 
         MarfaShortcutInstaller.ensurePinned(this)
-        val prefs = getSharedPreferences("settings", Context.MODE_PRIVATE)
+        val prefs = getSharedPreferences(APP_SETTINGS_PREFS, Context.MODE_PRIVATE)
         val uiPreferences = UiPreferences(prefs)
         setContent {
             val baseDensity = LocalDensity.current
@@ -67,8 +67,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        if (intent.action == "com.yasn198020.aicontrol.action.MARFA_SHORTCUT"
-            && intent.getBooleanExtra("marfa_shortcut_toggle", false)) {
+        if (intent.action == ACTION_MARFA_SHORTCUT
+            && intent.getBooleanExtra(EXTRA_MARFA_SHORTCUT_TOGGLE, false)) {
             toggleMarfaFromShortcut()
             return
         }
@@ -79,8 +79,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun toggleMarfaFromShortcut() {
-        val prefs = getSharedPreferences("settings", Context.MODE_PRIVATE)
-        val active = prefs.getBoolean("marfa_voice_active", false)
+        val prefs = getSharedPreferences(APP_SETTINGS_PREFS, Context.MODE_PRIVATE)
+        val active = prefs.getBoolean(MARFA_ACTIVE_PREF, false)
 
         if (active) {
             stopService(Intent(this, MarfaVoiceService::class.java))
@@ -90,7 +90,7 @@ class MainActivity : ComponentActivity() {
                 ContextCompat.startForegroundService(
                     this,
                     Intent(this, MarfaVoiceService::class.java)
-                        .putExtra("start_listening", true)
+                        .putExtra(EXTRA_START_LISTENING, true)
                 )
             } catch (_: Exception) {
             }
