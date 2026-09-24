@@ -49,6 +49,7 @@ class MqttBackgroundService : Service() {
             if (!running) return
             try {
                 val runtime = AppRuntime.get(applicationContext)
+                DiagnosticTrace.system("SERVICE watchdog connected=" + runtime.mqtt.isConnected() + " connecting=" + runtime.mqtt.isConnecting())
                 runtime.ensureConnected()
             } catch (e: Exception) {
                 android.util.Log.e("MQTT_BACKGROUND", "ensureConnected failed", e)
@@ -71,12 +72,14 @@ class MqttBackgroundService : Service() {
         runtime.ensureConnected()
         handler.post(checkRunnable)
 
+        DiagnosticTrace.system("SERVICE created: foreground MQTT service started")
         android.util.Log.d("MQTT_BACKGROUND", "background MQTT runtime started")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // START_STICKY lets Android recreate this service after a process kill.
         val runtime = AppRuntime.get(applicationContext)
+        DiagnosticTrace.system("SERVICE onStartCommand")
         runtime.scenarioEngine.setRuntimeActive(true)
         runtime.ensureConnected()
         return START_STICKY
@@ -91,11 +94,13 @@ class MqttBackgroundService : Service() {
 
         // IMPORTANT: do not disconnect MQTT here.
         // The runtime owns the MQTT client; Android may recreate this service.
+        DiagnosticTrace.system("SERVICE destroyed: MQTT runtime kept alive")
         android.util.Log.d("MQTT_BACKGROUND", "service destroyed, MQTT runtime kept alive")
         super.onDestroy()
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
+        DiagnosticTrace.system("SERVICE task removed: scheduling restart")
         scheduleServiceRestart()
         // Keep the service independent from the Activity task.
         val runtime = AppRuntime.get(applicationContext)
