@@ -267,9 +267,12 @@ class ScenarioEngine(
 
             val matched = expressionMatches(conditions) ?: return@forEach
             if (matched && scenario.armed) {
+                // Arm verification before executing the action so a very fast
+                // device response cannot arrive before the verification timer
+                // starts listening.
+                if (scenario.verifyEnabled) startVerification(scenario)
                 onTrigger(scenario, rawValue, value)
                 store.update(scenario.copy(armed = false))
-                startVerification(scenario)
             } else if (!matched && !scenario.armed) {
                 store.update(scenario.copy(armed = true))
             }
