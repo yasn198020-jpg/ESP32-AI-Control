@@ -305,36 +305,13 @@ private fun App(
         )
     }
 
-    val historyStore = remember { HistoryStore(prefs) }
-    val scenarioStore = remember { ScenarioStore(prefs) }
-    val scenarioActionExecutor = remember { ScenarioActionExecutor() }
-    val scenarioEngine = remember {
-        ScenarioEngine(
-            scenarioStore,
-            onTrigger = { scenario, rawValue, _ ->
-                if (scenario.notificationEnabled) {
-                    ScenarioNotifier.notify(context, scenario, rawValue)
-                }
-                scenarioActionExecutor.execute(scenario)
-            },
-            onVerificationResult = { scenario, success, rawValue ->
-                if (scenario.notificationEnabled) {
-                    ScenarioNotifier.notifyVerification(context, scenario, success, rawValue)
-                }
-            }
-        )
-    }
-
-    // Restore persisted telemetry into the foreground scenario engine too.
-    // This keeps scenario conditions consistent across foreground/background handoff.
-    LaunchedEffect(historyStore, scenarioEngine) {
-        historyStore.latestValues().forEach { (key, value) ->
-            val parts = key.split("/", limit = 2)
-            if (parts.size == 2) {
-                scenarioEngine.restoreValue(parts[0], parts[1], value)
-            }
-        }
-    }
+    // One process-wide runtime owns MQTT, history and scenario execution.
+    // The Activity only attaches UI listeners; it never creates a second MQTT client.
+    val runtime = remember { AppRuntime.get(context.applicationContext) }
+    val mqtt = runtime.mqtt
+    val historyStore = runtime.historyStore
+    val scenarioEngine = runtime.scenarioEngine
+    val scenarioActionExecutor = runtime.scenarioActionExecutor
 
     val deviceManager = remember {
         DeviceManager(
@@ -345,16 +322,30 @@ private fun App(
         )
     }
 
-    val mqtt = remember {
-        MqttManager(
-            onLog = ::addLog,
-            onConnected = { value -> connected = value },
-            onStatus = { deviceId, widgetId, value ->
-                historyStore.add(deviceId, widgetId, value)
-                scenarioEngine.onValue(deviceId, widgetId, value)
+    DisposableEffect(runtime, deviceManager) {
+        val listener = object : AppRuntime.UiListener {
+            override fun onLog(message: String) {
+                addLog(message)
+            }
+
+            override fun onConnected(value: Boolean) {
+                connected = value
+            }
+
+            override fun onStatus(deviceId: String, widgetId: String, value: String) {
                 deviceManager.onStatus(deviceId, widgetId, value)
-            },
-            onConfig = { deviceId, widgetId, label, widgetType, page, topic, order, raw ->
+            }
+
+            override fun onConfig(
+                deviceId: String,
+                widgetId: String,
+                label: String,
+                widgetType: String,
+                page: String,
+                topic: String,
+                order: Int,
+                raw: String
+            ) {
                 deviceManager.onConfig(
                     deviceId,
                     widgetId,
@@ -366,22 +357,15 @@ private fun App(
                     raw
                 )
             }
-        )
-    }
-
-    scenarioActionExecutor.mqtt = mqtt
-
-    DisposableEffect(scenarioEngine) {
+        }
+        runtime.addUiListener(listener)
         onDispose {
-            scenarioEngine.shutdown()
+            runtime.removeUiListener(listener)
         }
     }
 
-    DisposableEffect(mqtt, voiceManager, speech) {
+    DisposableEffect(voiceManager, speech) {
         onDispose {
-            if (!context.getSharedPreferences("settings", Context.MODE_PRIVATE).getBoolean("marfa_voice_active", false)) {
-                mqtt.disconnect()
-            }
             voiceManager.stop()
             speech.stop()
             speech.shutdown()
@@ -409,11 +393,21 @@ private fun App(
                 context.stopService(Intent(context, MqttBackgroundService::class.java))
             } catch (_: Exception) {
             }
-            prefs.edit().putBoolean("mqtt_foreground_owner", true).apply()
             addLog("MQTT background mode: disabled")
         } else {
             addLog("MQTT background mode: enabled")
-            addLog("Background MQTT will start when the app leaves the foreground")
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    ContextCompat.startForegroundService(
+                        context,
+                        Intent(context, MqttBackgroundService::class.java)
+                    )
+                } else {
+                    context.startService(Intent(context, MqttBackgroundService::class.java))
+                }
+            } catch (e: Exception) {
+                addLog("MQTT background service start failed: " + (e.message ?: e.javaClass.simpleName))
+            }
         }
     }
 
@@ -439,39 +433,29 @@ private fun App(
         }
     }
 
-    // Single-owner MQTT handoff between the foreground activity and the
-    // background service. A generation token invalidates delayed reconnects
-    // from an earlier lifecycle transition.
-    DisposableEffect(context, mqtt, backgroundEnabled) {
+    // The same AppRuntime/MqttManager is used in foreground and background.
+    // Going to background starts the foreground service but never disconnects MQTT.
+    // Returning to the UI only re-attaches the Activity; no second MQTT connection is created.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(context, runtime, backgroundEnabled) {
         val lifecycle = (context as? ComponentActivity)?.lifecycle
-        val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
-        val handoffHandler = android.os.Handler(android.os.Looper.getMainLooper())
-        var handoffGeneration = 0L
-
-        fun markForegroundOwner() {
-            prefs.edit().putBoolean("mqtt_foreground_owner", true).apply()
-        }
-
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_STOP -> {
-                    handoffGeneration += 1L
-                    val marfaActive = prefs.getBoolean("marfa_voice_active", false)
-                    if (!marfaActive) {
-                        // Background service becomes the only scenario runtime owner.
-                        scenarioEngine.setRuntimeActive(false)
-                    }
-                    if (backgroundEnabled && !manualMqttDisconnect && !marfaActive) {
-                        prefs.edit().putBoolean("mqtt_foreground_owner", false).apply()
-                        addLog("MQTT background mode: handing connection to service")
-                        handoffHandler.removeCallbacksAndMessages(null)
-                        mqtt.disconnect()
-                        val intent = Intent(context, MqttBackgroundService::class.java)
+                    voiceManager.stop()
+                    voiceStatus = "Микрофон выключен"
+                    if (backgroundEnabled &&
+                        !manualMqttDisconnect &&
+                        !prefs.getBoolean("marfa_voice_active", false)
+                    ) {
                         try {
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                ContextCompat.startForegroundService(context, intent)
+                                ContextCompat.startForegroundService(
+                                    context,
+                                    Intent(context, MqttBackgroundService::class.java)
+                                )
                             } else {
-                                context.startService(intent)
+                                context.startService(Intent(context, MqttBackgroundService::class.java))
                             }
                         } catch (e: Exception) {
                             addLog("MQTT background service start failed: " + (e.message ?: e.javaClass.simpleName))
@@ -479,38 +463,10 @@ private fun App(
                     }
                 }
                 Lifecycle.Event.ON_START -> {
-                    val generation = handoffGeneration + 1L
-                    handoffGeneration = generation
-                    val marfaActive = prefs.getBoolean("marfa_voice_active", false)
-                    if (!backgroundEnabled || marfaActive) {
-                        scenarioEngine.setRuntimeActive(true)
-                    } else {
-                        // Wait until the foreground MQTT owner is restored.
-                        scenarioEngine.setRuntimeActive(false)
-                    }
-                    if (backgroundEnabled && !marfaActive) {
-                        markForegroundOwner()
-                        // Stop the background owner before restoring the foreground
-                        // connection. stopService() does not create a new service.
-                        try {
-                            context.stopService(Intent(context, MqttBackgroundService::class.java))
-                        } catch (_: Exception) {
-                        }
-                    }
-                    if (backgroundEnabled && !manualMqttDisconnect && !marfaActive) {
-                        addLog("MQTT foreground mode: waiting for background owner to stop")
-                        handoffHandler.removeCallbacksAndMessages(null)
-                        handoffHandler.postDelayed({
-                            if (generation == handoffGeneration &&
-                                !manualMqttDisconnect &&
-                                lifecycle?.currentState?.isAtLeast(Lifecycle.State.STARTED) == true &&
-                                prefs.getBoolean("mqtt_foreground_owner", false)
-                            ) {
-                                addLog("MQTT foreground mode: restoring connection")
-                                connect(save = false)
-                                scenarioEngine.setRuntimeActive(true)
-                            }
-                        }, 1000)
+                    // Do not stop the service and do not reconnect MQTT here.
+                    // The shared runtime remains the single connection owner.
+                    if (backgroundEnabled && !manualMqttDisconnect) {
+                        addLog("MQTT foreground UI attached to shared runtime")
                     }
                 }
                 else -> Unit
@@ -518,20 +474,15 @@ private fun App(
         }
         lifecycle?.addObserver(observer)
         onDispose {
-            handoffHandler.removeCallbacksAndMessages(null)
             lifecycle?.removeObserver(observer)
         }
     }
 
-    // Automatically connect only while the activity is in the foreground.
-    // The background service owns MQTT while the activity is stopped, so this
-    // loop must never reconnect a second client behind its back.
-    val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(Unit) {
         delay(500)
         while (true) {
             if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
-                if (!manualMqttDisconnect && !mqtt.isConnected()) {
+                if (!manualMqttDisconnect && !mqtt.isConnected() && !mqtt.isConnecting()) {
                     addLog("MQTT auto-check: disconnected, reconnecting")
                     connect(save = false)
                 }
