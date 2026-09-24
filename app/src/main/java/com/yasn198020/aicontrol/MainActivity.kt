@@ -11,7 +11,6 @@ import android.os.Bundle
 import android.os.Build
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.core.content.ContextCompat
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -407,19 +406,6 @@ private fun App(
         }
     }
 
-
-    LaunchedEffect(Unit) {
-        delay(500)
-        while (true) {
-            if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
-                if (!manualMqttDisconnect && !mqtt.isConnected() && !mqtt.isConnecting()) {
-                    addLog("MQTT auto-check: disconnected, reconnecting")
-                    connect(save = false)
-                }
-            }
-            delay(15_000)
-        }
-    }
 
     fun sendWidget(deviceId: String, widgetId: String, value: String): Boolean {
         val widget = devices.firstOrNull { it.id == deviceId }?.widgets?.firstOrNull { it.id == widgetId }
