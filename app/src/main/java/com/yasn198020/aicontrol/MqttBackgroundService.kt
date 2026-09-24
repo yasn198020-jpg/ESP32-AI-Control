@@ -84,6 +84,17 @@ class MqttBackgroundService : Service() {
                 android.util.Log.d("MQTT_BG", "config $deviceId/$widgetId type=$type topic=$topic")
             }
         )
+        // Restore the latest known telemetry before live MQTT callbacks arrive.
+        // This is important for multi-condition scenarios: the background service
+        // can start with an empty in-memory value set while the device does not
+        // immediately resend every widget state.
+        historyStore.latestValues().forEach { (key, value) ->
+            val parts = key.split("/", limit = 2)
+            if (parts.size == 2) {
+                scenarioEngine?.restoreValue(parts[0], parts[1], value)
+            }
+        }
+
         scenarioActionExecutor?.mqtt = mqtt
     }
 
