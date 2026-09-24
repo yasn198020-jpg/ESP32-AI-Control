@@ -162,19 +162,6 @@ fun App(
         voiceStatus = "Настройки голоса сохранены"
     }
 
-    fun isTrainableWidget(widget: WidgetState): Boolean =
-        widget.type == WidgetState.Type.TOGGLE ||
-            widget.type == WidgetState.Type.BUTTON ||
-            widget.type == WidgetState.Type.VALUE ||
-            widget.type == WidgetState.Type.STATUS
-
-    fun trainingValueFor(widget: WidgetState): String =
-        if (widget.type == WidgetState.Type.VALUE || widget.type == WidgetState.Type.STATUS) {
-            TRAINED_READ_VALUE
-        } else {
-            "1"
-        }
-
     fun openTraining(deviceId: String, widget: WidgetState) {
         if (!isTrainableWidget(widget)) return
         trainingTarget = TrainingTarget(deviceId, widget.id, widget.title)
