@@ -314,7 +314,7 @@ private fun ScenarioEditorDialog(
 
                                 val visiblePageWidgets = pageWidgets.filter { item ->
                                     val itemIndex = conditionWidgets.indexOf(item)
-                                    !conditionSelectionOpen || safeIndex == itemIndex
+                                    conditionSelectionOpen || safeIndex == itemIndex
                                 }
 
                                 if (visiblePageWidgets.isNotEmpty()) {
@@ -562,7 +562,7 @@ private fun ScenarioEditorDialog(
                                 }
                                 val visiblePageWidgets = pageWidgets.filter { item ->
                                     val itemIndex = conditionWidgets.indexOf(item)
-                                    !verifySelectionOpen || verifyTargetIndex.coerceIn(0, conditionWidgets.lastIndex) == itemIndex
+                                    verifySelectionOpen || verifyTargetIndex.coerceIn(0, conditionWidgets.lastIndex) == itemIndex
                                 }
                                 if (visiblePageWidgets.isNotEmpty()) {
                                     Text(page, fontWeight = FontWeight.Medium)
