@@ -22,7 +22,7 @@ fun UpdateDialog(
     onStatus: (String) -> Unit,
     onFinished: (String) -> Unit
 ) {
-    // Keep update actions local to this dialog; download state is controlled by the caller.
+    // The caller owns download state; this dialog only renders update actions.
     if (!open || status == null) return
 
     AlertDialog(
