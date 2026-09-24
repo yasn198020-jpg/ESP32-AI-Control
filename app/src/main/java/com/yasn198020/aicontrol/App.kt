@@ -82,9 +82,8 @@ fun App(
     val localCommandManager = remember { LocalCommandManager() }
     val speech = remember { TextToSpeech(context, null) }
     val ttsController = remember { TtsVoiceController(context, speech) }
-    val trainedStore = remember { TrainedCommandStore(prefs) }
-    val trainedMatcher = remember { TrainedCommandMatcher(trainedStore) }
-    var trainedCommands by remember { mutableStateOf(trainedStore.load()) }
+    val voiceTraining = remember { VoiceTrainingController(prefs) }
+    var trainedCommands by remember { mutableStateOf(voiceTraining.load()) }
     var trainingTarget by remember { mutableStateOf<TrainingTarget?>(null) }
     var trainingValue by remember { mutableStateOf("1") }
     var trainingPhrase by remember { mutableStateOf("") }
