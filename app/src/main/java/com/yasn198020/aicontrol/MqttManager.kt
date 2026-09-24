@@ -53,6 +53,7 @@ class MqttManager(
                 override fun connectComplete(reconnect: Boolean, serverURI: String?) {
                     connecting = false
                     DiagnosticTrace.system("MQTT connected reconnect=" + reconnect + " serverURI=" + serverURI)
+                    DiagnosticTrace.system("VBTN90 CONNECTION connected reconnect=" + reconnect)
                     emitLog("MQTT connected: " + serverURI)
                     emitConnected(true)
                     flushPendingPublishes()
@@ -62,6 +63,7 @@ class MqttManager(
                 override fun connectionLost(cause: Throwable?) {
                     connecting = false
                     DiagnosticTrace.system("MQTT connection lost: " + (cause?.message ?: cause?.javaClass?.simpleName ?: "unknown"))
+                    DiagnosticTrace.system("VBTN90 CONNECTION lost")
                     emitLog(mqttExceptionText("MQTT connection lost", cause))
                     emitConnected(false)
                 }
@@ -87,6 +89,13 @@ class MqttManager(
                             " qos=" + message.qos +
                             " retained=" + message.isRetained
                     )
+                    if (topic.contains("/vbtn90/")) {
+                        DiagnosticTrace.stepForEvent(
+                            traceId,
+                            "MQTT",
+                            "VBTN90 RX topic=" + topic + " payload=" + payload
+                        )
+                    }
 
                     val root = "/dghjko/"
                     if (topic.startsWith(root) && topic.endsWith("/config")) {
@@ -130,6 +139,13 @@ class MqttManager(
                                     " widget=" + parts[parts.size - 2] +
                                     " value=" + value
                             )
+                            if (parts[parts.size - 2] == "vbtn90") {
+                                DiagnosticTrace.stepForEvent(
+                                    traceId,
+                                    "MQTT",
+                                    "VBTN90 STATUS parsed value=" + value
+                                )
+                            }
                             emitStatus(parts[0], parts[parts.size - 2], value)
                         }
                     } else if (topic.startsWith(root) && topic.endsWith("/event")) {
@@ -141,6 +157,13 @@ class MqttManager(
                                 val value = json.optString("val", payload)
                                 DiagnosticTrace.step("MQTT", "EVENT parsed device=" + parts[0] + " widget=" + widgetId + " value=" + value)
                                 emitLog("MQTT EVENT parsed: device=" + parts[0] + " widget=" + widgetId + " value=" + value)
+                                if (widgetId == "vbtn90") {
+                                    DiagnosticTrace.stepForEvent(
+                                        traceId,
+                                        "MQTT",
+                                        "VBTN90 EVENT parsed value=" + value
+                                    )
+                                }
                                 emitStatus(parts[0], widgetId, value)
                             } catch (e: Exception) {
                                 DiagnosticTrace.stepForEvent(traceId, "ERROR", "EVENT parse failed topic=" + topic + " error=" + (e.message ?: e.javaClass.simpleName))
@@ -243,6 +266,7 @@ class MqttManager(
                 object : IMqttActionListener {
                     override fun onSuccess(asyncActionToken: IMqttToken?) {
                         emitLog("MQTT subscribed: " + topics.joinToString(", "))
+                        DiagnosticTrace.system("VBTN90 SUBSCRIBED via " + topics.joinToString(","))
                         publishHello()
                     }
 
