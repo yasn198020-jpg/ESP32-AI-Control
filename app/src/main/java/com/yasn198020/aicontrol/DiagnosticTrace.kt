@@ -92,12 +92,11 @@ object DiagnosticTrace {
 
     private fun append(eventId: Long?, stage: String, message: String) {
         val safeStage = stage.trim().uppercase(Locale.ROOT).ifBlank { "TRACE" }
-        val timestamp = formatter.format(Date())
-        val idPart = eventId?.let { "#$it " } ?: ""
-        val line = "$timestamp [$idPart$safeStage] ${message.replace('\n', ' ')}"
-
         synchronized(lock) {
             if (!initialized) return
+            val timestamp = formatter.format(Date())
+            val idPart = eventId?.let { "#$it " } ?: ""
+            val line = "$timestamp [$idPart$safeStage] ${message.replace('\n', ' ')}"
             lines.addLast(line)
             while (lines.size > MAX_LINES) {
                 lines.removeFirst()
