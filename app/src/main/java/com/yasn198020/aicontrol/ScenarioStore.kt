@@ -336,6 +336,12 @@ class ScenarioEngine(
     }
 
     @Synchronized
+    fun restoreValue(deviceId: String, widgetId: String, value: Double) {
+        if (shutdown || !value.isFinite()) return
+        values[key(deviceId, widgetId)] = value
+    }
+
+    @Synchronized
     fun onValue(deviceId: String, widgetId: String, rawValue: String) {
         if (shutdown || !runtimeActive) return
         val value = rawValue.trim().replace(',', '.').toDoubleOrNull() ?: return
