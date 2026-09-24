@@ -116,6 +116,11 @@ class VoiceCommandManager(
     }
 
     private fun startListening() {
+        // Recognition may only be started by an explicit caller (button/shortcut).
+        // Ignore duplicate starts so recomposition, repeated lifecycle events, or
+        // a second click cannot restart the microphone underneath the current one.
+        if (listening || finishing || restarting) return
+
         if (!available()) {
             onStatus(
                 if (!hasMicrophonePermission()) {
@@ -184,6 +189,8 @@ class VoiceCommandManager(
         }, delayMs)
     }
 
+    // Explicit microphone-button entry point. There is no automatic
+    // microphone start from lifecycle or MQTT callbacks.
     fun startRussian() {
         startListening()
     }
