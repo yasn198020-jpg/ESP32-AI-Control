@@ -56,78 +56,106 @@ class ScenarioStore(private val prefs: android.content.SharedPreferences) {
             val array = JSONArray(raw)
             buildList {
                 for (i in 0 until array.length()) {
-                    val o = array.getJSONObject(i)
-                    val oldDevice = o.optString("deviceId")
-                    val oldWidget = o.optString("widgetId")
-                    val oldOperator = o.optString("operator", ">")
-                    val oldThreshold = o.optDouble("threshold", Double.NaN)
-                    val conditions = mutableListOf<ScenarioCondition>()
-                    val conditionArray = o.optJSONArray("conditions")
-                    if (conditionArray != null) {
-                        for (j in 0 until conditionArray.length()) {
-                            val c = conditionArray.optJSONObject(j) ?: continue
-                            val threshold = c.optDouble("threshold", Double.NaN)
-                            if (c.optString("deviceId").isNotBlank() &&
-                                c.optString("widgetId").isNotBlank() &&
-                                threshold.isFinite()
+                    val scenario = runCatching {
+                        val o = array.optJSONObject(i) ?: return@runCatching null
+                        val oldDevice = o.optString("deviceId")
+                        val oldWidget = o.optString("widgetId")
+                        val oldOperator = normalizeOperator(o.optString("operator", ">"))
+                        val oldThreshold = o.optDouble("threshold", Double.NaN)
+                        val conditions = mutableListOf<ScenarioCondition>()
+                        o.optJSONArray("conditions")?.let { conditionArray ->
+                            for (j in 0 until conditionArray.length()) {
+                                val item = conditionArray.optJSONObject(j) ?: continue
+                                val threshold = item.optDouble("threshold", Double.NaN)
+                                val deviceId = item.optString("deviceId").trim()
+                                val widgetId = item.optString("widgetId").trim()
+                                if (deviceId.isNotBlank() && widgetId.isNotBlank() && threshold.isFinite()) {
+                                    conditions += ScenarioCondition(
+                                        deviceId = deviceId,
+                                        widgetId = widgetId,
+                                        operator = normalizeOperator(item.optString("operator", ">")),
+                                        threshold = threshold,
+                                        connector = if (j == 0) "AND" else normalizeConnector(item.optString("connector", "AND"))
+                                    )
+                                }
+                            }
+                        }
+                        if (conditions.isEmpty() && oldDevice.isNotBlank() && oldWidget.isNotBlank() && oldThreshold.isFinite()) {
+                            conditions += ScenarioCondition(oldDevice, oldWidget, oldOperator, oldThreshold)
+                        }
+                        if (conditions.isEmpty()) return@runCatching null
+
+                        val actionType = if (o.optString("actionType", "NOTIFICATION") == "MQTT_CONTROL") {
+                            "MQTT_CONTROL"
+                        } else {
+                            "NOTIFICATION"
+                        }
+                        val actions = buildList {
+                            val aa = o.optJSONArray("actions")
+                            if (aa != null) {
+                                for (k in 0 until aa.length()) {
+                                    val a = aa.optJSONObject(k) ?: continue
+                                    val d = a.optString("deviceId").trim()
+                                    val w = a.optString("widgetId").trim()
+                                    if (d.isNotBlank() && w.isNotBlank()) {
+                                        add(ScenarioAction(d, w, a.optString("value", "1")))
+                                    }
+                                }
+                            } else if (actionType == "MQTT_CONTROL" &&
+                                o.optString("actionDeviceId").isNotBlank() &&
+                                o.optString("actionWidgetId").isNotBlank()
                             ) {
-                                conditions += ScenarioCondition(
-                                    deviceId = c.optString("deviceId"),
-                                    widgetId = c.optString("widgetId"),
-                                    operator = c.optString("operator", ">"),
-                                    threshold = threshold,
-                                    connector = if (j == 0) "AND" else c.optString("connector", "AND")
+                                add(
+                                    ScenarioAction(
+                                        o.optString("actionDeviceId"),
+                                        o.optString("actionWidgetId"),
+                                        o.optString("actionValue", "1")
+                                    )
                                 )
                             }
                         }
-                    }
-                    if (conditions.isEmpty() && oldDevice.isNotBlank() && oldWidget.isNotBlank() && oldThreshold.isFinite()) {
-                        conditions += ScenarioCondition(oldDevice, oldWidget, oldOperator, oldThreshold)
-                    }
-                    if (conditions.isNotEmpty()) {
-                        add(Scenario(
+
+                        Scenario(
                             id = o.optString("id").ifBlank { UUID.randomUUID().toString() },
                             deviceId = conditions.first().deviceId,
                             widgetId = conditions.first().widgetId,
-                            title = o.optString("title"),
+                            title = o.optString("title").trim().ifBlank { "Сценарий" },
                             operator = conditions.first().operator,
                             threshold = conditions.first().threshold,
-                            message = o.optString("message"),
+                            message = o.optString("message").trim().ifBlank { "Условие выполнено: {value}" },
                             enabled = o.optBoolean("enabled", true),
                             armed = o.optBoolean("armed", true),
-                            actionType = o.optString("actionType", "NOTIFICATION"),
+                            actionType = actionType,
                             actionDeviceId = o.optString("actionDeviceId", ""),
                             actionWidgetId = o.optString("actionWidgetId", ""),
                             actionValue = o.optString("actionValue", "1"),
-                            actions = run {
-                                val aa = o.optJSONArray("actions")
-                                if (aa != null) buildList {
-                                    for (k in 0 until aa.length()) {
-                                        val a = aa.optJSONObject(k) ?: continue
-                                        val d = a.optString("deviceId")
-                                        val w = a.optString("widgetId")
-                                        if (d.isNotBlank() && w.isNotBlank()) add(ScenarioAction(d, w, a.optString("value", "1")))
-                                    }
-                                } else if (o.optString("actionType", "NOTIFICATION") == "MQTT_CONTROL" && o.optString("actionDeviceId").isNotBlank() && o.optString("actionWidgetId").isNotBlank()) {
-                                    listOf(ScenarioAction(o.optString("actionDeviceId"), o.optString("actionWidgetId"), o.optString("actionValue", "1")))
-                                } else emptyList()
-                            },
+                            actions = actions,
                             notificationEnabled = o.optBoolean("notificationEnabled", true),
                             verifyEnabled = o.optBoolean("verifyEnabled", false),
                             verifyTimeoutSec = o.optInt("verifyTimeoutSec", 30).coerceIn(1, 300),
                             verifyDeviceId = o.optString("verifyDeviceId", ""),
                             verifyWidgetId = o.optString("verifyWidgetId", ""),
-                            verifyOperator = o.optString("verifyOperator", "="),
-                            verifyValue = o.optDouble("verifyValue", 1.0),
+                            verifyOperator = normalizeOperator(o.optString("verifyOperator", "=")),
+                            verifyValue = o.optDouble("verifyValue", 1.0).takeIf { it.isFinite() } ?: 1.0,
                             verifySuccessMessage = o.optString("verifySuccessMessage", "Подтверждение получено: {value}"),
                             verifyFailureMessage = o.optString("verifyFailureMessage", "Подтверждение не получено"),
                             conditions = conditions
-                        ))
-                    }
+                        )
+                    }.getOrNull()
+
+                    if (scenario != null) add(scenario)
                 }
             }
         }.getOrDefault(emptyList())
     }
+
+    private fun normalizeOperator(value: String): String = when (value.trim()) {
+        ">", ">=", "<", "<=", "=" -> value.trim()
+        else -> ">"
+    }
+
+    private fun normalizeConnector(value: String): String =
+        if (value.trim().equals("OR", ignoreCase = true)) "OR" else "AND"
 
     fun save(items: List<Scenario>) {
         val array = JSONArray()
