@@ -19,8 +19,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.core.content.ContextCompat
 import com.yasn198020.aicontrol.marfa.MarfaShortcutInstaller
-import com.yasn198020.aicontrol.marfa.MarfaVoiceService
 import com.yasn198020.aicontrol.ui.UiPreferences
+import com.yasn198020.aicontrol.voice.MarfaVoiceService
 
 class MainActivity : ComponentActivity() {
 
