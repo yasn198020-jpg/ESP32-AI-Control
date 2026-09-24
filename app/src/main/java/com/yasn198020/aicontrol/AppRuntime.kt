@@ -87,24 +87,13 @@ class AppRuntime private constructor(private val appContext: Context) {
             try {
                 historyStore.add(deviceId, widgetId, value)
 
-                // Exact diagnostic sequence for every MQTT event:
-                // false -> true -> execute action -> false -> notification.
-                originalEngine.setRuntimeActive(false)
-                originalEngine.setRuntimeActive(true)
-                try {
-                    // Capture the scenario through the trigger callback.
-                    // The action itself is executed synchronously by onTrigger.
-                    val previous = triggeredScenario
-                    originalEngine.onValue(deviceId, widgetId, value)
-                    if (previous == null && triggeredScenario == null) {
-                        // No trigger on this MQTT event.
-                    }
-                } finally {
-                    originalEngine.setRuntimeActive(false)
-                }
+                // ScenarioEngine stays active for the lifetime of the MQTT
+                // runtime. Do not toggle it around individual MQTT messages:
+                // setRuntimeActive(false) cancels verification timers and clears
+                // edge state, which makes background scenarios unreliable.
+                originalEngine.onValue(deviceId, widgetId, value)
 
-                // Notification is controlled by the scenario's saved flag and
-                // is deliberately delivered after runtimeActive=false.
+                // Notification is controlled by the scenario's saved flag.
                 if (triggeredScenario?.notificationEnabled == true) {
                     ScenarioNotifier.notify(
                         appContext,
