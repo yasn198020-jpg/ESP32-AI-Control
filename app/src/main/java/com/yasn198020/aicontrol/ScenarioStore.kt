@@ -226,7 +226,8 @@ class ScenarioEngine(
     private val onVerificationResult: (Scenario, Boolean, String) -> Unit
 ) {
     private val values = mutableMapOf<String, Double>()
-    private val verificationTasks = mutableMapOf<String, java.util.concurrent.ScheduledFuture<*>>()\n    private val verificationGenerations = mutableMapOf<String, Long>()
+    private val verificationTasks = mutableMapOf<String, java.util.concurrent.ScheduledFuture<*>>()
+    private val verificationGenerations = mutableMapOf<String, Long>()
     private val scheduler = java.util.concurrent.Executors.newSingleThreadScheduledExecutor()
     private var shutdown = false
 
