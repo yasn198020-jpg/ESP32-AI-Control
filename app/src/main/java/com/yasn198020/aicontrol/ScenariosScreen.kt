@@ -85,7 +85,8 @@ fun ScenariosScreen(
                                 ) {
                                     OutlinedButton(
                                         onClick = {
-                                            engine.cancelScenario(scenario.id)\n                                            store.update(scenario.copy(enabled = !scenario.enabled, armed = true))
+                                            engine.cancelScenario(scenario.id)
+                                            store.update(scenario.copy(enabled = !scenario.enabled, armed = true))
                                             refresh()
                                         },
                                         modifier = Modifier.weight(1f)
