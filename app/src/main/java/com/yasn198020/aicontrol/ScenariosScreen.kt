@@ -263,7 +263,7 @@ private fun ScenarioEditorDialog(
     var verifyValueText by remember(initialScenario) { mutableStateOf((initialScenario?.verifyValue ?: 1.0).toString()) }
     var verifySuccessMessage by remember(initialScenario) { mutableStateOf(initialScenario?.verifySuccessMessage ?: "Подтверждение получено: {value}") }
     var verifyFailureMessage by remember(initialScenario) { mutableStateOf(initialScenario?.verifyFailureMessage ?: "Подтверждение не получено") }
-    var conditionSelectionOpen by remember { mutableStateOf(false) }
+    var conditionSelectionOpenIndex by remember { mutableIntStateOf(-1) }
     var actionSelectionOpen by remember { mutableStateOf(false) }
     var verifySelectionOpen by remember { mutableStateOf(false) }
 
@@ -357,10 +357,10 @@ private fun ScenarioEditorDialog(
                                                 selected = safeIndex == itemIndex,
                                                 onClick = {
                                                     if (safeIndex == itemIndex) {
-                                                        conditionSelectionOpen = !conditionSelectionOpen
+                                                        conditionSelectionOpenIndex = if (conditionSelectionOpenIndex == index) -1 else index
                                                     } else {
                                                         drafts[index] = draft.copy(selectedIndex = itemIndex)
-                                                        conditionSelectionOpen = false
+                                                        conditionSelectionOpenIndex = -1
                                                     }
                                                 }
                                             )
