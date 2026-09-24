@@ -356,31 +356,36 @@ private fun ScenarioEditorDialog(
                             )
                         }
                         if (drafts.size > 1) {
-                            Row(
-                                Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                TextButton(enabled = index > 0, onClick = {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                OutlinedButton(enabled = index > 0, onClick = {
                                     val tmp = drafts[index]
                                     drafts[index] = drafts[index - 1]
                                     drafts[index - 1] = tmp
                                     conditionSelectionOpen = false
-                                }) { Text("↑") }
-                                TextButton(onClick = {
+                                }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp)) {
+                                    Text("↑", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                                }
+                                OutlinedButton(onClick = {
                                     drafts.add(index + 1, draft.copy())
                                     conditionSelectionOpen = false
-                                }) { Text("Копировать") }
-                                TextButton(enabled = index < drafts.lastIndex, onClick = {
+                                }, modifier = Modifier.weight(2f), contentPadding = PaddingValues(horizontal = 4.dp)) {
+                                    Text("Копировать", fontSize = 13.sp)
+                                }
+                                OutlinedButton(enabled = index < drafts.lastIndex, onClick = {
                                     val tmp = drafts[index]
                                     drafts[index] = drafts[index + 1]
                                     drafts[index + 1] = tmp
                                     conditionSelectionOpen = false
-                                }) { Text("↓") }
+                                }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp)) {
+                                    Text("↓", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                                }
                                 if (index > 0) {
-                                    TextButton(onClick = {
+                                    OutlinedButton(onClick = {
                                         drafts.removeAt(index)
                                         conditionSelectionOpen = false
-                                    }) { Text("Удалить") }
+                                    }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp)) {
+                                        Text("🗑", fontSize = 18.sp)
+                                    }
                                 }
                             }
                         }
@@ -475,48 +480,42 @@ private fun ScenarioEditorDialog(
                                         }
                                     }
                                     Row(
-                                        Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                        Modifier.weight(1f),
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        TextButton(
-                                            enabled = actionNumber > 0,
-                                            onClick = {
-                                                val tmp = actionDrafts[actionNumber]
-                                                actionDrafts[actionNumber] = actionDrafts[actionNumber - 1]
-                                                actionDrafts[actionNumber - 1] = tmp
-                                                actionSelectionOpenIndex = -1
-                                                actionValueMenuIndex = -1
-                                            },
-                                            modifier = Modifier.weight(1f)
-                                        ) { Text("↑") }
-                                        TextButton(
-                                            onClick = {
-                                                actionDrafts.add(actionNumber + 1, actionDrafts[actionNumber].copy())
-                                                actionSelectionOpenIndex = -1
-                                                actionValueMenuIndex = -1
-                                            },
-                                            modifier = Modifier.weight(1f)
-                                        ) { Text("Копировать") }
-                                        TextButton(
-                                            enabled = actionNumber < actionDrafts.lastIndex,
-                                            onClick = {
-                                                val tmp = actionDrafts[actionNumber]
-                                                actionDrafts[actionNumber] = actionDrafts[actionNumber + 1]
-                                                actionDrafts[actionNumber + 1] = tmp
-                                                actionSelectionOpenIndex = -1
-                                                actionValueMenuIndex = -1
-                                            },
-                                            modifier = Modifier.weight(1f)
-                                        ) { Text("↓") }
-                                        TextButton(
-                                            onClick = {
-                                                actionDrafts.removeAt(actionNumber)
-                                                actionSelectionOpenIndex = -1
-                                                actionValueMenuIndex = -1
-                                            },
-                                            modifier = Modifier.weight(1f)
-                                        ) { Text("🗑") }
+                                        OutlinedButton(enabled = actionNumber > 0, onClick = {
+                                            val tmp = actionDrafts[actionNumber]
+                                            actionDrafts[actionNumber] = actionDrafts[actionNumber - 1]
+                                            actionDrafts[actionNumber - 1] = tmp
+                                            actionSelectionOpenIndex = -1
+                                            actionValueMenuIndex = -1
+                                        }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 2.dp)) {
+                                            Text("↑", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        OutlinedButton(onClick = {
+                                            actionDrafts.add(actionNumber + 1, actionDrafts[actionNumber].copy())
+                                            actionSelectionOpenIndex = -1
+                                            actionValueMenuIndex = -1
+                                        }, modifier = Modifier.weight(2f), contentPadding = PaddingValues(horizontal = 2.dp)) {
+                                            Text("Копировать", fontSize = 12.sp)
+                                        }
+                                        OutlinedButton(enabled = actionNumber < actionDrafts.lastIndex, onClick = {
+                                            val tmp = actionDrafts[actionNumber]
+                                            actionDrafts[actionNumber] = actionDrafts[actionNumber + 1]
+                                            actionDrafts[actionNumber + 1] = tmp
+                                            actionSelectionOpenIndex = -1
+                                            actionValueMenuIndex = -1
+                                        }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 2.dp)) {
+                                            Text("↓", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        OutlinedButton(onClick = {
+                                            actionDrafts.removeAt(actionNumber)
+                                            actionSelectionOpenIndex = -1
+                                            actionValueMenuIndex = -1
+                                        }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 2.dp)) {
+                                            Text("🗑", fontSize = 18.sp)
+                                        }
                                     }
                                 }
                             }
