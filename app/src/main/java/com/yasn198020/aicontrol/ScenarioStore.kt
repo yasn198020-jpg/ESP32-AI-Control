@@ -327,12 +327,7 @@ class ScenarioEngine(
                 if (scenario.verifyEnabled) startVerification(scenario)
                 val disarmed = scenario.copy(armed = false)
                 store.update(disarmed)
-                try {
-                    onTrigger(disarmed, rawValue, value)
-                } catch (_: Throwable) {
-                    // The scenario remains disarmed even if an action/notification
-                    // callback fails, preventing an immediate duplicate trigger.
-                }
+                onTrigger(disarmed, rawValue, value)
             } else if (!matched && !scenario.armed) {
                 store.update(scenario.copy(armed = true))
             }
