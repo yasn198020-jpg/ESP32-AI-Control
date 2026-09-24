@@ -2,7 +2,13 @@ package com.yasn198020.aicontrol
 
 import com.yasn198020.aicontrol.mqtt.MqttManager
 import com.yasn198020.aicontrol.mqtt.MqttSettingsStore
-import com.yasn198020.aicontrol.voice.*
+import com.yasn198020.aicontrol.voice.TRAINED_READ_VALUE
+import com.yasn198020.aicontrol.voice.TrainedCommandMatcher
+import com.yasn198020.aicontrol.voice.TrainedCommandStore
+import com.yasn198020.aicontrol.voice.TrainedVoiceCommand
+import com.yasn198020.aicontrol.voice.TrainingTarget
+import com.yasn198020.aicontrol.voice.VoiceCommandManager
+import com.yasn198020.aicontrol.voice.VoiceSettingsStore
 import com.yasn198020.aicontrol.commands.LocalCommandAction
 import com.yasn198020.aicontrol.commands.LocalCommandManager
 import com.yasn198020.aicontrol.commands.formatTemperatureForSpeech
