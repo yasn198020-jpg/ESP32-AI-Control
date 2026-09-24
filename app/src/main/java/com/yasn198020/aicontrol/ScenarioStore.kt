@@ -358,17 +358,56 @@ class ScenarioActionExecutor {
 
     fun execute(scenario: Scenario) {
         if (scenario.actionType != "MQTT_CONTROL") return
-        val manager = mqtt ?: return
-        if (!manager.isConnected()) return
+        val manager = mqtt
+        if (manager == null) {
+            android.util.Log.w("SCENARIO", "Action skipped: MQTT manager is unavailable for " + scenario.id)
+            return
+        }
+        if (!manager.isConnected()) {
+            android.util.Log.w("SCENARIO", "Action skipped: MQTT is disconnected for " + scenario.id)
+            return
+        }
 
         val actions = scenario.actions.ifEmpty {
             if (scenario.actionDeviceId.isNotBlank() && scenario.actionWidgetId.isNotBlank()) {
                 listOf(ScenarioAction(scenario.actionDeviceId, scenario.actionWidgetId, scenario.actionValue.ifBlank { "1" }))
             } else emptyList()
         }
-        actions.forEach { action ->
-            if (action.deviceId.isNotBlank() && action.widgetId.isNotBlank()) {
-                manager.publishControl(action.deviceId, action.widgetId, action.value.ifBlank { "1" })
+
+        if (actions.isEmpty()) {
+            android.util.Log.w("SCENARIO", "Action skipped: no MQTT actions configured for " + scenario.id)
+            return
+        }
+
+        actions.forEachIndexed { index, action ->
+            if (action.deviceId.isBlank() || action.widgetId.isBlank()) {
+                android.util.Log.w("SCENARIO", "Action " + (index + 1) + " skipped: device/widget is empty")
+                return@forEachIndexed
+            }
+
+            val sent = try {
+                manager.publishControl(
+                    action.deviceId,
+                    action.widgetId,
+                    action.value.ifBlank { "1" }
+                )
+            } catch (error: Exception) {
+                android.util.Log.e("SCENARIO", "Action " + (index + 1) + " failed", error)
+                false
+            }
+
+            if (sent) {
+                android.util.Log.d(
+                    "SCENARIO",
+                    "Action " + (index + 1) + " sent for " + scenario.id +
+                        ": " + action.deviceId + "/" + action.widgetId
+                )
+            } else {
+                android.util.Log.w(
+                    "SCENARIO",
+                    "Action " + (index + 1) + " was not sent for " + scenario.id +
+                        ": " + action.deviceId + "/" + action.widgetId
+                )
             }
         }
     }
