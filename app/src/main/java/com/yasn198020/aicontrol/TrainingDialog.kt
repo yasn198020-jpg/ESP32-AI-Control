@@ -60,7 +60,7 @@ fun TrainingDialog(
                     else {
                         Column(\n                            verticalArrangement = Arrangement.spacedBy(4.dp)\n                        ) {
                             existingPhrases.forEach { phrase ->
-                                FilterChip(selected = selectedExistingPhrase == phrase, onClick = { onSelectPhrase(phrase) }, label = { Text("«$phrase»") }, modifier = Modifier.fillMaxWidth())
+                                FilterChip(\n                                    selected = selectedExistingPhrase == phrase,\n                                    onClick = { onSelectPhrase(phrase) },\n                                    label = { Text("«$phrase»") },\n                                    modifier = Modifier.fillMaxWidth()\n                                )
                             }
                         }
                         Button(onClick = onSaveExisting, enabled = selectedExistingPhrase != null, modifier = Modifier.fillMaxWidth()) { Text("➕ Добавить действие к этой команде") }
