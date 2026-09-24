@@ -339,7 +339,7 @@ private fun ScenarioEditorDialog(
 
                                 val visiblePageWidgets = pageWidgets.filter { item ->
                                     val itemIndex = conditionWidgets.indexOf(item)
-                                    conditionSelectionOpen || safeIndex == itemIndex
+                                    conditionSelectionOpenIndex == index || safeIndex == itemIndex
                                 }
 
                                 if (visiblePageWidgets.isNotEmpty()) {
@@ -394,13 +394,13 @@ private fun ScenarioEditorDialog(
                                     val tmp = drafts[index]
                                     drafts[index] = drafts[index - 1]
                                     drafts[index - 1] = tmp
-                                    conditionSelectionOpen = false
+                                    conditionSelectionOpenIndex = -1
                                 }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp)) {
                                     Text("↑", fontSize = 18.sp, fontWeight = FontWeight.Bold)
                                 }
                                 OutlinedButton(onClick = {
                                     drafts.add(index + 1, draft.copy())
-                                    conditionSelectionOpen = false
+                                    conditionSelectionOpenIndex = -1
                                 }, modifier = Modifier.weight(2f), contentPadding = PaddingValues(horizontal = 4.dp)) {
                                     Text("Копировать", fontSize = 13.sp)
                                 }
@@ -408,14 +408,14 @@ private fun ScenarioEditorDialog(
                                     val tmp = drafts[index]
                                     drafts[index] = drafts[index + 1]
                                     drafts[index + 1] = tmp
-                                    conditionSelectionOpen = false
+                                    conditionSelectionOpenIndex = -1
                                 }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp)) {
                                     Text("↓", fontSize = 18.sp, fontWeight = FontWeight.Bold)
                                 }
                                 if (index > 0) {
                                     OutlinedButton(onClick = {
                                         drafts.removeAt(index)
-                                        conditionSelectionOpen = false
+                                        conditionSelectionOpenIndex = -1
                                     }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp)) {
                                         Text("🗑", fontSize = 18.sp)
                                     }
