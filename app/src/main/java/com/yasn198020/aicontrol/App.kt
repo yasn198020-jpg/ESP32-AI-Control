@@ -16,7 +16,6 @@ import android.content.pm.PackageManager
 import android.speech.tts.TextToSpeech
 import java.util.Locale
 import android.os.Build
-import androidx.lifecycle.Lifecycle
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.clickable
@@ -291,7 +290,7 @@ fun App(
         mqtt.connect(mqttHost, mqttPort.toIntOrNull() ?: 1883, mqttPrefix, username, password, mqttTls)
     }
 
-        AppLifecycleEffects(
+    AppLifecycleEffects(
         context = context,
         mqtt = mqtt,
         voiceManager = voiceManager,
