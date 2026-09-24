@@ -36,12 +36,6 @@ class AppRuntime private constructor(private val appContext: Context) {
 
     private val uiListeners = CopyOnWriteArraySet<UiListener>()
     private val mainHandler = Handler(Looper.getMainLooper())
-    // MQTT status processing must not depend on the Activity/main UI loop.
-    // This worker keeps telemetry, scenarios and notifications alive in background.
-    private val backgroundExecutor = Executors.newSingleThreadExecutor { runnable ->
-        Thread(runnable, "AppRuntime-MQTT").apply { isDaemon = true }
-    }
-
     val historyStore: HistoryStore = HistoryStore(prefs)
     val scenarioStore: ScenarioStore = ScenarioStore(prefs)
     val scenarioActionExecutor: ScenarioActionExecutor = ScenarioActionExecutor()
