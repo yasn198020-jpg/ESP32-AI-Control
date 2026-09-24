@@ -25,6 +25,7 @@ fun VariantPhraseDialog(
 ) {
     // A null target means the dialog is closed.
     phrase ?: return
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Добавить вариант фразы") },
