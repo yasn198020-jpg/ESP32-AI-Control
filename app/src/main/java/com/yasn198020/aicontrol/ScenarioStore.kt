@@ -194,6 +194,7 @@ class ScenarioEngine(
     private val values = mutableMapOf<String, Double>()
     private val verificationTasks = mutableMapOf<String, java.util.concurrent.ScheduledFuture<*>>()
     private val scheduler = java.util.concurrent.Executors.newSingleThreadScheduledExecutor()
+    private var shutdown = false
 
     private fun key(deviceId: String, widgetId: String) = "$deviceId/$widgetId"
 
@@ -229,30 +230,43 @@ class ScenarioEngine(
         }
     }
 
+    @Synchronized
     private fun startVerification(scenario: Scenario) {
+        if (shutdown) return
         if (!scenario.verifyEnabled || scenario.verifyDeviceId.isBlank() || scenario.verifyWidgetId.isBlank()) return
         if (scheduler.isShutdown || scheduler.isTerminated) return
+
         verificationTasks.remove(scenario.id)?.cancel(false)
-        verificationTasks[scenario.id] = scheduler.schedule({
-            synchronized(this) {
-                verificationTasks.remove(scenario.id)
-            }
-            val current = store.load().firstOrNull { it.id == scenario.id }
-            if (current?.enabled == true && current.verifyEnabled) {
-                onVerificationResult(current, false, "")
-            }
-        }, scenario.verifyTimeoutSec.coerceIn(1, 300).toLong(), java.util.concurrent.TimeUnit.SECONDS)
+        val task = try {
+            scheduler.schedule({
+                val current: Scenario?
+                synchronized(this) {
+                    verificationTasks.remove(scenario.id)
+                    current = store.load().firstOrNull { it.id == scenario.id }
+                }
+                if (current?.enabled == true && current.verifyEnabled && !shutdown) {
+                    onVerificationResult(current, false, "")
+                }
+            }, scenario.verifyTimeoutSec.coerceIn(1, 300).toLong(), java.util.concurrent.TimeUnit.SECONDS)
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            return
+        }
+        verificationTasks[scenario.id] = task
     }
 
     @Synchronized
     fun shutdown() {
+        if (shutdown) return
+        shutdown = true
         verificationTasks.values.forEach { it.cancel(false) }
         verificationTasks.clear()
+        values.clear()
         scheduler.shutdownNow()
     }
 
     @Synchronized
     fun onValue(deviceId: String, widgetId: String, rawValue: String) {
+        if (shutdown) return
         val value = rawValue.trim().replace(',', '.').toDoubleOrNull() ?: return
         values[key(deviceId, widgetId)] = value
 
