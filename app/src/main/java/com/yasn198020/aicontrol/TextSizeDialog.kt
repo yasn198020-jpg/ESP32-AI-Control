@@ -47,6 +47,6 @@ fun TextSizeDialog(
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Готово") } },
-        dismissButton = { TextButton(onClick = { onFontScaleChange(0.85f) }) { Text("По умолчанию") } }
+        dismissButton = {\n            TextButton(onClick = { onFontScaleChange(0.85f) }) { Text("По умолчанию") }\n        }
     )
 }
