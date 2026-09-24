@@ -365,32 +365,36 @@ class ScenarioEngine(
             if (conditions.none { it.deviceId == deviceId && it.widgetId == widgetId }) return@forEach
 
             val matched = expressionMatches(conditions) ?: return@forEach
-            val wasMatched = conditionStates[scenario.id] ?: false
 
-            // Trigger only on a false -> true edge.
-            // This removes the dependency on the persisted armed flag.
-            if (matched && !wasMatched) {
-                conditionStates[scenario.id] = true
-
-                if (scenario.verifyEnabled) startVerification(scenario)
-
-                // Keep the legacy field harmless for old saved scenarios, but
-                // do not use it as the runtime trigger lock.
-                if (scenario.armed) {
-                    onTrigger(scenario, rawValue, value)
-                } else {
-                    // An old scenario may have armed=false saved from a previous
-                    // version. Automatically repair it and still allow this edge.
-                    store.update(scenario.copy(armed = true))
-                    onTrigger(scenario.copy(armed = true), rawValue, value)
-                }
-            } else if (!matched) {
-                // Condition went false: next true value is a new trigger.
+            // Edge-triggered scenario:
+            // false -> true  = trigger once
+            // true -> true   = ignore
+            // true -> false  = reset
+            // false -> false = stay reset
+            if (!matched) {
                 conditionStates[scenario.id] = false
                 if (!scenario.armed) {
                     store.update(scenario.copy(armed = true))
                 }
+                return@forEach
             }
+
+            if (conditionStates[scenario.id] == true) {
+                return@forEach
+            }
+
+            // We are entering the TRUE state. Mark it before executing the
+            // action so repeated MQTT values cannot trigger it again.
+            conditionStates[scenario.id] = true
+
+            if (scenario.verifyEnabled) startVerification(scenario)
+
+            // The persisted armed field is legacy state only and must never
+            // block a fresh false -> true edge.
+            if (!scenario.armed) {
+                store.update(scenario.copy(armed = true))
+            }
+            onTrigger(scenario.copy(armed = true), rawValue, value)
         }
     }
 }
