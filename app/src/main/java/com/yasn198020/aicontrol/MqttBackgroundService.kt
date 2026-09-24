@@ -76,6 +76,16 @@ class MqttBackgroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val prefs = getSharedPreferences("settings", Context.MODE_PRIVATE)
+
+        // If the activity has already returned to the foreground, this service
+        // is no longer the MQTT owner. Stop without creating/reconnecting a client.
+        if (prefs.getBoolean("mqtt_foreground_owner", false)) {
+            handler.removeCallbacksAndMessages(null)
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
+
         mqtt?.let { manager ->
             if (!manager.isConnected()) {
                 connectFromSavedSettings(manager)
