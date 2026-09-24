@@ -58,6 +58,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // MQTT is owned by the background service, not by the Activity.
+        MqttBackgroundService.start(applicationContext)
+
         if (intent?.action == "com.yasn198020.aicontrol.action.MARFA_SHORTCUT"
             && intent?.getBooleanExtra("marfa_shortcut_toggle", false) == true) {
             toggleMarfaFromShortcut()
@@ -387,7 +390,8 @@ private fun App(
     fun connect(save: Boolean = true) {
         manualMqttDisconnect = false
         if (save) saveSettings()
-        mqtt.connect(mqttHost, mqttPort.toIntOrNull() ?: 1883, mqttPrefix, username, password, mqttTls)
+        runtime.reconnect()
+        MqttBackgroundService.start(context)
     }
 
     // Safety: always release the microphone when the screen leaves the foreground.
@@ -872,12 +876,8 @@ private fun App(
                 { mqttHost = it }, { mqttPort = it }, { mqttPrefix = it }, { username = it }, { password = it }, { mqttTls = it },
                 ::saveSettings,
                 {
-                    if (connected) {
-                        manualMqttDisconnect = true
-                        mqtt.disconnect()
-                    } else {
-                        connect()
-                    }
+                    saveSettings()
+                    connect(save = false)
                 },
                 { mqtt.publishHello() }
             )
