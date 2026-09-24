@@ -40,7 +40,7 @@ class AppRuntime private constructor(private val appContext: Context) {
     val scenarioStore: ScenarioStore = ScenarioStore(prefs)
     val scenarioActionExecutor: ScenarioActionExecutor = ScenarioActionExecutor()
 
-    private var currentTriggeredScenario: ((Scenario, String) -> Unit)? = null
+    private val currentTriggeredScenario = ThreadLocal<((Scenario, String) -> Unit)?>()
 
     val scenarioEngine: ScenarioEngine = ScenarioEngine(
         onTrigger = { scenario, rawValue, _ ->
@@ -48,7 +48,7 @@ class AppRuntime private constructor(private val appContext: Context) {
             // handler captures the scenario/raw value and sends the notification
             // after runtimeActive is returned to false.
             scenarioActionExecutor.execute(scenario)
-            currentTriggeredScenario?.invoke(scenario, rawValue)
+            currentTriggeredScenario.get()?.invoke(scenario, rawValue)
         },
         onVerificationResult = { scenario, success, rawValue ->
             if (scenario.notificationEnabled) {
@@ -78,7 +78,7 @@ class AppRuntime private constructor(private val appContext: Context) {
             var triggeredScenario: Scenario? = null
             var triggeredRawValue: String? = null
             val originalEngine = scenarioEngine
-            currentTriggeredScenario = { scenario, raw -> 
+            currentTriggeredScenario.set { scenario, raw -> 
                 triggeredScenario = scenario
                 triggeredRawValue = raw
             }
@@ -114,7 +114,7 @@ class AppRuntime private constructor(private val appContext: Context) {
             } catch (e: Exception) {
                 android.util.Log.e("MQTT_RUNTIME", "Background status processing failed", e)
             } finally {
-                currentTriggeredScenario = null
+                currentTriggeredScenario.remove()
             }
 
             // Only UI rendering is marshalled to the main thread.
