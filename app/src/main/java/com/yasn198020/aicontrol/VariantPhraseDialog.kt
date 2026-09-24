@@ -3,6 +3,8 @@ package com.yasn198020.aicontrol
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedTextField
@@ -26,7 +28,10 @@ fun VariantPhraseDialog(
         onDismissRequest = onDismiss,
         title = { Text("Добавить вариант фразы") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 Text("Команда: «$phrase»")
                 Text("Произнесите или введите другой вариант этой команды.")
                 OutlinedTextField(value = text, onValueChange = onTextChange, label = { Text("Новый вариант") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
