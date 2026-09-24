@@ -38,6 +38,6 @@ import java.util.Locale
     if(points.size<2){Text("Нужно минимум два измерения для графика.",modifier=Modifier.padding(8.dp));return}
     val min=points.minOf{it.value}; val max=points.maxOf{it.value}; val span=(max-min).takeIf{it>0.0}?:1.0
     Column(Modifier.fillMaxWidth()){Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text(String.format(Locale.US,"%.2f %s",max,unit));Text(String.format(Locale.US,"%.2f %s",min,unit))}
-        Canvas(Modifier.fillMaxWidth().height(180.dp).padding(vertical=8.dp)){val w=size.width;val h=size.height;points.forEachIndexed{index,p->if(index>0){val prev=points[index-1];val x1=(index-1).toFloat()/(points.size-1)*w;val x2=index.toFloat()/(points.size-1)*w;val y1=h-((prev.value-min)/span*h).toFloat();val y2=h-((p.value-min)/span*h).toFloat();drawLine(color = MaterialTheme.colorScheme.primary, start = Offset(x1,y1), end = Offset(x2,y2), strokeWidth=4f)}}}
+        Canvas(Modifier.fillMaxWidth().height(180.dp).padding(vertical=8.dp)){val w=size.width;val h=size.height;points.forEachIndexed{index,p->if(index>0){val prev=points[index-1];val x1=(index-1).toFloat()/(points.size-1)*w;val x2=index.toFloat()/(points.size-1)*w;val y1=h-((prev.value-min)/span*h).toFloat();val y2=h-((p.value-min)/span*h).toFloat();drawLine(color = androidx.compose.ui.graphics.Color.Gray, start = Offset(x1,y1), end = Offset(x2,y2), strokeWidth=4f)}}}
     }
 }
