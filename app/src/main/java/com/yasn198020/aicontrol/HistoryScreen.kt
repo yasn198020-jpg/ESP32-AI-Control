@@ -98,7 +98,7 @@ import java.util.Locale
                     val pointIndex=labelIndex*(points.size-1)/(labelCount-1)
                     val x=pointIndex.toFloat()/(points.size-1)*w
                     val time=timeFormat.format(Date(points[pointIndex].timestamp))
-                    drawContext.canvas.nativeCanvas.drawText(
+                    drawContext.canvas.drawText(
                         time,
                         x,
                         h-2.dp.toPx(),
