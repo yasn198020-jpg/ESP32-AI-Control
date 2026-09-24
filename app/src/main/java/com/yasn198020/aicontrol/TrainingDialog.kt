@@ -78,7 +78,7 @@ fun TrainingDialog(
                 if (!attachToExisting) {
                     Text("Нажмите микрофон и произнесите фразу.")
                     Button(onClick = onRequestMic, modifier = Modifier.fillMaxWidth()) { Text("🎤 Записать фразу") }
-                    if (trainingPhrase.isNotBlank()) Text("Распознано: $trainingPhrase")
+                    if (trainingPhrase.isNotBlank()) {\n                        Text("Распознано: $trainingPhrase")\n                    }
                 }
             }
         },
