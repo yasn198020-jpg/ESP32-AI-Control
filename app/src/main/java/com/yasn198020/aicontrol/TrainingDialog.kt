@@ -34,6 +34,7 @@ fun TrainingDialog(
     onSaveExisting: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    // A null target means the dialog is closed.
     target ?: return
     AlertDialog(
         onDismissRequest = onDismiss,
