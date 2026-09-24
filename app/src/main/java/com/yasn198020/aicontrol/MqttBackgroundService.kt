@@ -12,6 +12,12 @@ import android.os.IBinder
 import android.os.Looper
 import androidx.core.app.NotificationCompat
 
+/**
+ * Keeps the process alive for background MQTT work.
+ *
+ * MQTT itself is NOT owned by this Service. AppRuntime owns one MqttManager
+ * for the whole process, and both foreground UI and this service use it.
+ */
 class MqttBackgroundService : Service() {
 
     companion object {
@@ -21,10 +27,7 @@ class MqttBackgroundService : Service() {
     }
 
     private val handler = Handler(Looper.getMainLooper())
-    private var mqtt: MqttManager? = null
-    private lateinit var historyStore: HistoryStore
-    private var scenarioEngine: ScenarioEngine? = null
-    private var scenarioActionExecutor: ScenarioActionExecutor? = null
+    private lateinit var runtime: AppRuntime
 
     private val reconnectTask = object : Runnable {
         override fun run() {
@@ -35,69 +38,29 @@ class MqttBackgroundService : Service() {
                 return
             }
 
-            val manager = mqtt
-            if (manager != null && !manager.isConnected() && !manager.isConnecting()) {
-                connectFromSavedSettings(manager)
-            }
+            runtime.ensureConnected()
             handler.postDelayed(this, CHECK_MS)
         }
     }
 
     override fun onCreate() {
         super.onCreate()
+
         val prefs = getSharedPreferences("settings", Context.MODE_PRIVATE)
         if (!prefs.getBoolean("mqtt_background_enabled", false)) {
             stopSelf()
             return
         }
-        // Once this service is started, it is the background MQTT/scenario owner.
-        // Do not rely on a stale foreground-owner flag left by a previous activity instance.
-        prefs.edit().putBoolean("mqtt_foreground_owner", false).apply()
+
+        runtime = AppRuntime.get(applicationContext)
+
         createNotificationChannel()
         startAsForeground()
-        historyStore = HistoryStore(prefs)
-        val scenarioStore = ScenarioStore(prefs)
-        scenarioActionExecutor = ScenarioActionExecutor()
-        scenarioEngine = ScenarioEngine(
-            scenarioStore,
-            onTrigger = { scenario, rawValue, _ ->
-                if (scenario.notificationEnabled) {
-                    ScenarioNotifier.notify(this, scenario, rawValue)
-                }
-                scenarioActionExecutor?.execute(scenario)
-            },
-            onVerificationResult = { scenario, success, rawValue ->
-                if (scenario.notificationEnabled) {
-                    ScenarioNotifier.notifyVerification(this, scenario, success, rawValue)
-                }
-            }
-        )
-        mqtt = MqttManager(
-            onLog = { message -> android.util.Log.d("MQTT_BG", message) },
-            onConnected = { connected ->
-                android.util.Log.d("MQTT_BG", "connected=$connected")
-            },
-            onStatus = { deviceId, widgetId, value ->
-                android.util.Log.d("MQTT_BG", "status $deviceId/$widgetId=$value")
-                historyStore.add(deviceId, widgetId, value)
-                scenarioEngine?.onValue(deviceId, widgetId, value)
-            },
-            onConfig = { deviceId, widgetId, label, type, page, topic, order, raw ->
-                android.util.Log.d("MQTT_BG", "config $deviceId/$widgetId type=$type topic=$topic")
-            }
-        )
-        // Restore the latest known telemetry before live MQTT callbacks arrive.
-        // This is important for multi-condition scenarios: the background service
-        // can start with an empty in-memory value set while the device does not
-        // immediately resend every widget state.
-        historyStore.latestValues().forEach { (key, value) ->
-            val parts = key.split("/", limit = 2)
-            if (parts.size == 2) {
-                scenarioEngine?.restoreValue(parts[0], parts[1], value)
-            }
-        }
 
-        scenarioActionExecutor?.mqtt = mqtt
+        android.util.Log.d(
+            "MQTT_BG",
+            "Background service started; using shared AppRuntime/MqttManager"
+        )
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -109,35 +72,11 @@ class MqttBackgroundService : Service() {
             return START_NOT_STICKY
         }
 
-        // Foreground handoff is controlled by MainActivity.stopService().
-        // A stale foreground-owner flag must never prevent this explicitly
-        // started background service from running scenarios.
-        mqtt?.let { manager ->
-            if (!manager.isConnected() && !manager.isConnecting()) {
-                connectFromSavedSettings(manager)
-            }
-        }
+        runtime.ensureConnected()
+
         handler.removeCallbacks(reconnectTask)
-        handler.postDelayed(reconnectTask, CHECK_MS)
+        handler.post(reconnectTask)
         return START_STICKY
-    }
-
-    private fun connectFromSavedSettings(manager: MqttManager) {
-        val prefs = getSharedPreferences("settings", Context.MODE_PRIVATE)
-        if (!prefs.getBoolean("mqtt_background_enabled", false) ||
-            prefs.getBoolean("mqtt_foreground_owner", false)) {
-            handler.removeCallbacks(reconnectTask)
-            return
-        }
-
-        val host = prefs.getString("mqtt_host", "m4.wqtt.ru") ?: "m4.wqtt.ru"
-        val port = prefs.getString("mqtt_port", "1883")?.toIntOrNull() ?: 1883
-        val tls = prefs.getBoolean("mqtt_tls", false)
-        val prefix = prefs.getString("mqtt_prefix", "IoTManager") ?: "IoTManager"
-        val username = prefs.getString("mqtt_user", "") ?: ""
-        val password = prefs.getString("mqtt_pass", "") ?: ""
-
-        manager.connect(host, port, prefix, username, password, tls)
     }
 
     private fun createNotificationChannel() {
@@ -147,10 +86,12 @@ class MqttBackgroundService : Service() {
                 "MQTT connection",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Persistent MQTT connection while ESP32 AI Control is in the background"
+                description =
+                    "Persistent MQTT connection while ESP32 AI Control is in the background"
                 setShowBadge(false)
             }
-            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+            getSystemService(NotificationManager::class.java)
+                .createNotificationChannel(channel)
         }
     }
 
@@ -176,13 +117,13 @@ class MqttBackgroundService : Service() {
     }
 
     override fun onDestroy() {
+        // Important: do NOT disconnect MQTT here. The shared runtime may still
+        // be used by the foreground Activity, and it owns the only MQTT client.
         handler.removeCallbacksAndMessages(null)
-        scenarioEngine?.shutdown()
-        scenarioEngine = null
-        scenarioActionExecutor?.mqtt = null
-        scenarioActionExecutor = null
-        mqtt?.disconnect()
-        mqtt = null
+        android.util.Log.d(
+            "MQTT_BG",
+            "Background service stopped; shared MQTT runtime remains intact"
+        )
         super.onDestroy()
     }
 
