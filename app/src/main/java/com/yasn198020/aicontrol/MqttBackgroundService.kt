@@ -18,6 +18,7 @@ class MqttBackgroundService : Service() {
         private const val CHANNEL_ID = "mqtt_background"
         private const val NOTIFICATION_ID = 1201
         private const val CHECK_MS = 20_000L
+        const val ACTION_STOP = "com.yasn198020.aicontrol.action.STOP_MQTT_BACKGROUND"
     }
 
     private val handler = Handler(Looper.getMainLooper())
@@ -77,6 +78,17 @@ class MqttBackgroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_STOP) {
+            handler.removeCallbacksAndMessages(null)
+            scenarioEngine.shutdown()
+            scenarioActionExecutor.mqtt = null
+            mqtt?.disconnect()
+            mqtt = null
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
         mqtt?.let { manager ->
             if (!manager.isConnected()) {
                 connectFromSavedSettings(manager)
