@@ -474,31 +474,49 @@ private fun ScenarioEditorDialog(
                                             DropdownMenuItem(text = { Text("Выключить (0)") }, onClick = { actionDrafts[actionNumber] = actionDraft.copy(value = "0"); actionValueMenuIndex = -1 })
                                         }
                                     }
-                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        TextButton(enabled = actionNumber > 0, onClick = {
-                                            val tmp = actionDrafts[actionNumber]
-                                            actionDrafts[actionNumber] = actionDrafts[actionNumber - 1]
-                                            actionDrafts[actionNumber - 1] = tmp
-                                            actionSelectionOpenIndex = -1
-                                            actionValueMenuIndex = -1
-                                        }) { Text("↑") }
-                                        TextButton(onClick = {
-                                            actionDrafts.add(actionNumber + 1, actionDrafts[actionNumber].copy())
-                                            actionSelectionOpenIndex = -1
-                                            actionValueMenuIndex = -1
-                                        }) { Text("Копировать") }
-                                        TextButton(enabled = actionNumber < actionDrafts.lastIndex, onClick = {
-                                            val tmp = actionDrafts[actionNumber]
-                                            actionDrafts[actionNumber] = actionDrafts[actionNumber + 1]
-                                            actionDrafts[actionNumber + 1] = tmp
-                                            actionSelectionOpenIndex = -1
-                                            actionValueMenuIndex = -1
-                                        }) { Text("↓") }
-                                        TextButton(onClick = {
-                                            actionDrafts.removeAt(actionNumber)
-                                            actionSelectionOpenIndex = -1
-                                            actionValueMenuIndex = -1
-                                        }) { Text("Удалить") }
+                                    Row(
+                                        Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        TextButton(
+                                            enabled = actionNumber > 0,
+                                            onClick = {
+                                                val tmp = actionDrafts[actionNumber]
+                                                actionDrafts[actionNumber] = actionDrafts[actionNumber - 1]
+                                                actionDrafts[actionNumber - 1] = tmp
+                                                actionSelectionOpenIndex = -1
+                                                actionValueMenuIndex = -1
+                                            },
+                                            modifier = Modifier.weight(1f)
+                                        ) { Text("↑") }
+                                        TextButton(
+                                            onClick = {
+                                                actionDrafts.add(actionNumber + 1, actionDrafts[actionNumber].copy())
+                                                actionSelectionOpenIndex = -1
+                                                actionValueMenuIndex = -1
+                                            },
+                                            modifier = Modifier.weight(1f)
+                                        ) { Text("Копировать") }
+                                        TextButton(
+                                            enabled = actionNumber < actionDrafts.lastIndex,
+                                            onClick = {
+                                                val tmp = actionDrafts[actionNumber]
+                                                actionDrafts[actionNumber] = actionDrafts[actionNumber + 1]
+                                                actionDrafts[actionNumber + 1] = tmp
+                                                actionSelectionOpenIndex = -1
+                                                actionValueMenuIndex = -1
+                                            },
+                                            modifier = Modifier.weight(1f)
+                                        ) { Text("↓") }
+                                        TextButton(
+                                            onClick = {
+                                                actionDrafts.removeAt(actionNumber)
+                                                actionSelectionOpenIndex = -1
+                                                actionValueMenuIndex = -1
+                                            },
+                                            modifier = Modifier.weight(1f)
+                                        ) { Text("🗑") }
                                     }
                                 }
                             }
