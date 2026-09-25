@@ -8,10 +8,10 @@
     android:background="@drawable/live_widget_background">
 
     <TextView
-        android:id="@+id/live_widget_connection"
+        android:id="@+id/live_widget_updated"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="○ MQTT нет соединения"
+        android:text="Обновлено: —"
         android:textColor="@android:color/white"
         android:textSize="11sp"
         android:maxLines="1" />
