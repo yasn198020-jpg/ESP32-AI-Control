@@ -145,18 +145,15 @@ class MqttBackgroundService : Service() {
                     " reconnectReset=" + stuckAutomaticReconnect
             )
 
-            if (DiagnosticTrace.isForeground()) {
-                runtime.historyStore.flushNow()
-                DiagnosticTrace.system(
-                    "BACKGROUND CHECK #" + checkNumber +
-                        " HISTORY flushed foreground=true diagnostics=" + runtime.historyStore.diagnostics()
-                )
-            } else {
-                DiagnosticTrace.system(
-                    "BACKGROUND CHECK #" + checkNumber +
-                        " HISTORY skipped background graph recording disabled diagnostics=" + runtime.historyStore.diagnostics()
-                )
-            }
+            // Persist history in both foreground and background. HistoryStore
+            // performs the actual disk write asynchronously, so this does not block MQTT.
+            runtime.historyStore.flushNow()
+            DiagnosticTrace.system(
+                "BACKGROUND CHECK #" + checkNumber +
+                    " HISTORY flush requested state=" +
+                    (if (DiagnosticTrace.isForeground()) "FOREGROUND" else "BACKGROUND") +
+                    " diagnostics=" + runtime.historyStore.diagnostics()
+            )
 
             DiagnosticTrace.system(
                 "BACKGROUND CHECK #" + checkNumber +
