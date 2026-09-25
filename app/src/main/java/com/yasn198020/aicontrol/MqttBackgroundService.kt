@@ -30,6 +30,7 @@ class MqttBackgroundService : Service() {
         private const val NOTIFICATION_ID = 1301
         private const val CHECK_INTERVAL_MS = 15_000L
         private const val STUCK_CONNECT_MS = 25_000L
+        private const val STUCK_RECONNECT_MS = 45_000L
 
         fun start(context: Context) {
             val intent = Intent(context, MqttBackgroundService::class.java)
@@ -103,6 +104,16 @@ class MqttBackgroundService : Service() {
                 )
             }
 
+            val stuckAutomaticReconnect =
+                runtime.mqtt.reconnectIfAutomaticReconnectStuck(STUCK_RECONNECT_MS)
+
+            if (stuckAutomaticReconnect) {
+                DiagnosticTrace.system(
+                    "BACKGROUND CHECK #" + checkNumber +
+                        " MQTT replaced stuck automatic-reconnect client"
+                )
+            }
+
             // If there is no connection attempt at all, ask AppRuntime to start
             // one. If Paho is reconnecting, isConnecting() stays true and no
             // second MQTT client can be created.
@@ -116,7 +127,8 @@ class MqttBackgroundService : Service() {
                     " MQTT afterEnsure connected=" + afterConnected +
                     " connecting=" + afterConnecting +
                     " changed=" + (beforeConnected != afterConnected) +
-                    " initialConnectReset=" + stuckInitialConnect
+                    " initialConnectReset=" + stuckInitialConnect +
+                    " reconnectReset=" + stuckAutomaticReconnect
             )
 
             runtime.historyStore.flushNow()
@@ -140,6 +152,7 @@ class MqttBackgroundService : Service() {
                     " beforeConnected=" + beforeConnected +
                     " beforeConnecting=" + beforeConnecting +
                     " initialConnectReset=" + stuckInitialConnect +
+                    " reconnectReset=" + stuckAutomaticReconnect +
                     " afterConnected=" + afterConnected +
                     " afterConnecting=" + afterConnecting
             )
