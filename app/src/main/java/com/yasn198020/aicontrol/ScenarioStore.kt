@@ -640,7 +640,8 @@ class ScenarioEngine(
             DiagnosticTrace.stepForEvent(eventId, "SCENARIO", "SKIP non-numeric value=$rawValue")
             return
         }
-        values[key(deviceId, widgetId)] = value
+        // Global variable: the latest value from any device is the value of this widget variable.
+        values[key(widgetId)] = value
 
         val scenarios = store.load()
         DiagnosticTrace.stepForEvent(
@@ -720,7 +721,7 @@ class ScenarioEngine(
 
             if (conditionStates[scenario.id] == true) {
                 DiagnosticTrace.stepForEvent(eventId, "EDGE", "id=${scenario.id} true -> true, ignored")
-                if (conditions.any { it.deviceId == deviceId && it.widgetId == "vbtn90" }) {
+                if (conditions.any { it.widgetId == "vbtn90" }) {
                     DiagnosticTrace.stepForEvent(eventId, "EDGE", "VBTN90 EDGE IGNORED value=$value scenario=${scenario.id}")
                 }
                 return@forEach
@@ -728,7 +729,7 @@ class ScenarioEngine(
 
             conditionStates[scenario.id] = true
             DiagnosticTrace.stepForEvent(eventId, "EDGE", "id=${scenario.id} false -> true, TRIGGER")
-            if (conditions.any { it.deviceId == deviceId && it.widgetId == "vbtn90" }) {
+            if (conditions.any { it.widgetId == "vbtn90" }) {
                 DiagnosticTrace.stepForEvent(eventId, "EDGE", "VBTN90 EDGE TRIGGER value=$value scenario=${scenario.id}")
             }
 
