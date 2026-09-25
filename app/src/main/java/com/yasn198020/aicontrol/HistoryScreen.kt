@@ -13,7 +13,6 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.input.pointer.awaitPointerEvent
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -171,7 +170,6 @@ import kotlin.math.min
                         }
 
                         val dx=change.position.x-lastPosition.x
-                        val dy=change.position.y-lastPosition.y
                         val totalDx=change.position.x-down.position.x
                         val totalDy=change.position.y-down.position.y
 
