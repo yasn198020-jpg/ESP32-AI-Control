@@ -15,33 +15,74 @@ jobs:
     if: ${{ contains(github.event.head_commit.message, '[cleanup-actions]') }}
     runs-on: ubuntu-24.04
     steps:
-      - name: Delete old workflow runs
+      - name: Cancel old active workflow runs
         env:
           GH_TOKEN: ${{ github.token }}
           CURRENT_RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
 
-          echo "Current run: ${CURRENT_RUN_ID}"
+          gh api --paginate \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${GITHUB_REPOSITORY}/actions/runs?per_page=100" \
+            --jq '.workflow_runs[] | [.id, .status] | @tsv' > /tmp/runs.tsv
+
+          while IFS=$'\t' read -r RUN_ID STATUS; do
+            [ -z "${RUN_ID}" ] && continue
+            [ "${RUN_ID}" = "${CURRENT_RUN_ID}" ] && continue
+
+            case "${STATUS}" in
+              completed)
+                ;;
+              *)
+                echo "CANCEL run ${RUN_ID} (${STATUS})"
+                gh api --method POST \
+                  -H "Accept: application/vnd.github+json" \
+                  "/repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/force-cancel" >/dev/null 2>&1 || true
+                ;;
+            esac
+          done < /tmp/runs.tsv
+
+      - name: Wait for old runs to stop
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CURRENT_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          for attempt in $(seq 1 20); do
+            PENDING=$(gh api --paginate \
+              -H "Accept: application/vnd.github+json" \
+              "/repos/${GITHUB_REPOSITORY}/actions/runs?per_page=100" \
+              --jq ".workflow_runs[] | select(.id != ${CURRENT_RUN_ID} and .status != \"completed\") | .id")
+
+            if [ -z "${PENDING}" ]; then
+              echo "All other runs are no longer active."
+              break
+            fi
+
+            echo "Still active: ${PENDING}"
+            sleep 2
+          done
+
+      - name: Delete old completed workflow runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CURRENT_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
 
           gh api --paginate \
             -H "Accept: application/vnd.github+json" \
             "/repos/${GITHUB_REPOSITORY}/actions/runs?per_page=100" \
-            --jq '.workflow_runs[] | .id' > /tmp/run_ids
+            --jq ".workflow_runs[] | select(.id != ${CURRENT_RUN_ID} and .status == \"completed\") | .id" > /tmp/completed_ids
 
           while IFS= read -r RUN_ID; do
             [ -z "${RUN_ID}" ] && continue
-            if [ "${RUN_ID}" = "${CURRENT_RUN_ID}" ]; then
-              echo "KEEP current run ${RUN_ID}"
-              continue
-            fi
-
             echo "DELETE run ${RUN_ID}"
             gh api --method DELETE \
               -H "Accept: application/vnd.github+json" \
-              "/repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}"
-          done < /tmp/run_ids
+              "/repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" >/dev/null
+          done < /tmp/completed_ids
 
-          echo "Cleanup finished. The current cleanup run is intentionally preserved for verification."
-
-# [cleanup-actions] trigger
+          echo "Actions history cleanup finished."
