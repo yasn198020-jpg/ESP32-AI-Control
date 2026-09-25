@@ -16,6 +16,9 @@ class MqttManager(
     private var client: MqttAsyncClient? = null
     @Volatile private var connecting = false
     @Volatile private var lastRxAt = 0L
+    @Volatile private var rxCallbackCount = 0L
+    @Volatile private var lastRxTopic = ""
+    @Volatile private var lastRxThread = ""
     private var prefix = ""
     private data class PendingPublish(val topic: String, val payload: String, val eventId: Long?)
     private val pendingPublishes = ArrayDeque<PendingPublish>()
@@ -55,7 +58,11 @@ class MqttManager(
                 override fun connectComplete(reconnect: Boolean, serverURI: String?) {
                     connecting = false
                     lastRxAt = System.currentTimeMillis()
-                    DiagnosticTrace.system("MQTT connected reconnect=" + reconnect + " serverURI=" + serverURI)
+                    rxCallbackCount = 0L
+                    lastRxTopic = ""
+                    lastRxThread = Thread.currentThread().name
+                    DiagnosticTrace.system("MQTT Paho connectComplete reconnect=" + reconnect + " serverURI=" + serverURI + " thread=" + Thread.currentThread().name)
+                    DiagnosticTrace.system("MQTT Paho state connected=" + (client?.isConnected == true))
                     DiagnosticTrace.system("VBTN90 CONNECTION connected reconnect=" + reconnect)
                     emitLog("MQTT connected: " + serverURI)
                     emitConnected(true)
@@ -65,7 +72,7 @@ class MqttManager(
 
                 override fun connectionLost(cause: Throwable?) {
                     connecting = false
-                    DiagnosticTrace.system("MQTT connection lost: " + (cause?.message ?: cause?.javaClass?.simpleName ?: "unknown"))
+                    DiagnosticTrace.system("MQTT Paho connectionLost thread=" + Thread.currentThread().name + " connected=" + (client?.isConnected == true) + " rxCount=" + rxCallbackCount + " lastRxAt=" + lastRxAt + " lastRxTopic=" + lastRxTopic + " cause=" + mqttExceptionText("cause", cause))
                     DiagnosticTrace.system("VBTN90 CONNECTION lost")
                     emitLog(mqttExceptionText("MQTT connection lost", cause))
                     emitConnected(false)
@@ -75,6 +82,10 @@ class MqttManager(
                     if (topic == null || message == null) return
 
                     lastRxAt = System.currentTimeMillis()
+                    rxCallbackCount++
+                    lastRxTopic = topic
+                    lastRxThread = Thread.currentThread().name
+                    DiagnosticTrace.system("MQTT Paho messageArrived #" + rxCallbackCount + " thread=" + lastRxThread + " topic=" + topic + " bytes=" + message.payload.size + " connected=" + (client?.isConnected == true))
                     val payload = String(message.payload, Charsets.UTF_8)
                     val messageType = when {
                         topic.endsWith("/config") -> "CONFIG"
@@ -421,12 +432,20 @@ class MqttManager(
             client = null
             connecting = false
             lastRxAt = 0L
+            rxCallbackCount = 0L
+            lastRxTopic = ""
+            lastRxThread = ""
             emitConnected(false)
         }
     }
 
     fun isConnected(): Boolean = client?.isConnected == true
     fun isConnecting(): Boolean = connecting
+
+    fun diagnostics(): String {
+        val idleMs = if (lastRxAt == 0L) -1L else System.currentTimeMillis() - lastRxAt
+        return "connected=" + isConnected() + " connecting=" + isConnecting() + " rxCount=" + rxCallbackCount + " lastRxIdleMs=" + idleMs + " lastRxTopic=" + lastRxTopic + " lastRxThread=" + lastRxThread
+    }
 
     fun reconnectIfStale(maxIdleMs: Long = 90_000L): Boolean {
         val c = client ?: return false
