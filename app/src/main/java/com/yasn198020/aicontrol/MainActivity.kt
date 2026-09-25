@@ -147,7 +147,7 @@ private fun App(
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("settings", Context.MODE_PRIVATE) }
-    var mqttHost by remember { mutableStateOf(prefs.getString("mqtt_host", "m4.wqtt.ru") ?: "m4.wqtt.ru") }
+    var mqttHost by remember { mutableStateOf(prefs.getString("mqtt_host", "") ?: "") }
     var mqttPort by remember { mutableStateOf(prefs.getString("mqtt_port", "1883") ?: "1883") }
     var mqttTls by remember { mutableStateOf(prefs.getBoolean("mqtt_tls", false)) }
     var mqttPrefix by remember { mutableStateOf(prefs.getString("mqtt_prefix", "IoTManager") ?: "IoTManager") }
