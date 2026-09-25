@@ -49,8 +49,13 @@ class MqttBackgroundService : Service() {
             if (!running) return
             try {
                 val runtime = AppRuntime.get(applicationContext)
-                DiagnosticTrace.system("SERVICE watchdog connected=" + runtime.mqtt.isConnected() + " connecting=" + runtime.mqtt.isConnecting())
-                runtime.ensureConnected()
+                val staleRecovered = runtime.mqtt.reconnectIfStale(90_000L)
+                DiagnosticTrace.system(
+                    "SERVICE watchdog connected=" + runtime.mqtt.isConnected() +
+                        " connecting=" + runtime.mqtt.isConnecting() +
+                        " staleRecovered=" + staleRecovered
+                )
+                if (!staleRecovered) runtime.ensureConnected()
             } catch (e: Exception) {
                 android.util.Log.e("MQTT_BACKGROUND", "ensureConnected failed", e)
             }
