@@ -6,21 +6,29 @@ object LiveDataWidgetStore {
     private const val PREFS = "live_data_widget_preferences"
     private const val KEY_DEVICE = "device_"
     private const val KEY_WIDGET = "widget_"
-    private const val KEY_LOW = "low_"
-    private const val KEY_HIGH = "high_"
-    private const val KEY_COLOR_LOW = "color_low_"
-    private const val KEY_COLOR_MID = "color_mid_"
-    private const val KEY_COLOR_HIGH = "color_high_"
+    private const val KEY_THRESHOLDS = "thresholds_"
+    private const val KEY_BELOW_COLOR = "below_color_"
+
+    data class Threshold(
+        val value: Float,
+        val color: Int
+    )
 
     data class Selection(
         val deviceId: String,
         val widgetId: String,
-        val low: Float = 0f,
-        val high: Float = 20f,
-        val colorLow: Int = 0xFF1976D2.toInt(),
-        val colorMid: Int = 0xFF2E7D32.toInt(),
-        val colorHigh: Int = 0xFFD32F2F.toInt()
-    )
+        val thresholds: List<Threshold>,
+        val belowColor: Int
+    ) {
+        fun colorFor(value: Float): Int {
+            var color = belowColor
+            for (threshold in thresholds.sortedBy { it.value }) {
+                if (value < threshold.value) break
+                color = threshold.color
+            }
+            return color
+        }
+    }
 
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -29,26 +37,63 @@ object LiveDataWidgetStore {
         val p = prefs(context)
         val deviceId = p.getString(KEY_DEVICE + appWidgetId, null)?.trim().orEmpty()
         val widgetId = p.getString(KEY_WIDGET + appWidgetId, null)?.trim().orEmpty()
-        return if (deviceId.isBlank() || widgetId.isBlank()) null else Selection(
-            deviceId,
-            widgetId,
-            p.getString(KEY_LOW + appWidgetId, "0")?.toFloatOrNull() ?: 0f,
-            p.getString(KEY_HIGH + appWidgetId, "20")?.toFloatOrNull() ?: 20f,
-            p.getInt(KEY_COLOR_LOW + appWidgetId, 0xFF1976D2.toInt()),
-            p.getInt(KEY_COLOR_MID + appWidgetId, 0xFF2E7D32.toInt()),
-            p.getInt(KEY_COLOR_HIGH + appWidgetId, 0xFFD32F2F.toInt())
+        if (deviceId.isBlank() || widgetId.isBlank()) return null
+
+        val thresholds = p.getString(KEY_THRESHOLDS + appWidgetId, null)
+            ?.split(';')
+            ?.mapNotNull { item ->
+                val parts = item.split('|')
+                if (parts.size != 2) return@mapNotNull null
+                val value = parts[0].toFloatOrNull() ?: return@mapNotNull null
+                val color = parts[1].toIntOrNull() ?: return@mapNotNull null
+                Threshold(value, color)
+            }
+            ?.sortedBy { it.value }
+
+        if (thresholds != null && thresholds.isNotEmpty()) {
+            return Selection(
+                deviceId = deviceId,
+                widgetId = widgetId,
+                thresholds = thresholds,
+                belowColor = p.getInt(KEY_BELOW_COLOR + appWidgetId, 0xFF1976D2.toInt())
+            )
+        }
+
+        // Backward compatibility with the previous two-threshold format.
+        val low = p.getString("low_" + appWidgetId, "0")?.toFloatOrNull() ?: 0f
+        val high = p.getString("high_" + appWidgetId, "20")?.toFloatOrNull() ?: 20f
+        val lowColor = p.getInt("color_low_" + appWidgetId, 0xFF1976D2.toInt())
+        val midColor = p.getInt("color_mid_" + appWidgetId, 0xFF2E7D32.toInt())
+        val highColor = p.getInt("color_high_" + appWidgetId, 0xFFD32F2F.toInt())
+
+        return Selection(
+            deviceId = deviceId,
+            widgetId = widgetId,
+            thresholds = listOf(
+                Threshold(low, midColor),
+                Threshold(high, highColor)
+            ).sortedBy { it.value },
+            belowColor = lowColor
         )
     }
 
-    fun save(context: Context, appWidgetId: Int, deviceId: String, widgetId: String, low: Float = 0f, high: Float = 20f, colorLow: Int = 0xFF1976D2.toInt(), colorMid: Int = 0xFF2E7D32.toInt(), colorHigh: Int = 0xFFD32F2F.toInt()) {
+    fun save(
+        context: Context,
+        appWidgetId: Int,
+        deviceId: String,
+        widgetId: String,
+        thresholds: List<Threshold>,
+        belowColor: Int
+    ) {
+        val serialized = thresholds
+            .sortedBy { it.value }
+            .joinToString(";") { "${it.value}|${it.color}" }
+
         prefs(context).edit()
             .putString(KEY_DEVICE + appWidgetId, deviceId)
             .putString(KEY_WIDGET + appWidgetId, widgetId)
-            .putString(KEY_LOW + appWidgetId, low.toString())
-            .putString(KEY_HIGH + appWidgetId, high.toString())
-            .putInt(KEY_COLOR_LOW + appWidgetId, colorLow)
-            .putInt(KEY_COLOR_MID + appWidgetId, colorMid)
-            .putInt(KEY_COLOR_HIGH + appWidgetId, colorHigh)
+            .putString(KEY_THRESHOLDS + appWidgetId, serialized)
+            .putInt(KEY_BELOW_COLOR + appWidgetId, belowColor)
             .apply()
     }
 
@@ -56,11 +101,13 @@ object LiveDataWidgetStore {
         prefs(context).edit()
             .remove(KEY_DEVICE + appWidgetId)
             .remove(KEY_WIDGET + appWidgetId)
-            .remove(KEY_LOW + appWidgetId)
-            .remove(KEY_HIGH + appWidgetId)
-            .remove(KEY_COLOR_LOW + appWidgetId)
-            .remove(KEY_COLOR_MID + appWidgetId)
-            .remove(KEY_COLOR_HIGH + appWidgetId)
+            .remove(KEY_THRESHOLDS + appWidgetId)
+            .remove(KEY_BELOW_COLOR + appWidgetId)
+            .remove("low_" + appWidgetId)
+            .remove("high_" + appWidgetId)
+            .remove("color_low_" + appWidgetId)
+            .remove("color_mid_" + appWidgetId)
+            .remove("color_high_" + appWidgetId)
             .apply()
     }
 }
