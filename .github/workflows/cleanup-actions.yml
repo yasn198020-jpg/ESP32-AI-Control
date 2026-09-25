@@ -1,0 +1,44 @@
+name: Cleanup Actions history
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Delete old workflow runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CURRENT_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          echo "Current run: ${CURRENT_RUN_ID}"
+
+          gh api --paginate \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${GITHUB_REPOSITORY}/actions/runs?per_page=100" \
+            --jq '.workflow_runs[] | .id' > /tmp/run_ids
+
+          while IFS= read -r RUN_ID; do
+            [ -z "${RUN_ID}" ] && continue
+            if [ "${RUN_ID}" = "${CURRENT_RUN_ID}" ]; then
+              echo "KEEP current run ${RUN_ID}"
+              continue
+            fi
+
+            echo "DELETE run ${RUN_ID}"
+            gh api --method DELETE \
+              -H "Accept: application/vnd.github+json" \
+              "/repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}"
+          done < /tmp/run_ids
+
+          echo "Cleanup finished. The current cleanup run is intentionally preserved for verification."
