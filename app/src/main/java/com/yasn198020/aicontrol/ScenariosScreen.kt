@@ -304,7 +304,7 @@ private fun ScenarioEditorDialog(
             val found = controls.indexOfFirst { it.first.id == initialScenario.actionDeviceId && it.second.id == initialScenario.actionWidgetId }
             if (found >= 0) actionDrafts[0] = actionDrafts[0].copy(selectedIndex = found)
         }
-        if (initialScenario != null && initialScenario.verifyDeviceId.isNotBlank()) {
+        if (initialScenario != null && initialScenario.verifyWidgetId.isNotBlank()) {
             val found = conditionWidgets.indexOfFirst { it.second.id == initialScenario.verifyWidgetId }
             if (found >= 0) verifyTargetIndex = found
         }
