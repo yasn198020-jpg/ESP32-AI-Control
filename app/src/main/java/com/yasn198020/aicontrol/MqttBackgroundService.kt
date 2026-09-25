@@ -143,10 +143,15 @@ class MqttBackgroundService : Service() {
                     " afterConnected=" + afterConnected +
                     " afterConnecting=" + afterConnecting
             )
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            // Never let an unchecked failure escape the scheduled task.
+            // ScheduledExecutorService cancels a repeating task when its
+            // runnable throws, which would silently stop all future background
+            // checks while the Android service itself is still alive.
             DiagnosticTrace.system(
                 "BACKGROUND CHECK #" + checkNumber +
-                    " ERROR " + (e.message ?: e.javaClass.simpleName)
+                    " ERROR " + (e.message ?: e.javaClass.simpleName) +
+                    " thread=" + Thread.currentThread().name
             )
             android.util.Log.e("MQTT_BACKGROUND", "background check failed", e)
         }
