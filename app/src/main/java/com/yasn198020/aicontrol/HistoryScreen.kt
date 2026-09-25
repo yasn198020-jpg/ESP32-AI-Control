@@ -115,6 +115,8 @@ import kotlin.math.min
     onSelectIndex:(Int)->Unit
 ){
     var canvasWidth by remember{mutableFloatStateOf(0f)}
+    val currentZoom by rememberUpdatedState(zoom)
+    val currentOffsetX by rememberUpdatedState(offsetX)
 
     fun clampOffset(scale:Float,rawOffset:Float,width:Float):Float{
         val contentWidth=width*scale
