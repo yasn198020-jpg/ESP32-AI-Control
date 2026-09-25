@@ -14,6 +14,7 @@ permissions:
 
 jobs:
   build:
+    if: ${{ !contains(github.event.head_commit.message, '[cleanup-releases]') }}
     runs-on: ubuntu-24.04
 
     steps:
@@ -89,3 +90,28 @@ jobs:
           gh release create "$TAG"             --repo "$GITHUB_REPOSITORY"             --target "$GITHUB_SHA"             --title "ESP32-AI-Control $VERSION_NAME"             --notes "Signed APK build $VERSION_NAME. Install over the previous version using the same signing key."
 
           gh release upload "$TAG"             "dist/ESP32-AI-Control-$VERSION_CODE.apk"             --repo "$GITHUB_REPOSITORY"             --clobber
+
+  cleanup-releases:
+    if: ${{ contains(github.event.head_commit.message, '[cleanup-releases]') }}
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Remove old releases and tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEEP_TAG: v1.0.1533
+        run: |
+          set -euo pipefail
+
+          echo "Keeping release: $KEEP_TAG"
+
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 1000 --json tagName --jq '.[].tagName' |
+          while IFS= read -r TAG; do
+            [ -z "$TAG" ] && continue
+            if [ "$TAG" = "$KEEP_TAG" ]; then
+              echo "KEEP $TAG"
+            else
+              echo "DELETE $TAG"
+              gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
+            fi
+          done
