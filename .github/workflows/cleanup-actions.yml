@@ -43,3 +43,5 @@ jobs:
           done < /tmp/run_ids
 
           echo "Cleanup finished. The current cleanup run is intentionally preserved for verification."
+
+# [cleanup-actions] trigger
