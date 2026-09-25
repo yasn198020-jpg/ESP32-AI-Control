@@ -51,6 +51,18 @@ object DiagnosticTrace {
         }
     }
 
+    fun rawMqttReceived(topic: String, payload: String, qos: Int, retained: Boolean) {
+        ensureInitialized()
+        if (foreground.get()) return
+        BackgroundTrace.event(
+            "MQTT_RAW",
+            "topic=" + topic +
+                " payload=" + compact(payload) +
+                " qos=" + qos +
+                " retained=" + retained
+        )
+    }
+
     fun beginEvent(topic: String, payload: String): Long {
         ensureInitialized()
         val id = eventCounter.incrementAndGet()
