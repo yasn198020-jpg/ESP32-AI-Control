@@ -15,6 +15,7 @@ class MqttManager(
     private val main = Handler(Looper.getMainLooper())
     private var client: MqttAsyncClient? = null
     @Volatile private var connecting = false
+    @Volatile private var lastRxAt = 0L
     private var prefix = ""
     private data class PendingPublish(val topic: String, val payload: String, val eventId: Long?)
     private val pendingPublishes = ArrayDeque<PendingPublish>()
@@ -47,11 +48,13 @@ class MqttManager(
             val id = "ESP32AI-" + UUID.randomUUID().toString().replace("-", "").take(12)
             val c = MqttAsyncClient(normalizedUrl, id, MemoryPersistence())
             client = c
+            lastRxAt = System.currentTimeMillis()
             connecting = true
 
             c.setCallback(object : MqttCallbackExtended {
                 override fun connectComplete(reconnect: Boolean, serverURI: String?) {
                     connecting = false
+                    lastRxAt = System.currentTimeMillis()
                     DiagnosticTrace.system("MQTT connected reconnect=" + reconnect + " serverURI=" + serverURI)
                     DiagnosticTrace.system("VBTN90 CONNECTION connected reconnect=" + reconnect)
                     emitLog("MQTT connected: " + serverURI)
@@ -71,6 +74,7 @@ class MqttManager(
                 override fun messageArrived(topic: String?, message: MqttMessage?) {
                     if (topic == null || message == null) return
 
+                    lastRxAt = System.currentTimeMillis()
                     val payload = String(message.payload, Charsets.UTF_8)
                     val messageType = when {
                         topic.endsWith("/config") -> "CONFIG"
@@ -416,12 +420,33 @@ class MqttManager(
         } finally {
             client = null
             connecting = false
+            lastRxAt = 0L
             emitConnected(false)
         }
     }
 
     fun isConnected(): Boolean = client?.isConnected == true
     fun isConnecting(): Boolean = connecting
+
+    fun reconnectIfStale(maxIdleMs: Long = 90_000L): Boolean {
+        val c = client ?: return false
+        if (connecting || !c.isConnected) return false
+
+        val idleMs = System.currentTimeMillis() - lastRxAt
+        if (idleMs < maxIdleMs) return false
+
+        DiagnosticTrace.system("MQTT watchdog stale RX idleMs=" + idleMs + " -> reconnect")
+        emitLog("MQTT watchdog: no RX for " + idleMs + " ms, reconnecting")
+        try {
+            c.disconnect()
+        } catch (e: Exception) {
+            emitLog(mqttExceptionText("MQTT watchdog disconnect failed", e))
+        }
+        client = null
+        connecting = false
+        emitConnected(false)
+        return true
+    }
 
     private fun emitLog(value: String) {
         main.post { onLog(value) }
