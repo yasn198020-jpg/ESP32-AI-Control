@@ -301,7 +301,7 @@ private fun App(
         val notificationsGranted = Build.VERSION.SDK_INT < 33 ||
             results[Manifest.permission.POST_NOTIFICATIONS] == true ||
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-        DiagnosticTrace.log("PERMISSIONS runtime mic=" + micGranted + " notifications=" + notificationsGranted)
+        DiagnosticTrace.system("PERMISSIONS runtime mic=" + micGranted + " notifications=" + notificationsGranted)
     }
 
     LaunchedEffect(Unit) {
@@ -317,12 +317,12 @@ private fun App(
         if (missing.isNotEmpty()) {
             requestAllRuntimePermissions.launch(missing.toTypedArray())
         } else {
-            DiagnosticTrace.log("PERMISSIONS runtime all_granted")
+            DiagnosticTrace.system("PERMISSIONS runtime all_granted")
         }
 
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
         val ignoringBatteryOptimizations = powerManager.isIgnoringBatteryOptimizations(context.packageName)
-        DiagnosticTrace.log("PERMISSIONS batteryOptimizationIgnored=" + ignoringBatteryOptimizations)
+        DiagnosticTrace.system("PERMISSIONS batteryOptimizationIgnored=" + ignoringBatteryOptimizations)
         if (!ignoringBatteryOptimizations) {
             try {
                 context.startActivity(
@@ -331,7 +331,7 @@ private fun App(
                     }
                 )
             } catch (e: Exception) {
-                DiagnosticTrace.log("PERMISSIONS batteryOptimizationRequest failed=" + e.javaClass.simpleName)
+                DiagnosticTrace.system("PERMISSIONS batteryOptimizationRequest failed=" + e.javaClass.simpleName)
                 try {
                     context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
                 } catch (_: Exception) {
