@@ -73,7 +73,7 @@ class LiveDataWidgetProvider : AppWidgetProvider() {
                     selection == null -> "Настройте виджет"
                     widget == null -> "Выбранный параметр недоступен"
                     device == null -> "ESP32 недоступен"
-                    else -> deviceLabel(device) + " • " + widget.title
+                    else -> widget.title
                 }
             )
             views.setTextViewText(
@@ -99,6 +99,5 @@ class LiveDataWidgetProvider : AppWidgetProvider() {
             return views
         }
 
-        private fun deviceLabel(device: Device): String = device.name.ifBlank { device.id }
     }
 }
