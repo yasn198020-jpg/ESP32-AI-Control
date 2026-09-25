@@ -10,7 +10,8 @@ class DeviceManager(
     private val onPendingValueStored: (key: String, value: String) -> Unit = { _, _ -> }
 ) {
     private var devices: List<Device> = emptyList()
-    private val pendingValues = mutableMapOf<String, String>()
+    private data class PendingValue(val value: String, val timestamp: Long)
+    private val pendingValues = mutableMapOf<String, PendingValue>()
 
     fun snapshot(): List<Device> = devices
 
@@ -26,7 +27,8 @@ class DeviceManager(
         val existingWidget = existingDevice?.widgets?.any { it.id == widgetId } == true
 
         if (!existingWidget) {
-            pendingValues[key] = value
+            val timestamp = System.currentTimeMillis()
+            pendingValues[key] = PendingValue(value, timestamp)
             onPendingValueStored(key, value)
         }
 
@@ -35,7 +37,7 @@ class DeviceManager(
                 if (device.id != deviceId) device else device.copy(
                     online = true,
                     widgets = device.widgets.map { widget ->
-                        if (widget.id == widgetId) widget.copy(value = value) else widget
+                        if (widget.id == widgetId) widget.copy(value = value, lastUpdated = System.currentTimeMillis()) else widget
                     }
                 )
             }
@@ -70,13 +72,16 @@ class DeviceManager(
         val definitionName = json.optString("name", widgetType).trim().ifBlank { widgetType }
         val key = "$deviceId/$widgetId"
         val pendingValue = pendingValues[key]
+        val pendingValueText = pendingValue?.value ?: existingWidget?.value ?: ""
+        val pendingUpdated = pendingValue?.timestamp ?: existingWidget?.lastUpdated ?: 0L
         val existing = devices.firstOrNull { it.id == deviceId }
         val existingWidget = existing?.widgets?.firstOrNull { it.id == widgetId }
         val newWidget = WidgetState(
             widgetId,
             label.ifBlank { widgetId },
             type,
-            pendingValue ?: existingWidget?.value ?: "",
+            pendingValueText,
+            pendingUpdated,
             newPage,
             topic,
             order,
