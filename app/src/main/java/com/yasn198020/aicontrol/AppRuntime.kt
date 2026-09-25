@@ -224,11 +224,9 @@ class AppRuntime private constructor(private val appContext: Context) {
 
         // Restore the last known values once, so multi-condition scenarios can
         // continue working immediately after process/service recreation.
-        historyStore.latestValues().forEach { (key, value) ->
-            val parts = key.split("/", limit = 2)
-            if (parts.size == 2) {
-                scenarioEngine.restoreValue(parts[0], parts[1], value)
-            }
+        historyStore.latestValuesByWidget().forEach { (widgetId, value) ->
+            // Scenario variables are global by widgetId; deviceId is intentionally absent here.
+            scenarioEngine.restoreValue("", widgetId, value)
         }
         scenarioEngine.primeFromStoredValues()
     }
