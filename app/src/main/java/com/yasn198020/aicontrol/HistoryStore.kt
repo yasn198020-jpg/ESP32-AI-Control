@@ -1,10 +1,12 @@
 package com.yasn198020.aicontrol
 
 import android.content.SharedPreferences
+import java.util.concurrent.Executors
 import org.json.JSONArray
 import org.json.JSONObject
-import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
 
 data class HistoryPoint(
     val timestamp: Long,
@@ -24,17 +26,19 @@ class HistoryStore(private val prefs: SharedPreferences) {
         private const val KEY = "telemetry_history_v1"
         private const val MAX_POINTS = 5000
         private const val MAX_AGE_MS = 7L * 24L * 60L * 60L * 1000L
+        private const val PERSIST_DELAY_MS = 1000L
     }
 
     private val lock = Any()
 
-    private val persistExecutor = Executors.newSingleThreadExecutor { runnable ->
-        Thread(runnable, "HistoryStore").apply {
-            isDaemon = true
+    private val persistExecutor: ScheduledExecutorService =
+        Executors.newSingleThreadScheduledExecutor { runnable ->
+            Thread(runnable, "HistoryStore").apply {
+                isDaemon = true
+            }
         }
-    }
 
-    private val pendingPersistCount = AtomicInteger(0)
+    private var persistFuture: ScheduledFuture<*>? = null
 
     @Volatile
     private var loaded = false
@@ -128,7 +132,7 @@ class HistoryStore(private val prefs: SharedPreferences) {
      * MQTT or the Android main thread.
      */
     fun flushNow() {
-        schedulePersist()
+        schedulePersist(0L)
     }
 
     fun diagnostics(): String {
@@ -137,7 +141,9 @@ class HistoryStore(private val prefs: SharedPreferences) {
             cache.size
         }
         return "points=" + points +
-            " pending=" + pendingPersistCount.get() +
+            " pending=" + synchronized(lock) {
+                if (persistFuture?.isDone == false) 1 else 0
+            } +
             " requested=" + persistRequested +
             " lastPersistAt=" + lastPersistAt +
             if (lastPersistError.isBlank()) "" else " lastPersistError=" + lastPersistError
@@ -173,21 +179,28 @@ class HistoryStore(private val prefs: SharedPreferences) {
         }
     }
 
-    private fun schedulePersist() {
+    private fun schedulePersist(delayMs: Long = PERSIST_DELAY_MS) {
         synchronized(lock) {
-            if (pendingPersistCount.get() > 0) return
-            pendingPersistCount.incrementAndGet()
-        }
+            if (!persistRequested) return
 
-        persistExecutor.execute {
-            try {
-                persistLoop()
-            } finally {
-                pendingPersistCount.decrementAndGet()
-                if (synchronized(lock) { persistRequested }) {
-                    schedulePersist()
-                }
+            val existing = persistFuture
+            if (existing?.isDone == false) {
+                if (delayMs > 0L) return
+                existing.cancel(false)
             }
+
+            persistFuture = persistExecutor.schedule({
+                try {
+                    persistLoop()
+                } finally {
+                    synchronized(lock) {
+                        persistFuture = null
+                    }
+                    if (synchronized(lock) { persistRequested }) {
+                        schedulePersist()
+                    }
+                }
+            }, delayMs, TimeUnit.MILLISECONDS)
         }
     }
 

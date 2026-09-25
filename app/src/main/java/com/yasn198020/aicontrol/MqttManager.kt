@@ -21,9 +21,23 @@ class MqttManager(
     @Volatile private var lastRxThread = ""
     private var prefix = ""
     private data class PendingPublish(val topic: String, val payload: String, val eventId: Long?)
+    private data class LastStatusEvent(
+        val source: String,
+        val value: String,
+        val timestamp: Long
+    )
+
     private val pendingPublishes = ArrayDeque<PendingPublish>()
     private val publishLock = Any()
     private val maxPendingPublishes = 100
+
+    private val statusEventLock = Any()
+    private val lastStatusEvents = mutableMapOf<String, LastStatusEvent>()
+
+    companion object {
+        private const val STATUS_EVENT_DEDUP_WINDOW_MS = 750L
+        private const val MAX_STATUS_EVENT_KEYS = 512
+    }
 
     fun connect(host: String, port: Int, mqttPrefix: String, username: String, password: String, tls: Boolean) {
         disconnect()
@@ -177,6 +191,22 @@ class MqttManager(
                                 )
                             }
                             try {
+                                if (shouldDropStatusEventDuplicate(
+                                        source = "STATUS",
+                                        deviceId = parts[0],
+                                        widgetId = widgetId,
+                                        value = value
+                                    )
+                                ) {
+                                    DiagnosticTrace.stepForEvent(
+                                        traceId,
+                                        "MQTT",
+                                        "STATUS duplicate of EVENT dropped device=" + parts[0] +
+                                            " widget=" + widgetId + " value=" + value
+                                    )
+                                    return
+                                }
+
                                 emitStatus(parts[0], widgetId, value)
                                 if (widgetId == "vbtn90") {
                                     DiagnosticTrace.stepForEvent(
@@ -219,6 +249,22 @@ class MqttManager(
                                         "EVENT parsed device=" + parts[0] + " widget=" + widgetId + " value=" + value
                                     )
                                 }
+                                if (shouldDropStatusEventDuplicate(
+                                        source = "EVENT",
+                                        deviceId = parts[0],
+                                        widgetId = widgetId,
+                                        value = value
+                                    )
+                                ) {
+                                    DiagnosticTrace.stepForEvent(
+                                        traceId,
+                                        "MQTT",
+                                        "EVENT duplicate of STATUS dropped device=" + parts[0] +
+                                            " widget=" + widgetId + " value=" + value
+                                    )
+                                    return
+                                }
+
                                 emitStatus(parts[0], widgetId, value)
                             } catch (e: Exception) {
                                 DiagnosticTrace.stepForEvent(traceId, "ERROR", "EVENT parse failed topic=" + topic + " error=" + (e.message ?: e.javaClass.simpleName))
@@ -273,6 +319,35 @@ class MqttManager(
             connecting = false
             emitLog(mqttExceptionText("MQTT error", e))
             emitConnected(false)
+        }
+    }
+
+    private fun shouldDropStatusEventDuplicate(
+        source: String,
+        deviceId: String,
+        widgetId: String,
+        value: String
+    ): Boolean {
+        val key = deviceId + "/" + widgetId
+        val now = System.currentTimeMillis()
+
+        synchronized(statusEventLock) {
+            val previous = lastStatusEvents[key]
+            val duplicate = previous != null &&
+                previous.source != source &&
+                previous.value == value &&
+                now - previous.timestamp in 0..STATUS_EVENT_DEDUP_WINDOW_MS
+
+            lastStatusEvents[key] = LastStatusEvent(source, value, now)
+
+            if (lastStatusEvents.size > MAX_STATUS_EVENT_KEYS) {
+                val oldestKey = lastStatusEvents.entries
+                    .minByOrNull { it.value.timestamp }
+                    ?.key
+                if (oldestKey != null) lastStatusEvents.remove(oldestKey)
+            }
+
+            return duplicate
         }
     }
 
@@ -371,7 +446,7 @@ class MqttManager(
 
         return try {
             val message = MqttMessage(payload.toByteArray(Charsets.UTF_8)).apply {
-                qos = 0
+                qos = 1
                 isRetained = false
             }
             c.publish(topic, message)

@@ -6,6 +6,7 @@ import java.text.SimpleDateFormat
 import java.util.ArrayDeque
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.Executors
 
 /**
  * Separate compact trace for proving what happens while the app screen is
@@ -24,6 +25,11 @@ object BackgroundTrace {
     private var foreground = false
     private lateinit var file: File
     private val formatter = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
+    private val writer = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "BackgroundTraceWriter").apply {
+            isDaemon = true
+        }
+    }
 
     fun init(context: Context) {
         if (initialized) return
@@ -62,26 +68,31 @@ object BackgroundTrace {
         ensureInitialized()
         synchronized(lock) {
             lines.clear()
+        }
+        writer.execute {
             runCatching { file.writeText("") }
         }
     }
-
     private fun appendLocked(stage: String, eventId: Long?, message: String? = null) {
         val time = formatter.format(Date())
-        val id = eventId?.let { " #$it" } ?: ""
+        val id = eventId?.let { " #" + it } ?: ""
         val suffix = message?.let { " " + compact(it) } ?: ""
-        val line = "$time [$stage$id]$suffix"
+        val line = time + " [" + stage + id + "]" + suffix
         lines.addLast(line)
         while (lines.size > MAX_LINES) lines.removeFirst()
 
-        runCatching {
-            file.appendText(line + "\n", Charsets.UTF_8)
-            if (file.length() > MAX_FILE_BYTES) {
-                file.writeText(lines.joinToString("\n", postfix = "\n"), Charsets.UTF_8)
+        writer.execute {
+            runCatching {
+                file.appendText(line + "\n", Charsets.UTF_8)
+                if (file.length() > MAX_FILE_BYTES) {
+                    val snapshot = synchronized(lock) {
+                        lines.joinToString("\n", postfix = "\n")
+                    }
+                    file.writeText(snapshot, Charsets.UTF_8)
+                }
             }
         }
     }
-
     private fun compact(value: String): String {
         val oneLine = value.replace("\n", " ").replace("\r", " ").trim()
         return if (oneLine.length <= MAX_MESSAGE_LENGTH) oneLine
