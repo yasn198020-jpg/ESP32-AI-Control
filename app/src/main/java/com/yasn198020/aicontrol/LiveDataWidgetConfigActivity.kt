@@ -18,6 +18,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
@@ -99,6 +100,11 @@ private fun WidgetConfiguration(
     }
     var deviceMenuOpen by remember { mutableStateOf(false) }
     var widgetMenuOpen by remember { mutableStateOf(false) }
+    var lowText by rememberSaveable { mutableStateOf("0") }
+    var highText by rememberSaveable { mutableStateOf("20") }
+    var lowColor by rememberSaveable { mutableStateOf(0xFF1976D2.toInt()) }
+    var midColor by rememberSaveable { mutableStateOf(0xFF2E7D32.toInt()) }
+    var highColor by rememberSaveable { mutableStateOf(0xFFD32F2F.toInt()) }
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -190,6 +196,15 @@ private fun WidgetConfiguration(
             }
         }
 
+        Text("Цвет по значению", style = MaterialTheme.typography.titleMedium)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(value = lowText, onValueChange = { lowText = it }, label = { Text("Нижний порог") }, modifier = Modifier.weight(1f), singleLine = true)
+            OutlinedTextField(value = highText, onValueChange = { highText = it }, label = { Text("Верхний порог") }, modifier = Modifier.weight(1f), singleLine = true)
+        }
+        ColorChoice("Ниже нижнего", lowColor) { lowColor = it }
+        ColorChoice("Между порогами", midColor) { midColor = it }
+        ColorChoice("Выше верхнего", highColor) { highColor = it }
+
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("Предпросмотр", style = MaterialTheme.typography.titleMedium)
@@ -238,7 +253,10 @@ private fun WidgetConfiguration(
                     onClick = {
                         val deviceId = selectedDeviceId ?: return@Button
                         val widgetId = selectedWidgetId ?: return@Button
-                        LiveDataWidgetStore.save(context, appWidgetId, deviceId, widgetId)
+                        val low = lowText.replace(',', '.').toFloatOrNull() ?: 0f
+                        val high = highText.replace(',', '.').toFloatOrNull() ?: 20f
+                        if (low >= high) return@Button
+                        LiveDataWidgetStore.save(context, appWidgetId, deviceId, widgetId, low, high, lowColor, midColor, highColor)
                         LiveDataWidgetProvider.updateOne(context, appWidgetId)
                         onSaved()
                     },
@@ -255,3 +273,26 @@ private fun deviceLabel(device: Device): String =
 
 private fun widgetLabel(widget: WidgetState): String =
     widget.title.ifBlank { widget.id }
+
+@Composable
+private fun ColorChoice(label: String, selected: Int, onSelected: (Int) -> Unit) {
+    val colors = listOf(
+        "Синий" to 0xFF1976D2.toInt(),
+        "Зелёный" to 0xFF2E7D32.toInt(),
+        "Красный" to 0xFFD32F2F.toInt(),
+        "Жёлтый" to 0xFFF9A825.toInt(),
+        "Оранжевый" to 0xFFEF6C00.toInt(),
+        "Фиолетовый" to 0xFF7B1FA2.toInt()
+    )
+    var open by remember { mutableStateOf(false) }
+    Column {
+        OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) {
+            Text(label + ": " + (colors.firstOrNull { it.second == selected }?.first ?: "Цвет"))
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            colors.forEach { (name, color) ->
+                androidx.compose.material3.DropdownMenuItem(text = { Text(name) }, onClick = { onSelected(color); open = false })
+            }
+        }
+    }
+}
