@@ -333,7 +333,15 @@ class MqttManager(
                             if (parts.size >= 3) {
                                 val widgetId = parts[parts.size - 2]
                                 val json = try { org.json.JSONObject(payload) } catch (_: Exception) { null }
-                                val value = json?.optString("status")?.takeIf { json.has("status") } ?: payload
+                                val value = if (json != null && json.has("status")) {
+                                    val status = json.opt("status")
+                                    when (status) {
+                                        is org.json.JSONArray, is org.json.JSONObject -> json.toString()
+                                        else -> json.optString("status")
+                                    }
+                                } else {
+                                    payload
+                                }
                                 DiagnosticTrace.stepForEvent(
                                     traceId,
                                     "MQTT",
