@@ -1554,7 +1554,7 @@ private fun PermissionAuditScreen(
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                text = "Зелёный — доступ выдан. Красный — доступ не выдан.",
+                text = "Зелёный — доступ разрешён. Красный — доступ ограничен или не выдан.",
                 fontSize = 14.sp,
                 color = Color.LightGray
             )
@@ -1618,7 +1618,7 @@ private fun PermissionAuditScreen(
                                 }
                             }
                         }
-                        "battery", "install_unknown" -> {
+                        "battery", "install_unknown", "background" -> {
                             Button(onClick = { onOpenSettings(item.id) }) {
                                 Text("Открыть настройки")
                             }
