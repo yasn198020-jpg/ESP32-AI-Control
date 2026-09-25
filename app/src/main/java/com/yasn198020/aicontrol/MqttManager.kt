@@ -13,7 +13,8 @@ class MqttManager(
     private val onLog: (String) -> Unit,
     private val onConnected: (Boolean) -> Unit,
     private val onStatus: (String, String, String) -> Unit,
-    private val onConfig: (String, String, String, String, String, String, Int, String) -> Unit
+    private val onConfig: (String, String, String, String, String, String, Int, String) -> Unit,
+    private val onReconnectRequested: () -> Unit
 ) {
     private val main = Handler(Looper.getMainLooper())
     private var client: MqttAsyncClient? = null
@@ -27,7 +28,11 @@ class MqttManager(
     private val connectionStateLogger: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { runnable ->
         Thread(runnable, "MQTT-ConnectionState").apply { isDaemon = true }
     }
+    private val reconnectExecutor: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { runnable ->
+        Thread(runnable, "MQTT-ReconnectSupervisor").apply { isDaemon = true }
+    }
     @Volatile private var connectionStateLoggingStarted = false
+    @Volatile private var reconnectScheduled = false
     private data class PendingPublish(val topic: String, val payload: String, val eventId: Long?)
     private data class LastStatusEvent(
         val source: String,
@@ -93,6 +98,7 @@ class MqttManager(
                     DiagnosticTrace.system("MQTT Paho connectComplete reconnect=" + reconnect + " serverURI=" + serverURI + " thread=" + Thread.currentThread().name)
                     DiagnosticTrace.system("MQTT Paho state connected=" + (client?.isConnected == true))
                     DiagnosticTrace.system("VBTN90 CONNECTION connected reconnect=" + reconnect)
+                    reconnectScheduled = false
                     emitLog("MQTT connected: " + serverURI)
                     emitConnected(true)
                     flushPendingPublishes()
@@ -110,6 +116,7 @@ class MqttManager(
                     DiagnosticTrace.system("VBTN90 CONNECTION lost")
                     emitLog(mqttExceptionText("MQTT connection lost", cause))
                     emitConnected(false)
+                    scheduleReconnect("connectionLost")
                 }
 
                 override fun messageArrived(topic: String?, message: MqttMessage?) {
@@ -370,6 +377,7 @@ class MqttManager(
                     connecting = false
                     lastConnectAttemptAt = 0L
                     emitLog(mqttExceptionText("MQTT connect failed", exception))
+                    scheduleReconnect("connectFailure")
                     emitLog("MQTT credentials supplied: " + username.isNotBlank())
                     emitLog("MQTT TLS: " + tls)
                     emitLog("MQTT URL: " + normalizedUrl)
@@ -605,6 +613,7 @@ class MqttManager(
 
     @Synchronized
     fun disconnect() {
+        reconnectScheduled = false
         val c = client
         try {
             if (c?.isConnected == true) c.disconnect()
@@ -699,6 +708,45 @@ class MqttManager(
         lastRxThread = ""
         emitConnected(false)
         return true
+    }
+
+    private fun scheduleReconnect(reason: String, delayMs: Long = 1_000L) {
+        if (reconnectScheduled) return
+        reconnectScheduled = true
+
+        DiagnosticTrace.system(
+            "MQTT RECONNECT scheduled reason=" + reason +
+                " delayMs=" + delayMs +
+                " thread=" + Thread.currentThread().name
+        )
+
+        try {
+            reconnectExecutor.schedule({
+                reconnectScheduled = false
+                DiagnosticTrace.system(
+                    "MQTT RECONNECT execute reason=" + reason +
+                        " thread=" + Thread.currentThread().name
+                )
+                runCatching {
+                    onReconnectRequested()
+                }.onFailure {
+                    DiagnosticTrace.system(
+                        "MQTT RECONNECT failed reason=" + reason +
+                            " error=" + (it.message ?: it.javaClass.simpleName)
+                    )
+                    emitLog(
+                        "MQTT reconnect supervisor failed: " +
+                            (it.message ?: it.javaClass.simpleName)
+                    )
+                }
+            }, delayMs, TimeUnit.MILLISECONDS)
+        } catch (e: Exception) {
+            reconnectScheduled = false
+            DiagnosticTrace.system(
+                "MQTT RECONNECT schedule failed reason=" + reason +
+                    " error=" + (e.message ?: e.javaClass.simpleName)
+            )
+        }
     }
 
     private fun emitLog(value: String) {
