@@ -640,7 +640,13 @@ class ScenarioEngine(
         values[key(deviceId, widgetId)] = value
 
         val scenarios = store.load()
-        DiagnosticTrace.stepForEvent(eventId, "SCENARIO", "loaded=${scenarios.size} current=$deviceId/$widgetId=$value")
+        DiagnosticTrace.stepForEvent(
+            eventId,
+            "SCENARIO",
+            "loaded=" + scenarios.size +
+                " current=" + deviceId + "/" + widgetId + "=" + value +
+                if (scenarios.isEmpty()) " store=" + store.diagnostics() else ""
+        )
         var triggeredCount = 0
 
         val activeScenarioIds = scenarios.filter { it.enabled && it.verifyEnabled }.mapTo(mutableSetOf()) { it.id }
