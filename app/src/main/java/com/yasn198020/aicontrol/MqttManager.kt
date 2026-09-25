@@ -17,22 +17,29 @@ class MqttManager(
     private val onReconnectRequested: () -> Unit
 ) {
     private val main = Handler(Looper.getMainLooper())
-    private var client: MqttAsyncClient? = null
+    @Volatile private var client: MqttAsyncClient? = null
     @Volatile private var connecting = false
+    @Volatile private var reconnecting = false
     @Volatile private var lastConnectAttemptAt = 0L
     @Volatile private var lastRxAt = 0L
     @Volatile private var rxCallbackCount = 0L
     @Volatile private var lastRxTopic = ""
     @Volatile private var lastRxThread = ""
     private var prefix = ""
+
     private val connectionStateLogger: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { runnable ->
         Thread(runnable, "MQTT-ConnectionState").apply { isDaemon = true }
     }
+
+    // Used only for failures of the very first connection attempt. Once a
+    // connection has succeeded, Paho owns reconnection of that same client.
     private val reconnectExecutor: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { runnable ->
         Thread(runnable, "MQTT-ReconnectSupervisor").apply { isDaemon = true }
     }
+
     @Volatile private var connectionStateLoggingStarted = false
-    @Volatile private var reconnectScheduled = false
+    @Volatile private var initialReconnectAttempt = 0
+
     private data class PendingPublish(val topic: String, val payload: String, val eventId: Long?)
     private data class LastStatusEvent(
         val source: String,
@@ -52,7 +59,10 @@ class MqttManager(
         private const val MAX_STATUS_EVENT_KEYS = 512
     }
 
+    @Synchronized
     fun connect(host: String, port: Int, mqttPrefix: String, username: String, password: String, tls: Boolean) {
+        // Explicit connect/reconnect requests start a completely new client.
+        // Paho automatic reconnect is never combined with a second client.
         disconnect()
 
         val normalizedHost = host.trim()
@@ -77,10 +87,15 @@ class MqttManager(
         try {
             val id = "ESP32AI-" + UUID.randomUUID().toString().replace("-", "").take(12)
             val c = MqttAsyncClient(normalizedUrl, id, MemoryPersistence())
+
             client = c
-            lastRxAt = System.currentTimeMillis()
             connecting = true
+            reconnecting = false
             lastConnectAttemptAt = System.currentTimeMillis()
+            lastRxAt = 0L
+            rxCallbackCount = 0L
+            lastRxTopic = ""
+            lastRxThread = ""
             startConnectionStateLogger()
 
             c.setCallback(object : MqttCallbackExtended {
@@ -89,16 +104,27 @@ class MqttManager(
                         DiagnosticTrace.system("MQTT Paho connectComplete ignored: stale client")
                         return
                     }
+
                     connecting = false
+                    reconnecting = false
                     lastConnectAttemptAt = 0L
+                    initialReconnectAttempt = 0
                     lastRxAt = System.currentTimeMillis()
                     rxCallbackCount = 0L
                     lastRxTopic = ""
                     lastRxThread = Thread.currentThread().name
-                    DiagnosticTrace.system("MQTT Paho connectComplete reconnect=" + reconnect + " serverURI=" + serverURI + " thread=" + Thread.currentThread().name)
-                    DiagnosticTrace.system("MQTT Paho state connected=" + (client?.isConnected == true))
+
+                    DiagnosticTrace.system(
+                        "MQTT Paho connectComplete reconnect=" + reconnect +
+                            " serverURI=" + serverURI +
+                            " thread=" + Thread.currentThread().name
+                    )
+                    DiagnosticTrace.system(
+                        "MQTT Paho state connected=" + (client?.isConnected == true) +
+                            " automaticReconnect=true"
+                    )
                     DiagnosticTrace.system("VBTN90 CONNECTION connected reconnect=" + reconnect)
-                    reconnectScheduled = false
+
                     emitLog("MQTT connected: " + serverURI)
                     emitConnected(true)
                     flushPendingPublishes()
@@ -110,13 +136,24 @@ class MqttManager(
                         DiagnosticTrace.system("MQTT Paho connectionLost ignored: stale client")
                         return
                     }
+
                     connecting = false
+                    reconnecting = true
                     lastConnectAttemptAt = 0L
-                    DiagnosticTrace.system("MQTT Paho connectionLost thread=" + Thread.currentThread().name + " connected=" + (client?.isConnected == true) + " rxCount=" + rxCallbackCount + " lastRxAt=" + lastRxAt + " lastRxTopic=" + lastRxTopic + " cause=" + mqttExceptionText("cause", cause))
+
+                    DiagnosticTrace.system(
+                        "MQTT Paho connectionLost thread=" + Thread.currentThread().name +
+                            " connected=" + (client?.isConnected == true) +
+                            " rxCount=" + rxCallbackCount +
+                            " lastRxAt=" + lastRxAt +
+                            " lastRxTopic=" + lastRxTopic +
+                            " cause=" + mqttExceptionText("cause", cause)
+                    )
+                    DiagnosticTrace.system("MQTT Paho automatic reconnect ACTIVE")
                     DiagnosticTrace.system("VBTN90 CONNECTION lost")
-                    emitLog(mqttExceptionText("MQTT connection lost", cause))
+
+                    emitLog(mqttExceptionText("MQTT connection lost; Paho automatic reconnect active", cause))
                     emitConnected(false)
-                    scheduleReconnect("connectionLost")
                 }
 
                 override fun messageArrived(topic: String?, message: MqttMessage?) {
@@ -133,8 +170,6 @@ class MqttManager(
                     DiagnosticTrace.system("MQTT Paho messageArrived #" + rxCallbackCount + " thread=" + lastRxThread + " topic=" + topic + " bytes=" + message.payload.size + " connected=" + (client?.isConnected == true))
                     val payload = String(message.payload, Charsets.UTF_8)
 
-                    // Record the raw MQTT packet before any topic parsing,
-                    // deduplication, scenario processing or history updates.
                     DiagnosticTrace.rawMqttReceived(
                         topic = topic,
                         payload = payload,
@@ -142,9 +177,6 @@ class MqttManager(
                         retained = message.isRetained
                     )
 
-                    // Dedicated VBTN90 ingress trace: record every packet related
-                    // to vbtn90 immediately after MQTT delivery and before any
-                    // parsing, deduplication, scenario processing or callbacks.
                     val isVbtn90Ingress =
                         topic.contains("/vbtn90/", ignoreCase = true) ||
                         topic.endsWith("/vbtn90", ignoreCase = true) ||
@@ -171,173 +203,173 @@ class MqttManager(
 
                     try {
                         emitLog(
-                        "MQTT RX [" + messageType + "] " +
-                            "topic=" + topic +
-                            " payload=" + payload +
-                            " qos=" + message.qos +
-                            " retained=" + message.isRetained
-                    )
-                    if (topic.contains("vbtn90", ignoreCase = true) || payload.contains("vbtn90", ignoreCase = true)) {
-                        DiagnosticTrace.stepForEvent(
-                            traceId,
-                            "MQTT",
-                            "MQTT RX topic=" + topic + " payload=" + payload
+                            "MQTT RX [" + messageType + "] " +
+                                "topic=" + topic +
+                                " payload=" + payload +
+                                " qos=" + message.qos +
+                                " retained=" + message.isRetained
                         )
-                    }
-
-                    val topicRoots = listOf(
-                        "/" + prefix.trim('/'),
-                        "/dghjko"
-                    ).distinct()
-                    val matchingRoot = topicRoots.firstOrNull { topic.startsWith(it + "/") }
-
-                    if (matchingRoot != null && topic.endsWith("/config")) {
-                        val parts = topic.removePrefix(matchingRoot).trim('/').split("/")
-                        if (parts.size == 2) {
-                            try {
-                                val json = org.json.JSONObject(payload)
-                                DiagnosticTrace.step("MQTT", "CONFIG parsed parts=" + parts.joinToString("/") + " payload valid")
-                                val configTopic = json.optString("topic", "").trim()
-                                val widgetId = configTopic.trim('/').substringAfterLast('/', "")
-                                if (widgetId.isBlank()) {
-                                    emitLog("MQTT config ignored: topic is missing: " + topic)
-                                    return
-                                }
-                                val label = json.optString("descr").trim().ifBlank { json.optString("label", json.optString("name", widgetId)) }
-                                val widgetType = json.optString("widget", "status")
-                                emitLog(
-                                    "MQTT CONFIG parsed: device=" + parts[0] +
-                                        " widget=" + widgetId +
-                                        " type=" + widgetType +
-                                        " label=" + label +
-                                        " topic=" + configTopic
-                                )
-                                val page = json.optString("page", "Основная")
-                                val order = json.optInt("order", 0)
-                                DiagnosticTrace.step("MQTT", "CONFIG widget=" + widgetId + " type=" + widgetType + " page=" + page)
-                                emitConfig(parts[0], widgetId, label, widgetType, page, configTopic, order, json.toString())
-                            } catch (_: Exception) {
-                                DiagnosticTrace.stepForEvent(traceId, "ERROR", "CONFIG parse failed topic=" + topic)
-                                emitLog("MQTT config parse failed: " + topic)
-                            }
-                        }
-                    } else if (matchingRoot != null && topic.endsWith("/status")) {
-                        val parts = topic.removePrefix(matchingRoot).trim('/').split("/")
-                        DiagnosticTrace.stepForEvent(
-                            traceId,
-                            "MQTT",
-                            "STATUS route matched parts=" + parts.joinToString("/")
-                        )
-                        if (parts.size >= 3) {
-                            val widgetId = parts[parts.size - 2]
-                            val json = try { org.json.JSONObject(payload) } catch (_: Exception) { null }
-                            val value = json?.optString("status")?.takeIf { json.has("status") } ?: payload
+                        if (topic.contains("vbtn90", ignoreCase = true) || payload.contains("vbtn90", ignoreCase = true)) {
                             DiagnosticTrace.stepForEvent(
                                 traceId,
                                 "MQTT",
-                                "STATUS parsed device=" + parts[0] + " widget=" + widgetId + " value=" + value
+                                "MQTT RX topic=" + topic + " payload=" + payload
                             )
-                            emitLog(
-                                "MQTT STATUS parsed: device=" + parts[0] +
-                                    " widget=" + widgetId +
-                                    " value=" + value
-                            )
-                            if (widgetId == "vbtn90") {
-                                DiagnosticTrace.stepForEvent(
-                                    traceId,
-                                    "VBTN90",
-                                    "STATUS parsed value=" + value
-                                )
-                                DiagnosticTrace.stepForEvent(
-                                    traceId,
-                                    "VBTN90",
-                                    "STATUS BEFORE emitStatus value=" + value
-                                )
+                        }
+
+                        val topicRoots = listOf(
+                            "/" + prefix.trim('/'),
+                            "/dghjko"
+                        ).distinct()
+                        val matchingRoot = topicRoots.firstOrNull { topic.startsWith(it + "/") }
+
+                        if (matchingRoot != null && topic.endsWith("/config")) {
+                            val parts = topic.removePrefix(matchingRoot).trim('/').split("/")
+                            if (parts.size == 2) {
+                                try {
+                                    val json = org.json.JSONObject(payload)
+                                    DiagnosticTrace.step("MQTT", "CONFIG parsed parts=" + parts.joinToString("/") + " payload valid")
+                                    val configTopic = json.optString("topic", "").trim()
+                                    val widgetId = configTopic.trim('/').substringAfterLast('/', "")
+                                    if (widgetId.isBlank()) {
+                                        emitLog("MQTT config ignored: topic is missing: " + topic)
+                                        return
+                                    }
+                                    val label = json.optString("descr").trim().ifBlank {
+                                        json.optString("label", json.optString("name", widgetId))
+                                    }
+                                    val widgetType = json.optString("widget", "status")
+                                    emitLog(
+                                        "MQTT CONFIG parsed: device=" + parts[0] +
+                                            " widget=" + widgetId +
+                                            " type=" + widgetType +
+                                            " label=" + label +
+                                            " topic=" + configTopic
+                                    )
+                                    val page = json.optString("page", "Основная")
+                                    val order = json.optInt("order", 0)
+                                    DiagnosticTrace.step("MQTT", "CONFIG widget=" + widgetId + " type=" + widgetType + " page=" + page)
+                                    emitConfig(parts[0], widgetId, label, widgetType, page, configTopic, order, json.toString())
+                                } catch (_: Exception) {
+                                    DiagnosticTrace.stepForEvent(traceId, "ERROR", "CONFIG parse failed topic=" + topic)
+                                    emitLog("MQTT config parse failed: " + topic)
+                                }
                             }
-                            try {
-                                if (shouldDropStatusEventDuplicate(
-                                        source = "STATUS",
-                                        deviceId = parts[0],
-                                        widgetId = widgetId,
-                                        value = value
-                                    )
-                                ) {
-                                    DiagnosticTrace.stepForEvent(
-                                        traceId,
-                                        "MQTT",
-                                        "STATUS duplicate of EVENT dropped device=" + parts[0] +
-                                            " widget=" + widgetId + " value=" + value
-                                    )
-                                    return
+                        } else if (matchingRoot != null && topic.endsWith("/status")) {
+                            val parts = topic.removePrefix(matchingRoot).trim('/').split("/")
+                            DiagnosticTrace.stepForEvent(
+                                traceId,
+                                "MQTT",
+                                "STATUS route matched parts=" + parts.joinToString("/")
+                            )
+                            if (parts.size >= 3) {
+                                val widgetId = parts[parts.size - 2]
+                                val json = try { org.json.JSONObject(payload) } catch (_: Exception) { null }
+                                val value = json?.optString("status")?.takeIf { json.has("status") } ?: payload
+                                DiagnosticTrace.stepForEvent(
+                                    traceId,
+                                    "MQTT",
+                                    "STATUS parsed device=" + parts[0] + " widget=" + widgetId + " value=" + value
+                                )
+                                emitLog(
+                                    "MQTT STATUS parsed: device=" + parts[0] +
+                                        " widget=" + widgetId +
+                                        " value=" + value
+                                )
+                                if (widgetId == "vbtn90") {
+                                    DiagnosticTrace.stepForEvent(traceId, "VBTN90", "STATUS parsed value=" + value)
+                                    DiagnosticTrace.stepForEvent(traceId, "VBTN90", "STATUS BEFORE emitStatus value=" + value)
                                 }
 
-                                emitStatus(parts[0], widgetId, value)
-                                if (widgetId == "vbtn90") {
+                                try {
+                                    if (shouldDropStatusEventDuplicate(
+                                            source = "STATUS",
+                                            deviceId = parts[0],
+                                            widgetId = widgetId,
+                                            value = value
+                                        )
+                                    ) {
+                                        DiagnosticTrace.stepForEvent(
+                                            traceId,
+                                            "MQTT",
+                                            "STATUS duplicate of EVENT dropped device=" + parts[0] +
+                                                " widget=" + widgetId + " value=" + value
+                                        )
+                                        return
+                                    }
+
+                                    emitStatus(parts[0], widgetId, value)
+                                    if (widgetId == "vbtn90") {
+                                        DiagnosticTrace.stepForEvent(traceId, "VBTN90", "STATUS AFTER emitStatus value=" + value)
+                                    }
+                                } catch (e: Exception) {
                                     DiagnosticTrace.stepForEvent(
                                         traceId,
-                                        "VBTN90",
-                                        "STATUS AFTER emitStatus value=" + value
+                                        "ERROR",
+                                        "STATUS emitStatus failed device=" + parts[0] +
+                                            " widget=" + widgetId +
+                                            " value=" + value +
+                                            " error=" + (e.message ?: e.javaClass.simpleName)
                                     )
+                                    throw e
                                 }
-                            } catch (e: Exception) {
+                            } else {
                                 DiagnosticTrace.stepForEvent(
                                     traceId,
                                     "ERROR",
-                                    "STATUS emitStatus failed device=" + parts[0] +
-                                        " widget=" + widgetId +
-                                        " value=" + value +
-                                        " error=" + (e.message ?: e.javaClass.simpleName)
+                                    "STATUS route invalid parts=" + parts.size + " topic=" + topic
                                 )
-                                throw e
                             }
-                        } else {
-                            DiagnosticTrace.stepForEvent(
-                                traceId,
-                                "ERROR",
-                                "STATUS route invalid parts=" + parts.size + " topic=" + topic
-                            )
-                        }
-                    } else if (matchingRoot != null && topic.endsWith("/event")) {
-                        val parts = topic.removePrefix(matchingRoot).trim('/').split("/")
-                        if (parts.size >= 3) {
-                            try {
-                                val json = org.json.JSONObject(payload)
-                                val widgetId = json.optString("id", parts[parts.size - 2])
-                                val value = json.optString("val", payload)
-                                DiagnosticTrace.step("MQTT", "EVENT parsed device=" + parts[0] + " widget=" + widgetId + " value=" + value)
-                                emitLog("MQTT EVENT parsed: device=" + parts[0] + " widget=" + widgetId + " value=" + value)
-                                if (widgetId == "vbtn90") {
-                                    DiagnosticTrace.stepForEvent(
-                                        traceId,
-                                        "VBTN90",
-                                        "EVENT parsed device=" + parts[0] + " widget=" + widgetId + " value=" + value
-                                    )
-                                }
-                                if (shouldDropStatusEventDuplicate(
-                                        source = "EVENT",
-                                        deviceId = parts[0],
-                                        widgetId = widgetId,
-                                        value = value
-                                    )
-                                ) {
-                                    DiagnosticTrace.stepForEvent(
-                                        traceId,
-                                        "MQTT",
-                                        "EVENT duplicate of STATUS dropped device=" + parts[0] +
-                                            " widget=" + widgetId + " value=" + value
-                                    )
-                                    return
-                                }
+                        } else if (matchingRoot != null && topic.endsWith("/event")) {
+                            val parts = topic.removePrefix(matchingRoot).trim('/').split("/")
+                            if (parts.size >= 3) {
+                                try {
+                                    val json = org.json.JSONObject(payload)
+                                    val widgetId = json.optString("id", parts[parts.size - 2])
+                                    val value = json.optString("val", payload)
+                                    DiagnosticTrace.step("MQTT", "EVENT parsed device=" + parts[0] + " widget=" + widgetId + " value=" + value)
+                                    emitLog("MQTT EVENT parsed: device=" + parts[0] + " widget=" + widgetId + " value=" + value)
+                                    if (widgetId == "vbtn90") {
+                                        DiagnosticTrace.stepForEvent(
+                                            traceId,
+                                            "VBTN90",
+                                            "EVENT parsed device=" + parts[0] + " widget=" + widgetId + " value=" + value
+                                        )
+                                    }
+                                    if (shouldDropStatusEventDuplicate(
+                                            source = "EVENT",
+                                            deviceId = parts[0],
+                                            widgetId = widgetId,
+                                            value = value
+                                        )
+                                    ) {
+                                        DiagnosticTrace.stepForEvent(
+                                            traceId,
+                                            "MQTT",
+                                            "EVENT duplicate of STATUS dropped device=" + parts[0] +
+                                                " widget=" + widgetId + " value=" + value
+                                        )
+                                        return
+                                    }
 
-                                emitStatus(parts[0], widgetId, value)
-                            } catch (e: Exception) {
-                                DiagnosticTrace.stepForEvent(traceId, "ERROR", "EVENT parse failed topic=" + topic + " error=" + (e.message ?: e.javaClass.simpleName))
-                                emitLog("MQTT event parse failed: " + topic)
+                                    emitStatus(parts[0], widgetId, value)
+                                } catch (e: Exception) {
+                                    DiagnosticTrace.stepForEvent(
+                                        traceId,
+                                        "ERROR",
+                                        "EVENT parse failed topic=" + topic +
+                                            " error=" + (e.message ?: e.javaClass.simpleName)
+                                    )
+                                    emitLog("MQTT event parse failed: " + topic)
+                                }
                             }
                         }
-                    }
                     } catch (e: Exception) {
-                        DiagnosticTrace.stepForEvent(traceId, "ERROR", "unexpected RX error: " + (e.message ?: e.javaClass.simpleName))
+                        DiagnosticTrace.stepForEvent(
+                            traceId,
+                            "ERROR",
+                            "unexpected RX error: " + (e.message ?: e.javaClass.simpleName)
+                        )
                         emitLog("MQTT message processing failed: " + (e.message ?: e.javaClass.simpleName))
                     } finally {
                         DiagnosticTrace.stepForEvent(traceId, "MQTT", "RX processing finished")
@@ -349,10 +381,9 @@ class MqttManager(
             })
 
             val options = MqttConnectOptions().apply {
-                // Reconnect is controlled by MqttBackgroundService supervisor.
-                // Keeping Paho auto-reconnect disabled avoids two independent
-                // reconnect loops creating competing MQTT clients.
-                isAutomaticReconnect = false
+                // One MQTT client owns both the initial connection and all
+                // reconnects after a successful session.
+                isAutomaticReconnect = true
                 isCleanSession = true
                 connectionTimeout = 10
                 keepAliveInterval = 30
@@ -374,21 +405,32 @@ class MqttManager(
                     asyncActionToken: IMqttToken?,
                     exception: Throwable?
                 ) {
+                    if (client !== c) return
+
+                    client = null
                     connecting = false
+                    reconnecting = false
                     lastConnectAttemptAt = 0L
+
+                    try { c.close() } catch (_: Exception) {}
+
                     emitLog(mqttExceptionText("MQTT connect failed", exception))
-                    scheduleReconnect("connectFailure")
                     emitLog("MQTT credentials supplied: " + username.isNotBlank())
                     emitLog("MQTT TLS: " + tls)
                     emitLog("MQTT URL: " + normalizedUrl)
                     emitConnected(false)
+
+                    scheduleInitialReconnect("connectFailure")
                 }
             })
         } catch (e: Exception) {
+            client = null
             connecting = false
+            reconnecting = false
             lastConnectAttemptAt = 0L
             emitLog(mqttExceptionText("MQTT error", e))
             emitConnected(false)
+            scheduleInitialReconnect("connectException")
         }
     }
 
@@ -613,69 +655,71 @@ class MqttManager(
 
     @Synchronized
     fun disconnect() {
-        reconnectScheduled = false
-        val c = client
-        try {
-            if (c?.isConnected == true) c.disconnect()
-        } catch (e: Exception) {
-            emitLog(mqttExceptionText("MQTT disconnect error", e))
-        } finally {
-            client = null
-            connecting = false
-            lastConnectAttemptAt = 0L
-            emitConnectionStateLog()
-            lastRxAt = 0L
-            rxCallbackCount = 0L
-            lastRxTopic = ""
-            lastRxThread = ""
-            emitConnected(false)
-        }
-    }
+        initialReconnectAttempt = 0
 
-    fun isConnected(): Boolean = client?.isConnected == true
-    fun isConnecting(): Boolean = connecting
-
-    fun diagnostics(): String {
-        val idleMs = if (lastRxAt == 0L) -1L else System.currentTimeMillis() - lastRxAt
-        return "connected=" + isConnected() + " connecting=" + isConnecting() + " rxCount=" + rxCallbackCount + " lastRxIdleMs=" + idleMs + " lastRxTopic=" + lastRxTopic + " lastRxThread=" + lastRxThread
-    }
-
-    /** Detect a Paho session that still reports connected but has stopped delivering MQTT traffic. */
-    @Synchronized
-    fun reconnectIfStale(maxIdleMs: Long = 120_000L): Boolean {
-        val c = client ?: return false
-        if (!c.isConnected || connecting) return false
-        if (lastRxAt == 0L || rxCallbackCount <= 0L) return false
-
-        val idleMs = System.currentTimeMillis() - lastRxAt
-        if (idleMs < maxIdleMs) return false
-
-        DiagnosticTrace.system(
-            "MQTT WATCHDOG STALE idleMs=" + idleMs +
-                " thresholdMs=" + maxIdleMs +
-                " rxCount=" + rxCallbackCount +
-                " lastRxTopic=" + lastRxTopic
-        )
-        emitLog("MQTT watchdog: stale connection idleMs=" + idleMs +
-            " thresholdMs=" + maxIdleMs + "; forcing reconnect")
-
-        try { c.disconnect() } catch (e: Exception) {
-            emitLog(mqttExceptionText("MQTT watchdog disconnect", e))
-        }
+        // Remove the client reference before calling into Paho so a late
+        // callback from the old client is always classified as stale.
+        val oldClient = client
         client = null
         connecting = false
-        emitConnected(false)
+        reconnecting = false
+        lastConnectAttemptAt = 0L
+
+        try {
+            oldClient?.disconnect()
+        } catch (e: Exception) {
+            emitLog(mqttExceptionText("MQTT disconnect error", e))
+        }
+
+        try {
+            oldClient?.close()
+        } catch (e: Exception) {
+            emitLog(mqttExceptionText("MQTT close error", e))
+        }
+
+        emitConnectionStateLog()
         lastRxAt = 0L
         rxCallbackCount = 0L
         lastRxTopic = ""
         lastRxThread = ""
-        return true
+        emitConnected(false)
     }
 
-    /** Detect a connect attempt that never completes. */
+    fun isConnected(): Boolean = client?.isConnected == true
+
+    // CONNECTING includes Paho's automatic reconnect phase. This prevents
+    // AppRuntime and the background supervisor from creating a second client.
+    fun isConnecting(): Boolean = connecting || reconnecting
+
+    fun diagnostics(): String {
+        val idleMs = if (lastRxAt == 0L) -1L else System.currentTimeMillis() - lastRxAt
+        val c = client
+        val state = when {
+            c?.isConnected == true -> "CONNECTED"
+            connecting -> "CONNECTING"
+            reconnecting -> "RECONNECTING"
+            c == null -> "DISCONNECTED"
+            else -> "NOT_CONNECTED"
+        }
+        return "state=" + state +
+            " connected=" + (c?.isConnected == true) +
+            " connecting=" + connecting +
+            " reconnecting=" + reconnecting +
+            " rxCount=" + rxCallbackCount +
+            " lastRxIdleMs=" + idleMs +
+            " lastRxTopic=" + lastRxTopic +
+            " lastRxThread=" + lastRxThread
+    }
+
+    /**
+     * Initial-connect safety net only.
+     *
+     * This never interrupts Paho automatic reconnect. It is used when the very
+     * first connection attempt never completes within the expected timeout.
+     */
     @Synchronized
     fun reconnectIfConnectingTooLong(maxConnectingMs: Long = 25_000L): Boolean {
-        if (!connecting) return false
+        if (!connecting || reconnecting) return false
 
         val startedAt = lastConnectAttemptAt
         if (startedAt <= 0L) return false
@@ -688,20 +732,19 @@ class MqttManager(
                 " thresholdMs=" + maxConnectingMs
         )
         emitLog(
-            "MQTT watchdog: connecting stuck elapsedMs=" + elapsedMs +
-                " thresholdMs=" + maxConnectingMs + "; forcing reconnect"
+            "MQTT watchdog: initial connecting stuck elapsedMs=" + elapsedMs +
+                " thresholdMs=" + maxConnectingMs + "; replacing initial client"
         )
 
         val oldClient = client
-        try {
-            oldClient?.disconnect()
-        } catch (e: Exception) {
-            emitLog(mqttExceptionText("MQTT watchdog stuck disconnect", e))
-        }
-
         client = null
         connecting = false
+        reconnecting = false
         lastConnectAttemptAt = 0L
+
+        try { oldClient?.disconnect() } catch (_: Exception) {}
+        try { oldClient?.close() } catch (_: Exception) {}
+
         lastRxAt = 0L
         rxCallbackCount = 0L
         lastRxTopic = ""
@@ -710,40 +753,46 @@ class MqttManager(
         return true
     }
 
-    private fun scheduleReconnect(reason: String, delayMs: Long = 1_000L) {
-        if (reconnectScheduled) return
-        reconnectScheduled = true
+    private fun scheduleInitialReconnect(reason: String, delayMs: Long? = null) {
+        if (client != null || connecting || reconnecting) return
+
+        val attempt = (initialReconnectAttempt + 1).coerceAtMost(6)
+        initialReconnectAttempt = attempt
+        val backoffMs = delayMs ?: minOf(30_000L, 1_000L shl (attempt - 1))
 
         DiagnosticTrace.system(
-            "MQTT RECONNECT scheduled reason=" + reason +
-                " delayMs=" + delayMs +
+            "MQTT INITIAL RECONNECT scheduled reason=" + reason +
+                " attempt=" + attempt +
+                " delayMs=" + backoffMs +
                 " thread=" + Thread.currentThread().name
         )
 
         try {
             reconnectExecutor.schedule({
-                reconnectScheduled = false
+                if (client != null || connecting || reconnecting) return@schedule
+
                 DiagnosticTrace.system(
-                    "MQTT RECONNECT execute reason=" + reason +
+                    "MQTT INITIAL RECONNECT execute reason=" + reason +
+                        " attempt=" + attempt +
                         " thread=" + Thread.currentThread().name
                 )
+
                 runCatching {
                     onReconnectRequested()
                 }.onFailure {
                     DiagnosticTrace.system(
-                        "MQTT RECONNECT failed reason=" + reason +
+                        "MQTT INITIAL RECONNECT failed reason=" + reason +
                             " error=" + (it.message ?: it.javaClass.simpleName)
                     )
                     emitLog(
-                        "MQTT reconnect supervisor failed: " +
+                        "MQTT initial reconnect failed: " +
                             (it.message ?: it.javaClass.simpleName)
                     )
                 }
-            }, delayMs, TimeUnit.MILLISECONDS)
+            }, backoffMs, TimeUnit.MILLISECONDS)
         } catch (e: Exception) {
-            reconnectScheduled = false
             DiagnosticTrace.system(
-                "MQTT RECONNECT schedule failed reason=" + reason +
+                "MQTT INITIAL RECONNECT schedule failed reason=" + reason +
                     " error=" + (e.message ?: e.javaClass.simpleName)
             )
         }
