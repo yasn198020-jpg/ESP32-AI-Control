@@ -117,8 +117,10 @@ import kotlin.math.min
 ){
     var canvasWidth by remember{mutableFloatStateOf(0f)}
 
+    val latestPoints by rememberUpdatedState(points)
     val latestZoom by rememberUpdatedState(zoom)
     val latestOffsetX by rememberUpdatedState(offsetX)
+    val latestCanvasWidth by rememberUpdatedState(canvasWidth)
     val latestOnZoomOffsetChanged by rememberUpdatedState(onZoomOffsetChanged)
     val latestOnSelectIndex by rememberUpdatedState(onSelectIndex)
 
@@ -132,7 +134,7 @@ import kotlin.math.min
             .fillMaxWidth()
             .height(220.dp)
             .onSizeChanged{canvasWidth=it.width.toFloat()}
-            .pointerInput(points){
+            .pointerInput(Unit){
                 awaitEachGesture{
                     val down=awaitFirstDown(requireUnconsumed=false)
                     var lastPosition=down.position
@@ -155,12 +157,12 @@ import kotlin.math.min
                         }
 
                         if(!change.pressed){
-                            if(!cancelled&&!moved&&canvasWidth>0f){
+                            if(!cancelled&&!moved&&latestCanvasWidth>0f){
                                 latestOnSelectIndex(
                                     nearestPointIndex(
-                                        points,
+                                        latestPoints,
                                         down.position.x,
-                                        canvasWidth,
+                                        latestCanvasWidth,
                                         latestZoom,
                                         workingOffset
                                     )
@@ -182,11 +184,11 @@ import kotlin.math.min
 
                         if(moved&&abs(totalDx)>=abs(totalDy)){
                             change.consume()
-                            if(latestZoom>1f&&canvasWidth>0f){
+                            if(latestZoom>1f&&latestCanvasWidth>0f){
                                 workingOffset=clampOffset(
                                     latestZoom,
                                     workingOffset-dx,
-                                    canvasWidth
+                                    latestCanvasWidth
                                 )
                                 latestOnZoomOffsetChanged(latestZoom,workingOffset)
                             }
