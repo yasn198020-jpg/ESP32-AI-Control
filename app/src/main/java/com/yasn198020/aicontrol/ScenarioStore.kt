@@ -461,10 +461,12 @@ class ScenarioEngine(
     private var shutdown = false
     private var runtimeActive = true
 
-    private fun key(deviceId: String, widgetId: String) = "$deviceId/$widgetId"
+    // Scenario variables are global by widgetId. deviceId is only the MQTT source.
+    private fun key(widgetId: String) = widgetId
 
     private fun conditionMatches(condition: ScenarioCondition): Boolean? {
-        val value = values[key(condition.deviceId, condition.widgetId)] ?: return null
+        // deviceId is intentionally ignored: widgetId is the global variable identity.
+        val value = values[key(condition.widgetId)] ?: return null
         return when (condition.operator) {
             ">" -> value > condition.threshold
             ">=" -> value >= condition.threshold
@@ -497,7 +499,7 @@ class ScenarioEngine(
 
     @Synchronized
     private fun startVerification(scenario: Scenario) {
-        if (shutdown || !scenario.verifyEnabled || scenario.verifyDeviceId.isBlank() || scenario.verifyWidgetId.isBlank()) {
+        if (shutdown || !scenario.verifyEnabled || scenario.verifyWidgetId.isBlank()) {
             DiagnosticTrace.step("VERIFY", "SKIP invalid verification config scenario=${scenario.id}")
             return
         }
@@ -512,7 +514,7 @@ class ScenarioEngine(
         verificationTraceIds[scenario.id] = DiagnosticTrace.currentEventId()
         DiagnosticTrace.step(
             "VERIFY",
-            "START scenario=${scenario.id} timeout=${scenario.verifyTimeoutSec}s target=${scenario.verifyDeviceId}/${scenario.verifyWidgetId} expected=${scenario.verifyValue}"
+            "START scenario=${scenario.id} timeout=${scenario.verifyTimeoutSec}s variable=${scenario.verifyWidgetId} expected=${scenario.verifyValue}"
         )
 
         val task = try {
@@ -576,7 +578,8 @@ class ScenarioEngine(
     @Synchronized
     fun restoreValue(deviceId: String, widgetId: String, value: Double) {
         if (shutdown || !value.isFinite()) return
-        values[key(deviceId, widgetId)] = value
+        // Global variable: the latest value from any device is the value of this widget variable.
+        values[key(widgetId)] = value
     }
 
     @Synchronized
@@ -644,7 +647,9 @@ class ScenarioEngine(
             eventId,
             "SCENARIO",
             "loaded=" + scenarios.size +
-                " current=" + deviceId + "/" + widgetId + "=" + value +
+                " variable=" + widgetId +
+                " sourceDevice=" + deviceId +
+                " value=" + value +
                 if (scenarios.isEmpty()) " store=" + store.diagnostics() else ""
         )
         var triggeredCount = 0
@@ -664,7 +669,6 @@ class ScenarioEngine(
             }
 
             if (scenario.verifyEnabled &&
-                scenario.verifyDeviceId == deviceId &&
                 scenario.verifyWidgetId == widgetId &&
                 verificationMatches(scenario, value)
             ) {
@@ -689,7 +693,7 @@ class ScenarioEngine(
             val conditions = scenario.conditions.ifEmpty {
                 listOf(ScenarioCondition(scenario.deviceId, scenario.widgetId, scenario.operator, scenario.threshold))
             }
-            if (conditions.none { it.deviceId == deviceId && it.widgetId == widgetId }) {
+            if (conditions.none { it.widgetId == widgetId }) {
                 DiagnosticTrace.stepForEvent(eventId, "SCENARIO", "SKIP id=${scenario.id} widget not in conditions")
                 return@forEach
             }
@@ -701,14 +705,14 @@ class ScenarioEngine(
             }
 
             DiagnosticTrace.stepForEvent(eventId, "CONDITION", "id=${scenario.id} result=$matched conditions=${conditions.size}")
-            if (conditions.any { it.deviceId == deviceId && it.widgetId == "vbtn90" }) {
+            if (conditions.any { it.widgetId == "vbtn90" }) {
                 DiagnosticTrace.stepForEvent(eventId, "CONDITION", "VBTN90 CONDITION value=$value result=$matched scenario=${scenario.id}")
             }
 
             if (!matched) {
                 conditionStates[scenario.id] = false
                 DiagnosticTrace.stepForEvent(eventId, "EDGE", "id=${scenario.id} false -> reset")
-                if (conditions.any { it.deviceId == deviceId && it.widgetId == "vbtn90" }) {
+                if (conditions.any { it.widgetId == "vbtn90" }) {
                     DiagnosticTrace.stepForEvent(eventId, "EDGE", "VBTN90 EDGE RESET value=$value scenario=${scenario.id}")
                 }
                 return@forEach
