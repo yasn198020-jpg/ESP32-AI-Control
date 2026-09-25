@@ -452,6 +452,7 @@ private fun ProgressLineWidgetRow(
     val value = widget.value.replace(',', '.').toDoubleOrNull() ?: 0.0
     val fraction = (value / maxValue).coerceIn(0.0, 1.0).toFloat()
     val stroke = json.optDouble("stroke", 10.0).toFloat().coerceAtLeast(2f)
+    val primaryColor = MaterialTheme.colorScheme.primary
 
     Column(modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -476,7 +477,7 @@ private fun ProgressLineWidgetRow(
                 cap = StrokeCap.Round
             )
             drawLine(
-                color = MaterialTheme.colorScheme.primary,
+                color = primaryColor,
                 start = androidx.compose.ui.geometry.Offset(half, y),
                 end = androidx.compose.ui.geometry.Offset(
                     half + (size.width - stroke) * fraction,
@@ -500,6 +501,7 @@ private fun ProgressRoundWidgetRow(
     val fraction = (value / maxValue).coerceIn(0.0, 1.0).toFloat()
     val stroke = json.optDouble("stroke", 20.0).toFloat().coerceAtLeast(4f)
     val semicircle = json.optString("semicircle") == "1"
+    val primaryColor = MaterialTheme.colorScheme.primary
 
     Row(
         modifier = modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -524,7 +526,7 @@ private fun ProgressRoundWidgetRow(
                     style = Stroke(stroke)
                 )
                 drawArc(
-                    color = parseColor(json.optString("color"), MaterialTheme.colorScheme.primary),
+                    color = parseColor(json.optString("color"), primaryColor),
                     startAngle = 180f,
                     sweepAngle = 180f * fraction,
                     useCenter = false,
@@ -589,15 +591,18 @@ private fun FillGaugeWidgetRow(
                     style = Stroke(7f)
                 )
                 val waterTop = size.height * (1f - fraction)
-                drawRect(
-                    color = waveColor.copy(alpha = 0.60f),
-                    topLeft = androidx.compose.ui.geometry.Offset(7f, waterTop),
-                    size = androidx.compose.ui.geometry.Size(
-                        size.width - 14f,
-                        size.height - waterTop - 7f
-                    ),
-                    style = Fill
-                )
+                val waterHeight = (size.height - waterTop - 7f).coerceAtLeast(0f)
+                if (waterHeight > 0f) {
+                    drawRect(
+                        color = waveColor.copy(alpha = 0.60f),
+                        topLeft = androidx.compose.ui.geometry.Offset(7f, waterTop),
+                        size = androidx.compose.ui.geometry.Size(
+                            size.width - 14f,
+                            waterHeight
+                        ),
+                        style = Fill
+                    )
+                }
             }
             Text(formatNumber(value) + "%", fontWeight = FontWeight.Bold)
         }
