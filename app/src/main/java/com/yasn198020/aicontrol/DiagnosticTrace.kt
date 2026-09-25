@@ -52,6 +52,9 @@ object DiagnosticTrace {
         val state = if (foreground.get()) "FOREGROUND" else "BACKGROUND"
         BackgroundTrace.event("MQTT", "RX state=$state topic=$topic payload=${compact(payload)}", id)
         stepForEvent(id, "MQTT", "RX $topic payload=${compact(payload)}")
+        if (topic.contains("vbtn90", ignoreCase = true) || payload.contains("vbtn90", ignoreCase = true)) {
+            stepForEvent(id, "VBTN90", "RAW RX topic=$topic payload=${compact(payload)}")
+        }
         return id
     }
 
