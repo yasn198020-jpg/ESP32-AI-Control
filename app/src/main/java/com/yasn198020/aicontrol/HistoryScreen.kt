@@ -9,9 +9,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.foundation.gestures.awaitDragOrCancellation
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.ui.input.pointer.awaitPointerEvent
+import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -139,54 +141,35 @@ import kotlin.math.min
             .pointerInput(Unit){
                 awaitEachGesture{
                     val down=awaitFirstDown(requireUnconsumed=false)
-                    var lastPosition=down.position
                     var workingOffset=latestOffsetX
                     var moved=false
-                    var cancelled=false
+                    var horizontalDrag=false
 
-                    while(true){
-                        val event=awaitPointerEvent()
-                        if(event.changes.size>1){
-                            cancelled=true
-                            event.changes.forEach{it.consume()}
-                            break
-                        }
+                    val slopChange=awaitTouchSlopOrCancellation(down.id){change,overSlop->
+                        moved=true
 
-                        val change=event.changes.firstOrNull{it.id==down.id}
-                        if(change==null){
-                            cancelled=true
-                            break
-                        }
-
-                        if(!change.pressed){
-                            if(!cancelled&&!moved&&latestCanvasWidth>0f){
-                                latestOnSelectIndex(
-                                    nearestPointIndex(
-                                        latestPoints,
-                                        down.position.x,
-                                        latestCanvasWidth,
-                                        latestZoom,
-                                        workingOffset
-                                    )
-                                )
-                            }
-                            break
-                        }
-
-                        val dx=change.position.x-lastPosition.x
-                        val totalDx=change.position.x-down.position.x
-                        val totalDy=change.position.y-down.position.y
-
-                        if(!moved){
-                            val slop=touchSlopPx
-                            if(totalDx*totalDx+totalDy*totalDy>slop*slop){
-                                moved=true
-                            }
-                        }
-
-                        if(moved&&abs(totalDx)>=abs(totalDy)){
+                        if(
+                            latestZoom>1f &&
+                            latestCanvasWidth>0f &&
+                            abs(overSlop.x)>=abs(overSlop.y)
+                        ){
                             change.consume()
+                            horizontalDrag=true
+                            workingOffset=clampOffset(
+                                latestZoom,
+                                workingOffset-overSlop.x,
+                                latestCanvasWidth
+                            )
+                            latestOnZoomOffsetChanged(latestZoom,workingOffset)
+                        }
+                    }
+
+                    if(slopChange!=null&&horizontalDrag){
+                        var dragChange=awaitDragOrCancellation(slopChange.id)
+                        while(dragChange!=null){
                             if(latestZoom>1f&&latestCanvasWidth>0f){
+                                val dx=dragChange.positionChange().x
+                                dragChange.consume()
                                 workingOffset=clampOffset(
                                     latestZoom,
                                     workingOffset-dx,
@@ -194,13 +177,27 @@ import kotlin.math.min
                                 )
                                 latestOnZoomOffsetChanged(latestZoom,workingOffset)
                             }
+                            dragChange=awaitDragOrCancellation(dragChange.id)
                         }
+                    }
 
-                        lastPosition=change.position
+                    if(
+                        !moved &&
+                        latestCanvasWidth>0f
+                    ){
+                        latestOnSelectIndex(
+                            nearestPointIndex(
+                                latestPoints,
+                                down.position.x,
+                                latestCanvasWidth,
+                                latestZoom,
+                                workingOffset
+                            )
+                        )
                     }
                 }
             }
-    ){
+    ){ ){
         val contentWidth=size.width*zoom
         val h=size.height
 
