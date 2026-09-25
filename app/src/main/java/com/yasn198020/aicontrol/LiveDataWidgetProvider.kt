@@ -27,6 +27,15 @@ class LiveDataWidgetProvider : AppWidgetProvider() {
         super.onDeleted(context, appWidgetIds)
     }
 
+    override fun onAppWidgetOptionsChanged(
+        context: Context,
+        appWidgetManager: AppWidgetManager,
+        appWidgetId: Int,
+        newOptions: android.os.Bundle
+    ) {
+        updateOne(context, appWidgetId, newOptions)
+    }
+
     companion object {
         fun updateAll(context: Context) {
             val appContext = context.applicationContext
@@ -38,7 +47,25 @@ class LiveDataWidgetProvider : AppWidgetProvider() {
 
         fun updateOne(context: Context, appWidgetId: Int) {
             if (appWidgetId == AppWidgetManager.INVALID_APPWIDGET_ID) return
-            updateWidgets(context.applicationContext, intArrayOf(appWidgetId))
+            val manager = AppWidgetManager.getInstance(context.applicationContext)
+            val options = manager.getAppWidgetOptions(appWidgetId)
+            manager.updateAppWidget(
+                appWidgetId,
+                buildViews(context.applicationContext, appWidgetId, options)
+            )
+        }
+
+        private fun updateOne(
+            context: Context,
+            appWidgetId: Int,
+            options: android.os.Bundle
+        ) {
+            if (appWidgetId == AppWidgetManager.INVALID_APPWIDGET_ID) return
+            val manager = AppWidgetManager.getInstance(context.applicationContext)
+            manager.updateAppWidget(
+                appWidgetId,
+                buildViews(context.applicationContext, appWidgetId, options)
+            )
         }
 
         private fun updateWidgets(context: Context, appWidgetIds: IntArray) {
@@ -46,12 +73,20 @@ class LiveDataWidgetProvider : AppWidgetProvider() {
             appWidgetIds.forEach { appWidgetId ->
                 manager.updateAppWidget(
                     appWidgetId,
-                    buildViews(context.applicationContext, appWidgetId)
+                    buildViews(
+                        context.applicationContext,
+                        appWidgetId,
+                        manager.getAppWidgetOptions(appWidgetId)
+                    )
                 )
             }
         }
 
-        private fun buildViews(context: Context, appWidgetId: Int): RemoteViews {
+        private fun buildViews(
+            context: Context,
+            appWidgetId: Int,
+            options: android.os.Bundle
+        ): RemoteViews {
             val views = RemoteViews(context.packageName, R.layout.live_data_widget)
             val runtime = AppRuntime.get(context)
             val selection = LiveDataWidgetStore.get(context, appWidgetId)
@@ -62,6 +97,31 @@ class LiveDataWidgetProvider : AppWidgetProvider() {
             val widget = selection?.let { selected ->
                 device?.widgets?.firstOrNull { it.id == selected.widgetId }
             }
+
+            val width = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 90)
+            val height = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 50)
+            val compact = width < 110 || height < 65
+            val medium = width < 170 || height < 90
+
+            views.setTextViewTextSize(
+                R.id.live_widget_connection,
+                android.util.TypedValue.COMPLEX_UNIT_SP,
+                if (compact) 9f else if (medium) 10f else 11f
+            )
+            views.setTextViewTextSize(
+                R.id.live_widget_title,
+                android.util.TypedValue.COMPLEX_UNIT_SP,
+                if (compact) 9f else if (medium) 10f else 11f
+            )
+            views.setTextViewTextSize(
+                R.id.live_widget_value,
+                android.util.TypedValue.COMPLEX_UNIT_SP,
+                when {
+                    compact -> 20f
+                    medium -> 26f
+                    else -> 30f
+                }
+            )
 
             views.setTextViewText(
                 R.id.live_widget_connection,
