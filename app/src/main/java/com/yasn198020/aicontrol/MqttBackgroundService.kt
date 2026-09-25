@@ -29,7 +29,6 @@ class MqttBackgroundService : Service() {
         private const val CHANNEL_ID = "mqtt_background"
         private const val NOTIFICATION_ID = 1301
         private const val CHECK_INTERVAL_MS = 15_000L
-        private const val STALE_RX_MS = 120_000L
         private const val STUCK_CONNECT_MS = 25_000L
 
         fun start(context: Context) {
@@ -85,27 +84,28 @@ class MqttBackgroundService : Service() {
                     " thread=" + Thread.currentThread().name
             )
 
-            val stuckReconnect =
+            if (gapMs > CHECK_INTERVAL_MS * 2) {
+                DiagnosticTrace.system(
+                    "BACKGROUND CHECK #" + checkNumber +
+                        " DELAYED gapMs=" + gapMs +
+                        " expectedMs=" + CHECK_INTERVAL_MS +
+                        " note=supervisor scheduling can be delayed while device CPU sleeps"
+                )
+            }
+
+            val stuckInitialConnect =
                 runtime.mqtt.reconnectIfConnectingTooLong(STUCK_CONNECT_MS)
 
-            if (stuckReconnect) {
+            if (stuckInitialConnect) {
                 DiagnosticTrace.system(
                     "BACKGROUND CHECK #" + checkNumber +
-                        " MQTT watchdog reset stuck CONNECTING"
+                        " MQTT replaced stuck initial CONNECTING client"
                 )
             }
 
-            val staleReconnect =
-                runtime.mqtt.reconnectIfStale(STALE_RX_MS)
-
-            if (staleReconnect) {
-                DiagnosticTrace.system(
-                    "BACKGROUND CHECK #" + checkNumber +
-                        " MQTT watchdog reset stale CONNECTED"
-                )
-            }
-
-            // If disconnected and no connection attempt is active, reconnect now.
+            // If there is no connection attempt at all, ask AppRuntime to start
+            // one. If Paho is reconnecting, isConnecting() stays true and no
+            // second MQTT client can be created.
             runtime.ensureConnected()
 
             val afterConnected = runtime.mqtt.isConnected()
@@ -116,7 +116,7 @@ class MqttBackgroundService : Service() {
                     " MQTT afterEnsure connected=" + afterConnected +
                     " connecting=" + afterConnecting +
                     " changed=" + (beforeConnected != afterConnected) +
-                    " reconnectLost=" + (stuckReconnect || staleReconnect)
+                    " initialConnectReset=" + stuckInitialConnect
             )
 
             runtime.historyStore.flushNow()
@@ -139,8 +139,7 @@ class MqttBackgroundService : Service() {
                     " gapMs=" + gapMs +
                     " beforeConnected=" + beforeConnected +
                     " beforeConnecting=" + beforeConnecting +
-                    " stuckReconnect=" + stuckReconnect +
-                    " staleReconnect=" + staleReconnect +
+                    " initialConnectReset=" + stuckInitialConnect +
                     " afterConnected=" + afterConnected +
                     " afterConnecting=" + afterConnecting
             )
@@ -193,7 +192,14 @@ class MqttBackgroundService : Service() {
                 " mqtt=" + runtime.mqtt.diagnostics()
         )
         runtime.scenarioEngine.setRuntimeActive(true)
-        supervisor.execute { runBackgroundCheck("onStartCommand") }
+        runCatching {
+            supervisor.execute { runBackgroundCheck("onStartCommand") }
+        }.onFailure {
+            DiagnosticTrace.system(
+                "BACKGROUND SERVICE onStartCommand supervisor execute failed " +
+                    (it.message ?: it.javaClass.simpleName)
+            )
+        }
         return START_STICKY
     }
 
@@ -223,7 +229,14 @@ class MqttBackgroundService : Service() {
         // Keep the service independent from the Activity task.
         val runtime = AppRuntime.get(applicationContext)
         runtime.scenarioEngine.setRuntimeActive(true)
-        supervisor.execute { runBackgroundCheck("onTaskRemoved") }
+        runCatching {
+            supervisor.execute { runBackgroundCheck("onTaskRemoved") }
+        }.onFailure {
+            DiagnosticTrace.system(
+                "BACKGROUND SERVICE onTaskRemoved supervisor execute failed " +
+                    (it.message ?: it.javaClass.simpleName)
+            )
+        }
 
         DiagnosticTrace.system(
             "BACKGROUND SERVICE onTaskRemoved ensureConnected done mqtt=" +
