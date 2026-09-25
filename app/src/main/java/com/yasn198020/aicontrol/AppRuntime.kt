@@ -116,6 +116,9 @@ class AppRuntime private constructor(private val appContext: Context) {
         },
         onConnected = { connected ->
             uiListeners.forEach { it.onConnected(connected) }
+            mainHandler.post {
+                LiveDataWidgetProvider.updateAll(appContext)
+            }
         },
         onStatus = { deviceId, widgetId, value ->
             val originalEngine = scenarioEngine
@@ -183,6 +186,7 @@ class AppRuntime private constructor(private val appContext: Context) {
             }
 
             mainHandler.post {
+                LiveDataWidgetProvider.updateAll(appContext)
                 uiListeners.forEach { it.onStatus(deviceId, widgetId, value) }
             }
         },
@@ -208,6 +212,9 @@ class AppRuntime private constructor(private val appContext: Context) {
                     order,
                     raw
                 )
+            }
+            mainHandler.post {
+                LiveDataWidgetProvider.updateAll(appContext)
             }
         },
         onReconnectRequested = {
