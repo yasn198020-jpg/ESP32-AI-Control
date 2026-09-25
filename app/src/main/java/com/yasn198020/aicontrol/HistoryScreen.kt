@@ -16,7 +16,6 @@ import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yasn198020.aicontrol.core.Device
@@ -119,7 +118,6 @@ import kotlin.math.min
     onSelectIndex:(Int)->Unit
 ){
     var canvasWidth by remember{mutableFloatStateOf(0f)}
-    val touchSlopPx = with(LocalDensity.current) { 8.dp.toPx() }
 
     val latestPoints by rememberUpdatedState(points)
     val latestZoom by rememberUpdatedState(zoom)
@@ -197,7 +195,7 @@ import kotlin.math.min
                     }
                 }
             }
-    ){ ){
+    ){
         val contentWidth=size.width*zoom
         val h=size.height
 
