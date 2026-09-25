@@ -7,8 +7,6 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.PowerManager
-import android.provider.Settings
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -42,20 +40,17 @@ class MqttBackgroundService : Service() {
 
     private val handler = Handler(Looper.getMainLooper())
     private var running = false
-    private var wakeLock: PowerManager.WakeLock? = null
-
     private val checkRunnable = object : Runnable {
         override fun run() {
             if (!running) return
             try {
                 val runtime = AppRuntime.get(applicationContext)
-                val staleRecovered = runtime.mqtt.reconnectIfStale(90_000L)
+                runtime.ensureConnected()
+                runtime.historyStore.flushNow()
                 DiagnosticTrace.system(
                     "SERVICE watchdog " + runtime.mqtt.diagnostics() +
-                        " history=" + runtime.historyStore.diagnostics() +
-                        " staleRecovered=" + staleRecovered
+                        " history=" + runtime.historyStore.diagnostics()
                 )
-                if (!staleRecovered) runtime.ensureConnected()
             } catch (e: Exception) {
                 android.util.Log.e("MQTT_BACKGROUND", "ensureConnected failed", e)
             }
@@ -67,8 +62,6 @@ class MqttBackgroundService : Service() {
         super.onCreate()
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification())
-        acquireBackgroundWakeLock()
-        requestBatteryOptimizationExemptionOnce()
         running = true
 
         // Create/keep the single process-wide runtime alive immediately.
@@ -93,9 +86,6 @@ class MqttBackgroundService : Service() {
     override fun onDestroy() {
         running = false
         handler.removeCallbacksAndMessages(null)
-
-        wakeLock?.let { if (it.isHeld) it.release() }
-        wakeLock = null
 
         // IMPORTANT: do not disconnect MQTT here.
         // The runtime owns the MQTT client; Android may recreate this service.
@@ -133,45 +123,6 @@ class MqttBackgroundService : Service() {
             )
         } catch (e: Exception) {
             android.util.Log.e("MQTT_BACKGROUND", "restart alarm failed", e)
-        }
-    }
-
-    private fun acquireBackgroundWakeLock() {
-        try {
-            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-            wakeLock = powerManager.newWakeLock(
-                PowerManager.PARTIAL_WAKE_LOCK,
-                "ESP32AIControl:MQTTBackground"
-            ).apply {
-                setReferenceCounted(false)
-                acquire()
-            }
-            android.util.Log.d("MQTT_BACKGROUND", "partial wake lock acquired")
-        } catch (e: Exception) {
-            android.util.Log.e("MQTT_BACKGROUND", "wake lock failed", e)
-        }
-    }
-
-    private fun requestBatteryOptimizationExemptionOnce() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
-
-        val prefs = getSharedPreferences("settings", Context.MODE_PRIVATE)
-        if (prefs.getBoolean("battery_optimization_prompted", false)) return
-
-        try {
-            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-            val packageName = packageName
-            if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
-                val intent = Intent(
-                    Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-                    Uri.parse("package:$packageName")
-                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                startActivity(intent)
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("MQTT_BACKGROUND", "battery optimization request failed", e)
-        } finally {
-            prefs.edit().putBoolean("battery_optimization_prompted", true).apply()
         }
     }
 

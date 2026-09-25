@@ -6,7 +6,18 @@ import org.json.JSONObject
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
 
-data class HistoryPoint(val timestamp: Long, val deviceId: String, val widgetId: String, val value: Double)
+data class HistoryPoint(
+    val timestamp: Long,
+    val deviceId: String,
+    val widgetId: String,
+    val value: Double
+)
+
+data class HistoryWriteResult(
+    val accepted: Boolean,
+    val pointCount: Int,
+    val reason: String = ""
+)
 
 class HistoryStore(private val prefs: SharedPreferences) {
     companion object {
@@ -16,15 +27,28 @@ class HistoryStore(private val prefs: SharedPreferences) {
     }
 
     private val lock = Any()
+
     private val persistExecutor = Executors.newSingleThreadExecutor { runnable ->
-        Thread(runnable, "HistoryStore").apply { isDaemon = true }
+        Thread(runnable, "HistoryStore").apply {
+            isDaemon = true
+        }
     }
+
     private val pendingPersistCount = AtomicInteger(0)
 
-    @Volatile private var loaded = false
+    @Volatile
+    private var loaded = false
+
     private var cache: MutableList<HistoryPoint> = mutableListOf()
-    @Volatile private var lastPersistAt = 0L
-    @Volatile private var lastPersistError = ""
+
+    @Volatile
+    private var persistRequested = false
+
+    @Volatile
+    private var lastPersistAt = 0L
+
+    @Volatile
+    private var lastPersistError = ""
 
     fun add(
         deviceId: String,
@@ -32,31 +56,46 @@ class HistoryStore(private val prefs: SharedPreferences) {
         rawValue: String,
         timestamp: Long = System.currentTimeMillis()
     ): HistoryWriteResult {
-        val value = rawValue.replace(',', '.').trim().toDoubleOrNull()?.takeIf { it.isFinite() }
+        val value = rawValue.replace(',', '.').trim()
+            .toDoubleOrNull()
+            ?.takeIf { it.isFinite() }
 
         if (value == null) {
             val count = synchronized(lock) {
                 ensureLoadedLocked()
                 cache.size
             }
-            return HistoryWriteResult(false, count, "non_numeric_value raw=$rawValue")
+            return HistoryWriteResult(
+                accepted = false,
+                pointCount = count,
+                reason = "non_numeric_value raw=" + rawValue
+            )
         }
 
-        val snapshot: List<HistoryPoint>
+        val count: Int
         synchronized(lock) {
             ensureLoadedLocked()
             cache.add(HistoryPoint(timestamp, deviceId, widgetId, value))
 
             val cutoff = timestamp - MAX_AGE_MS
             val firstKeptIndex = cache.indexOfFirst { it.timestamp >= cutoff }
-            if (firstKeptIndex > 0) cache = cache.drop(firstKeptIndex).toMutableList()
-            if (cache.size > MAX_POINTS) cache = cache.takeLast(MAX_POINTS).toMutableList()
+            if (firstKeptIndex > 0) {
+                cache = cache.drop(firstKeptIndex).toMutableList()
+            }
+            if (cache.size > MAX_POINTS) {
+                cache = cache.takeLast(MAX_POINTS).toMutableList()
+            }
 
-            snapshot = cache.toList()
+            count = cache.size
+            persistRequested = true
         }
 
-        enqueuePersist(snapshot)
-        return HistoryWriteResult(true, snapshot.size)
+        schedulePersist()
+
+        return HistoryWriteResult(
+            accepted = true,
+            pointCount = count
+        )
     }
 
     fun latestValues(): Map<String, Double> {
@@ -64,7 +103,7 @@ class HistoryStore(private val prefs: SharedPreferences) {
         synchronized(lock) {
             ensureLoadedLocked()
             cache.forEach { point ->
-                latest["\${point.deviceId}/\${point.widgetId}"] = point
+                latest[point.deviceId + "/" + point.widgetId] = point
             }
         }
         return latest.mapValues { it.value.value }
@@ -79,8 +118,17 @@ class HistoryStore(private val prefs: SharedPreferences) {
         synchronized(lock) {
             ensureLoadedLocked()
             cache.clear()
+            persistRequested = true
         }
-        enqueuePersist(emptyList())
+        schedulePersist()
+    }
+
+    /**
+     * Schedules persistence of the latest in-memory snapshot without blocking
+     * MQTT or the Android main thread.
+     */
+    fun flushNow() {
+        schedulePersist()
     }
 
     fun diagnostics(): String {
@@ -88,8 +136,11 @@ class HistoryStore(private val prefs: SharedPreferences) {
             ensureLoadedLocked()
             cache.size
         }
-        return "points=$points pending=\${pendingPersistCount.get()} lastPersistAt=$lastPersistAt" +
-            if (lastPersistError.isBlank()) "" else " lastPersistError=$lastPersistError"
+        return "points=" + points +
+            " pending=" + pendingPersistCount.get() +
+            " requested=" + persistRequested +
+            " lastPersistAt=" + lastPersistAt +
+            if (lastPersistError.isBlank()) "" else " lastPersistError=" + lastPersistError
     }
 
     private fun ensureLoadedLocked() {
@@ -108,24 +159,47 @@ class HistoryStore(private val prefs: SharedPreferences) {
                     val o = json.getJSONObject(i)
                     add(
                         HistoryPoint(
-                            o.optLong("t"),
-                            o.optString("d"),
-                            o.optString("w"),
-                            o.optDouble("v", Double.NaN)
+                            timestamp = o.optLong("t"),
+                            deviceId = o.optString("d"),
+                            widgetId = o.optString("w"),
+                            value = o.optDouble("v", Double.NaN)
                         )
                     )
                 }
             }.filter { it.value.isFinite() }.takeLast(MAX_POINTS)
         } catch (e: Exception) {
-            lastPersistError = "read:\${e.message ?: e.javaClass.simpleName}"
+            lastPersistError = "read:" + (e.message ?: e.javaClass.simpleName)
             emptyList()
         }
     }
 
-    private fun enqueuePersist(snapshot: List<HistoryPoint>) {
-        pendingPersistCount.incrementAndGet()
+    private fun schedulePersist() {
+        synchronized(lock) {
+            if (pendingPersistCount.get() > 0) return
+            pendingPersistCount.incrementAndGet()
+        }
 
         persistExecutor.execute {
+            try {
+                persistLoop()
+            } finally {
+                pendingPersistCount.decrementAndGet()
+                if (synchronized(lock) { persistRequested }) {
+                    schedulePersist()
+                }
+            }
+        }
+    }
+
+    private fun persistLoop() {
+        while (true) {
+            val snapshot: List<HistoryPoint> = synchronized(lock) {
+                ensureLoadedLocked()
+                if (!persistRequested) return
+                persistRequested = false
+                cache.toList()
+            }
+
             try {
                 if (snapshot.isEmpty()) {
                     prefs.edit().remove(KEY).commit()
@@ -147,11 +221,15 @@ class HistoryStore(private val prefs: SharedPreferences) {
                 lastPersistAt = System.currentTimeMillis()
                 lastPersistError = ""
             } catch (e: Exception) {
-                lastPersistError = "\${e.javaClass.simpleName}:\${e.message ?: "<empty>"}"
+                lastPersistError = e.javaClass.simpleName + ":" + (e.message ?: "<empty>")
+                synchronized(lock) {
+                    persistRequested = true
+                }
                 DiagnosticTrace.system("HISTORY persist failed: " + lastPersistError)
-            } finally {
-                pendingPersistCount.decrementAndGet()
+                return
             }
+
+            if (!synchronized(lock) { persistRequested }) return
         }
     }
 }

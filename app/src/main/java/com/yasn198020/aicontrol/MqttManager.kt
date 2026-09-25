@@ -447,25 +447,12 @@ class MqttManager(
         return "connected=" + isConnected() + " connecting=" + isConnecting() + " rxCount=" + rxCallbackCount + " lastRxIdleMs=" + idleMs + " lastRxTopic=" + lastRxTopic + " lastRxThread=" + lastRxThread
     }
 
-    fun reconnectIfStale(maxIdleMs: Long = 90_000L): Boolean {
-        val c = client ?: return false
-        if (connecting || !c.isConnected) return false
-
-        val idleMs = System.currentTimeMillis() - lastRxAt
-        if (idleMs < maxIdleMs) return false
-
-        DiagnosticTrace.system("MQTT watchdog stale RX idleMs=" + idleMs + " -> reconnect")
-        emitLog("MQTT watchdog: no RX for " + idleMs + " ms, reconnecting")
-        try {
-            c.disconnect()
-        } catch (e: Exception) {
-            emitLog(mqttExceptionText("MQTT watchdog disconnect failed", e))
-        }
-        client = null
-        connecting = false
-        emitConnected(false)
-        return true
-    }
+    /**
+     * Compatibility method retained for older callers.
+     * MQTT liveness is determined by Paho connection state, not by absence
+     * of telemetry packets.
+     */
+    fun reconnectIfStale(maxIdleMs: Long = 90_000L): Boolean = false
 
     private fun emitLog(value: String) {
         main.post { onLog(value) }

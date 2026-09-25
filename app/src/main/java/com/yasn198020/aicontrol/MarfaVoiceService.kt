@@ -1,6 +1,6 @@
 package com.yasn198020.aicontrol
+
 import com.yasn198020.aicontrol.core.Device
-import com.yasn198020.aicontrol.core.WidgetState
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -28,8 +28,6 @@ class MarfaVoiceService : Service() {
     private var runtime: AppRuntime? = null
     private var runtimeListener: AppRuntime.UiListener? = null
     private var tts: TextToSpeech? = null
-    private val devices = mutableListOf<Device>()
-    private val pendingValues = mutableMapOf<String, String>()
     private lateinit var prefs: android.content.SharedPreferences
 
     override fun onCreate() {
@@ -63,25 +61,7 @@ class MarfaVoiceService : Service() {
             }
 
             override fun onStatus(deviceId: String, widgetId: String, value: String) {
-                synchronized(devices) {
-                    val key = "$deviceId/$widgetId"
-                    val deviceIndex = devices.indexOfFirst { it.id == deviceId }
-                    if (deviceIndex < 0) {
-                        pendingValues[key] = value
-                    } else {
-                        val device = devices[deviceIndex]
-                        val widgetIndex = device.widgets.indexOfFirst { it.id == widgetId }
-                        if (widgetIndex < 0) {
-                            pendingValues[key] = value
-                            devices[deviceIndex] = device.copy(online = true)
-                        } else {
-                            val widgets = device.widgets.map {
-                                if (it.id == widgetId) it.copy(value = value) else it
-                            }
-                            devices[deviceIndex] = device.copy(online = true, widgets = widgets)
-                        }
-                    }
-                }
+                // Device state is maintained centrally by AppRuntime.deviceRepository.
             }
 
             override fun onConfig(
@@ -94,40 +74,10 @@ class MarfaVoiceService : Service() {
                 order: Int,
                 raw: String
             ) {
-                val type = when (widgetType.lowercase()) {
-                    "toggle" -> WidgetState.Type.TOGGLE
-                    "button", "vbtn", "btn" -> WidgetState.Type.BUTTON
-                    "input", "text", "number", "slider" -> WidgetState.Type.INPUT
-                    "anydata", "anydatavlt", "value" -> WidgetState.Type.VALUE
-                    else -> WidgetState.Type.STATUS
-                }
-                synchronized(devices) {
-                    val index = devices.indexOfFirst { it.id == deviceId }
-                    val device = if (index >= 0) devices[index] else Device(deviceId, deviceId, true, emptyList())
-                    val existing = device.widgets.firstOrNull { it.id == widgetId }
-                    val key = "$deviceId/$widgetId"
-                    val pendingValue = pendingValues[key]
-                    val widget = WidgetState(
-                        id = widgetId,
-                        title = label.ifBlank { widgetId },
-                        type = type,
-                        value = pendingValue ?: existing?.value ?: "",
-                        page = page.ifBlank { "Основная" },
-                        topic = topic,
-                        order = order,
-                        unit = try { org.json.JSONObject(raw).optString("after").trim() } catch (_: Exception) { "" }
-                    )
-                    val widgets = if (existing == null) {
-                        device.widgets + widget
-                    } else {
-                        device.widgets.map { if (it.id == widgetId) widget else it }
-                    }
-                    val updated = device.copy(online = true, widgets = widgets)
-                    if (index >= 0) devices[index] = updated else devices.add(updated)
-                    if (pendingValue != null) pendingValues.remove(key)
-                }
+                // Device state is maintained centrally by AppRuntime.deviceRepository.
             }
         }
+
         runtime!!.addUiListener(runtimeListener!!)
         runtime!!.ensureConnected()
 
@@ -247,7 +197,7 @@ class MarfaVoiceService : Service() {
     }
 
     private fun synchronizedCopyDevices(): List<Device> =
-        synchronized(devices) { devices.toList() }
+        runtime?.deviceRepository?.snapshot() ?: emptyList()
 
     private fun formatTemperatureForSpeech(raw: String, unit: String = ""): String {
         val normalized = raw.trim().replace(',', '.')

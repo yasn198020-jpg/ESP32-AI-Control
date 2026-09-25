@@ -37,6 +37,7 @@ class AppRuntime private constructor(private val appContext: Context) {
     private val uiListeners = CopyOnWriteArraySet<UiListener>()
     private val mainHandler = Handler(Looper.getMainLooper())
     val historyStore: HistoryStore = HistoryStore(prefs)
+    val deviceRepository: DeviceRepository = DeviceRepository()
     val scenarioStore: ScenarioStore = ScenarioStore(prefs)
     val scenarioActionExecutor: ScenarioActionExecutor = ScenarioActionExecutor()
 
@@ -100,6 +101,8 @@ class AppRuntime private constructor(private val appContext: Context) {
             }
 
             try {
+                deviceRepository.onStatus(deviceId, widgetId, value)
+
                 DiagnosticTrace.stepForEvent(
                     eventId,
                     "SCENARIO",
@@ -178,6 +181,16 @@ class AppRuntime private constructor(private val appContext: Context) {
             }
         },
         onConfig = { deviceId, widgetId, label, widgetType, page, topic, order, raw ->
+            deviceRepository.onConfig(
+                deviceId,
+                widgetId,
+                label,
+                widgetType,
+                page,
+                topic,
+                order,
+                raw
+            )
             uiListeners.forEach {
                 it.onConfig(
                     deviceId,
@@ -207,6 +220,7 @@ class AppRuntime private constructor(private val appContext: Context) {
                 scenarioEngine.restoreValue(parts[0], parts[1], value)
             }
         }
+        scenarioEngine.primeFromStoredValues()
     }
 
     fun addUiListener(listener: UiListener) {
