@@ -4,6 +4,7 @@
     android:minHeight="100dp"
     android:updatePeriodMillis="0"
     android:initialLayout="@layout/live_data_widget"
+    android:configure="com.yasn198020.aicontrol.LiveDataWidgetConfigActivity"
     android:resizeMode="horizontal|vertical"
     android:widgetCategory="home_screen"
     android:description="@string/live_data_widget_description" />
