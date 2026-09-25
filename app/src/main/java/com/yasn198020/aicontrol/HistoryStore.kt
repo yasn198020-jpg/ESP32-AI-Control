@@ -118,6 +118,22 @@ class HistoryStore(private val prefs: SharedPreferences) {
         cache.toList()
     }
 
+    /** Latest value for each global widget variable, regardless of source device. */
+    fun latestValuesByWidget(): Map<String, Double> {
+        val latest = LinkedHashMap<String, HistoryPoint>()
+        synchronized(lock) {
+            ensureLoadedLocked()
+            cache.forEach { point ->
+                val previous = latest[point.widgetId]
+                if (previous == null || point.timestamp >= previous.timestamp) {
+                    latest[point.widgetId] = point
+                }
+            }
+        }
+        return latest.mapValues { it.value.value }
+    }
+
+
     fun clear() {
         synchronized(lock) {
             ensureLoadedLocked()
