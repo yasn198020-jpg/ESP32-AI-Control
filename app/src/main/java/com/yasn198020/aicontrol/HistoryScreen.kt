@@ -9,7 +9,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.foundation.gestures.awaitDragOrCancellation
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
@@ -162,12 +162,11 @@ import kotlin.math.min
                         }
                     }
 
-                    if(slopChange!=null&&horizontalDrag){
-                        var dragChange=awaitDragOrCancellation(slopChange.id)
-                        while(dragChange!=null){
-                            if(latestZoom>1f&&latestCanvasWidth>0f){
-                                val dx=dragChange.positionChange().x
-                                dragChange.consume()
+                    if(slopChange!=null&&horizontalDrag&&latestZoom>1f&&latestCanvasWidth>0f){
+                        drag(down.id){change->
+                            val dx=change.positionChange().x
+                            if(dx!=0f){
+                                change.consume()
                                 workingOffset=clampOffset(
                                     latestZoom,
                                     workingOffset-dx,
@@ -175,7 +174,6 @@ import kotlin.math.min
                                 )
                                 latestOnZoomOffsetChanged(latestZoom,workingOffset)
                             }
-                            dragChange=awaitDragOrCancellation(dragChange.id)
                         }
                     }
 
