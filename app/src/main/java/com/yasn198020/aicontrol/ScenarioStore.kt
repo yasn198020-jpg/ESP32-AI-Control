@@ -48,48 +48,154 @@ data class Scenario(
 )
 
 class ScenarioStore(private val prefs: android.content.SharedPreferences) {
-    companion object { private const val KEY = "scenarios_v1" }
+    companion object {
+        private const val KEY = "scenarios_v1"
+        private const val BACKUP_KEY = "scenarios_v1_backup"
+    }
 
     private var cached: List<Scenario>? = null
+    private var cachedRaw: String? = null
 
     @Synchronized
     fun load(): List<Scenario> {
-        cached?.let { return it }
-        val raw = prefs.getString(KEY, "[]") ?: "[]"
-        return runCatching {
+        val raw = prefs.getString(KEY, null)
+
+        if (raw == null) {
+            cached = emptyList()
+            cachedRaw = null
+            DiagnosticTrace.system("SCENARIO STORE load keyPresent=false")
+            return emptyList()
+        }
+
+        if (cachedRaw == raw && cached != null) {
+            return cached.orEmpty()
+        }
+
+        val parsed = parseRaw(raw, "primary")
+        if (parsed != null) {
+            cachedRaw = raw
+            cached = parsed
+            DiagnosticTrace.system(
+                "SCENARIO STORE load keyPresent=true rawLength=" +
+                    raw.length +
+                    " parsed=" +
+                    parsed.size
+            )
+            return parsed
+        }
+
+        DiagnosticTrace.system(
+            "SCENARIO STORE primary parse failed rawLength=" +
+                raw.length +
+                " -> trying backup"
+        )
+
+        val backup = prefs.getString(BACKUP_KEY, null)
+        if (!backup.isNullOrBlank()) {
+            val backupParsed = parseRaw(backup, "backup")
+            if (backupParsed != null) {
+                DiagnosticTrace.system(
+                    "SCENARIO STORE restored backup rawLength=" +
+                        backup.length +
+                        " parsed=" +
+                        backupParsed.size
+                )
+                cachedRaw = raw
+                cached = backupParsed
+                return backupParsed
+            }
+        }
+
+        cachedRaw = raw
+        cached = emptyList()
+        DiagnosticTrace.system(
+            "SCENARIO STORE load FAILED primary+backup rawLength=" +
+                raw.length
+        )
+        return emptyList()
+    }
+
+    private fun parseRaw(raw: String, source: String): List<Scenario>? {
+        return try {
             val array = JSONArray(raw)
-            buildList {
+            val result = buildList {
                 for (i in 0 until array.length()) {
-                    val scenario = runCatching {
-                        val o = array.optJSONObject(i) ?: return@runCatching null
+                    try {
+                        val o = array.optJSONObject(i)
+                        if (o == null) {
+                            DiagnosticTrace.system(
+                                "SCENARIO STORE " + source +
+                                    " item=" + i +
+                                    " invalidJSONObject"
+                            )
+                            continue
+                        }
+
                         val oldDevice = o.optString("deviceId")
                         val oldWidget = o.optString("widgetId")
                         val oldOperator = normalizeOperator(o.optString("operator", ">"))
                         val oldThreshold = o.optDouble("threshold", Double.NaN)
                         val conditions = mutableListOf<ScenarioCondition>()
+
                         o.optJSONArray("conditions")?.let { conditionArray ->
                             for (j in 0 until conditionArray.length()) {
                                 val item = conditionArray.optJSONObject(j) ?: continue
                                 val threshold = item.optDouble("threshold", Double.NaN)
                                 val deviceId = item.optString("deviceId").trim()
                                 val widgetId = item.optString("widgetId").trim()
-                                if (deviceId.isNotBlank() && widgetId.isNotBlank() && threshold.isFinite()) {
+
+                                if (
+                                    deviceId.isNotBlank() &&
+                                    widgetId.isNotBlank() &&
+                                    threshold.isFinite()
+                                ) {
                                     conditions += ScenarioCondition(
                                         deviceId,
                                         widgetId,
                                         normalizeOperator(item.optString("operator", ">")),
                                         threshold,
-                                        if (j == 0) "AND" else normalizeConnector(item.optString("connector", "AND"))
+                                        if (j == 0) {
+                                            "AND"
+                                        } else {
+                                            normalizeConnector(
+                                                item.optString("connector", "AND")
+                                            )
+                                        }
                                     )
                                 }
                             }
                         }
-                        if (conditions.isEmpty() && oldDevice.isNotBlank() && oldWidget.isNotBlank() && oldThreshold.isFinite()) {
-                            conditions += ScenarioCondition(oldDevice, oldWidget, oldOperator, oldThreshold)
-                        }
-                        if (conditions.isEmpty()) return@runCatching null
 
-                        val actionType = if (o.optString("actionType", "NOTIFICATION") == "MQTT_CONTROL") "MQTT_CONTROL" else "NOTIFICATION"
+                        if (
+                            conditions.isEmpty() &&
+                            oldDevice.isNotBlank() &&
+                            oldWidget.isNotBlank() &&
+                            oldThreshold.isFinite()
+                        ) {
+                            conditions += ScenarioCondition(
+                                oldDevice,
+                                oldWidget,
+                                oldOperator,
+                                oldThreshold
+                            )
+                        }
+
+                        if (conditions.isEmpty()) {
+                            DiagnosticTrace.system(
+                                "SCENARIO STORE " + source +
+                                    " item=" + i +
+                                    " skipped=noValidConditions"
+                            )
+                            continue
+                        }
+
+                        val actionType =
+                            if (o.optString("actionType", "NOTIFICATION") == "MQTT_CONTROL") {
+                                "MQTT_CONTROL"
+                            } else {
+                                "NOTIFICATION"
+                            }
+
                         val actions = buildList {
                             val aa = o.optJSONArray("actions")
                             if (aa != null) {
@@ -97,51 +203,113 @@ class ScenarioStore(private val prefs: android.content.SharedPreferences) {
                                     val a = aa.optJSONObject(k) ?: continue
                                     val d = a.optString("deviceId").trim()
                                     val w = a.optString("widgetId").trim()
-                                    if (d.isNotBlank() && w.isNotBlank()) add(ScenarioAction(d, w, a.optString("value", "1")))
+
+                                    if (d.isNotBlank() && w.isNotBlank()) {
+                                        add(
+                                            ScenarioAction(
+                                                d,
+                                                w,
+                                                a.optString("value", "1")
+                                            )
+                                        )
+                                    }
                                 }
-                            } else if (actionType == "MQTT_CONTROL" &&
+                            } else if (
+                                actionType == "MQTT_CONTROL" &&
                                 o.optString("actionDeviceId").isNotBlank() &&
-                                o.optString("actionWidgetId").isNotBlank()) {
-                                add(ScenarioAction(o.optString("actionDeviceId"), o.optString("actionWidgetId"), o.optString("actionValue", "1")))
+                                o.optString("actionWidgetId").isNotBlank()
+                            ) {
+                                add(
+                                    ScenarioAction(
+                                        o.optString("actionDeviceId"),
+                                        o.optString("actionWidgetId"),
+                                        o.optString("actionValue", "1")
+                                    )
+                                )
                             }
                         }
 
-                        Scenario(
-                            id = o.optString("id").ifBlank { UUID.randomUUID().toString() },
-                            deviceId = conditions.first().deviceId,
-                            widgetId = conditions.first().widgetId,
-                            title = o.optString("title").trim().ifBlank { "Сценарий" },
-                            operator = conditions.first().operator,
-                            threshold = conditions.first().threshold,
-                            message = o.optString("message").trim().ifBlank { "Условие выполнено: {value}" },
-                            enabled = o.optBoolean("enabled", true),
-                            armed = o.optBoolean("armed", true),
-                            actionType = actionType,
-                            actionDeviceId = o.optString("actionDeviceId", ""),
-                            actionWidgetId = o.optString("actionWidgetId", ""),
-                            actionValue = o.optString("actionValue", "1"),
-                            actions = actions,
-                            notificationEnabled = o.optBoolean("notificationEnabled", true),
-                            verifyEnabled = o.optBoolean("verifyEnabled", false),
-                            verifyTimeoutSec = o.optInt("verifyTimeoutSec", 30).coerceIn(1, 300),
-                            verifyDeviceId = o.optString("verifyDeviceId", ""),
-                            verifyWidgetId = o.optString("verifyWidgetId", ""),
-                            verifyOperator = normalizeOperator(o.optString("verifyOperator", "=")),
-                            verifyValue = o.optDouble("verifyValue", 1.0).takeIf { it.isFinite() } ?: 1.0,
-                            verifySuccessMessage = o.optString("verifySuccessMessage", "Подтверждение получено: {value}"),
-                            verifyFailureMessage = o.optString("verifyFailureMessage", "Подтверждение не получено"),
-                            conditions = conditions
+                        add(
+                            Scenario(
+                                id = o.optString("id")
+                                    .ifBlank { UUID.randomUUID().toString() },
+                                deviceId = conditions.first().deviceId,
+                                widgetId = conditions.first().widgetId,
+                                title = o.optString("title")
+                                    .trim()
+                                    .ifBlank { "Сценарий" },
+                                operator = conditions.first().operator,
+                                threshold = conditions.first().threshold,
+                                message = o.optString("message")
+                                    .trim()
+                                    .ifBlank { "Условие выполнено: {value}" },
+                                enabled = o.optBoolean("enabled", true),
+                                armed = o.optBoolean("armed", true),
+                                actionType = actionType,
+                                actionDeviceId = o.optString("actionDeviceId", ""),
+                                actionWidgetId = o.optString("actionWidgetId", ""),
+                                actionValue = o.optString("actionValue", "1"),
+                                actions = actions,
+                                notificationEnabled =
+                                    o.optBoolean("notificationEnabled", true),
+                                verifyEnabled =
+                                    o.optBoolean("verifyEnabled", false),
+                                verifyTimeoutSec =
+                                    o.optInt("verifyTimeoutSec", 30).coerceIn(1, 300),
+                                verifyDeviceId = o.optString("verifyDeviceId", ""),
+                                verifyWidgetId = o.optString("verifyWidgetId", ""),
+                                verifyOperator =
+                                    normalizeOperator(o.optString("verifyOperator", "=")),
+                                verifyValue =
+                                    o.optDouble("verifyValue", 1.0)
+                                        .takeIf { it.isFinite() } ?: 1.0,
+                                verifySuccessMessage =
+                                    o.optString(
+                                        "verifySuccessMessage",
+                                        "Подтверждение получено: {value}"
+                                    ),
+                                verifyFailureMessage =
+                                    o.optString(
+                                        "verifyFailureMessage",
+                                        "Подтверждение не получено"
+                                    ),
+                                conditions = conditions
+                            )
                         )
-                    }.getOrNull()
-                    if (scenario != null) add(scenario)
+                    } catch (e: Exception) {
+                        DiagnosticTrace.system(
+                            "SCENARIO STORE " + source +
+                                " item=" + i +
+                                " parseError=" +
+                                e.javaClass.simpleName +
+                                ":" +
+                                (e.message ?: "<empty>")
+                        )
+                    }
                 }
             }
-        }.getOrDefault(emptyList()).also { cached = it }
+
+            DiagnosticTrace.system(
+                "SCENARIO STORE " + source +
+                    " JSON parsed items=" + result.size
+            )
+            result
+        } catch (e: Exception) {
+            DiagnosticTrace.system(
+                "SCENARIO STORE " + source +
+                    " JSON parseError=" +
+                    e.javaClass.simpleName +
+                    ":" +
+                    (e.message ?: "<empty>")
+            )
+            null
+        }
     }
 
     @Synchronized
     fun invalidate() {
         cached = null
+        cachedRaw = null
     }
 
     private fun normalizeOperator(value: String): String = when (value.trim()) {
@@ -155,6 +323,7 @@ class ScenarioStore(private val prefs: android.content.SharedPreferences) {
     @Synchronized
     fun save(items: List<Scenario>) {
         val array = JSONArray()
+
         items.forEach { s ->
             array.put(JSONObject().apply {
                 put("id", s.id)
@@ -170,6 +339,7 @@ class ScenarioStore(private val prefs: android.content.SharedPreferences) {
                 put("actionDeviceId", s.actionDeviceId)
                 put("actionWidgetId", s.actionWidgetId)
                 put("actionValue", s.actionValue)
+
                 val aa = JSONArray()
                 s.actions.forEach { a ->
                     aa.put(JSONObject().apply {
@@ -179,6 +349,7 @@ class ScenarioStore(private val prefs: android.content.SharedPreferences) {
                     })
                 }
                 put("actions", aa)
+
                 put("notificationEnabled", s.notificationEnabled)
                 put("verifyEnabled", s.verifyEnabled)
                 put("verifyTimeoutSec", s.verifyTimeoutSec)
@@ -188,6 +359,7 @@ class ScenarioStore(private val prefs: android.content.SharedPreferences) {
                 put("verifyValue", s.verifyValue)
                 put("verifySuccessMessage", s.verifySuccessMessage)
                 put("verifyFailureMessage", s.verifyFailureMessage)
+
                 val ca = JSONArray()
                 s.conditions.forEachIndexed { index, c ->
                     ca.put(JSONObject().apply {
@@ -195,22 +367,79 @@ class ScenarioStore(private val prefs: android.content.SharedPreferences) {
                         put("widgetId", c.widgetId)
                         put("operator", c.operator)
                         put("threshold", c.threshold)
-                        put("connector", if (index == 0) "AND" else c.connector)
+                        put(
+                            "connector",
+                            if (index == 0) "AND" else c.connector
+                        )
                     })
                 }
                 put("conditions", ca)
             })
         }
-        prefs.edit().putString(KEY, array.toString()).apply()
+
+        val raw = array.toString()
+        val oldRaw = prefs.getString(KEY, null)
+
+        val committed = prefs.edit()
+            .putString(KEY, raw)
+            .apply {
+                if (!oldRaw.isNullOrBlank()) {
+                    putString(BACKUP_KEY, oldRaw)
+                } else {
+                    remove(BACKUP_KEY)
+                }
+            }
+            .commit()
+
+        DiagnosticTrace.system(
+            "SCENARIO STORE SAVE committed=" +
+                committed +
+                " items=" +
+                items.size +
+                " rawLength=" +
+                raw.length
+        )
+
         cached = items
+        cachedRaw = raw
     }
 
-    @Synchronized fun add(scenario: Scenario) = save(load() + scenario)
-    @Synchronized fun update(scenario: Scenario) = save(load().map { if (it.id == scenario.id) scenario else it })
-    @Synchronized fun delete(id: String) = save(load().filterNot { it.id == id })
-    @Synchronized fun clear() {
-        prefs.edit().remove(KEY).apply()
+    @Synchronized
+    fun add(scenario: Scenario) = save(load() + scenario)
+
+    @Synchronized
+    fun update(scenario: Scenario) =
+        save(load().map { if (it.id == scenario.id) scenario else it })
+
+    @Synchronized
+    fun delete(id: String) =
+        save(load().filterNot { it.id == id })
+
+    @Synchronized
+    fun clear() {
+        val committed = prefs.edit()
+            .remove(KEY)
+            .remove(BACKUP_KEY)
+            .commit()
+
+        DiagnosticTrace.system(
+            "SCENARIO STORE CLEAR committed=" + committed
+        )
+
         cached = emptyList()
+        cachedRaw = null
+    }
+
+    @Synchronized
+    fun diagnostics(): String {
+        val raw = prefs.getString(KEY, null)
+        val backup = prefs.getString(BACKUP_KEY, null)
+
+        return "keyPresent=" + (raw != null) +
+            " rawLength=" + (raw?.length ?: 0) +
+            " backupPresent=" + (backup != null) +
+            " backupLength=" + (backup?.length ?: 0) +
+            " cached=" + (cached?.size ?: -1)
     }
 }
 
