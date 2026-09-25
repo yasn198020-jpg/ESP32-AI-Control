@@ -11,7 +11,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.detectTapGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -20,6 +20,8 @@ import com.yasn198020.aicontrol.core.WidgetState
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.abs
+import kotlin.math.min
 
 @Composable fun HistoryScreen(modifier: Modifier, devices: List<Device>, store: HistoryStore) {
     var points by remember { mutableStateOf(store.load()) }; var selectedKey by remember { mutableStateOf<String?>(null) }
@@ -206,6 +208,3 @@ private fun nearestPointIndex(
     return if(abs(lowerX-tapX)<=abs(upperX-tapX))lower else upper
 }
 
-
-import kotlin.math.abs
-import kotlin.math.min
