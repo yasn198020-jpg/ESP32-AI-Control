@@ -184,6 +184,9 @@ class HistoryStore(private val prefs: SharedPreferences) {
                 persistLoop()
             } finally {
                 pendingPersistCount.decrementAndGet()
+                if (synchronized(lock) { persistRequested }) {
+                    schedulePersist()
+                }
             }
         }
     }
