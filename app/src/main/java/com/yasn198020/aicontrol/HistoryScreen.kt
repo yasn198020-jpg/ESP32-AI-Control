@@ -55,6 +55,8 @@ import kotlin.math.min
     var zoom by remember(points.firstOrNull()?.timestamp,points.size){mutableFloatStateOf(1f)}
     var offsetX by remember(points.firstOrNull()?.timestamp,points.size){mutableFloatStateOf(0f)}
     var selectedIndex by remember(points.firstOrNull()?.timestamp,points.size){mutableIntStateOf(points.lastIndex)}
+    val currentZoom by rememberUpdatedState(zoom)
+    val currentOffsetX by rememberUpdatedState(offsetX)
 
     Column(Modifier.fillMaxWidth()){
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically){
@@ -62,8 +64,13 @@ import kotlin.math.min
                 Text(String.format(Locale.US,"%.2f %s",maxValue,unit),style=MaterialTheme.typography.bodySmall)
                 Text(String.format(Locale.US,"%.2f %s",minValue,unit),style=MaterialTheme.typography.bodySmall)
             }
-            Row(horizontalArrangement=Arrangement.spacedBy(6.dp),verticalAlignment=Alignment.CenterVertically){
-                Text("×${zoom}",style=MaterialTheme.typography.bodySmall)
+            Row(horizontalArrangement=Arrangement.spacedBy(4.dp),verticalAlignment=Alignment.CenterVertically){
+                TextButton(onClick={
+                    zoom=(zoom/1.5f).coerceAtLeast(1f)
+                    if(zoom==1f) offsetX=0f
+                }){Text("−")}
+                Text("×${String.format(Locale.US,"%.1f",zoom)}",style=MaterialTheme.typography.bodySmall)
+                TextButton(onClick={zoom=(zoom*1.5f).coerceAtMost(20f)}){Text("+")}
                 TextButton(onClick={zoom=1f;offsetX=0f}){Text("Сброс")}
             }
         }
@@ -124,10 +131,14 @@ import kotlin.math.min
             .pointerInput(points){
                 detectTransformGestures{centroid,pan,gestureZoom,_->
                     if(canvasWidth<=0f)return@detectTransformGestures
-                    val oldZoom=zoom
-                    val newZoom=(zoom*gestureZoom).coerceIn(1f,20f)
-                    val worldX=(centroid.x+offsetX)/oldZoom
-                    val newOffset=clampOffset(newZoom,worldX*newZoom-centroid.x-pan.x,canvasWidth)
+                    val oldZoom=currentZoom
+                    val newZoom=(oldZoom*gestureZoom).coerceIn(1f,20f)
+                    val worldX=(centroid.x+currentOffsetX)/oldZoom
+                    val newOffset=clampOffset(
+                        newZoom,
+                        worldX*newZoom-centroid.x-pan.x,
+                        canvasWidth
+                    )
                     onZoomOffsetChanged(newZoom,newOffset)
                 }
             }
