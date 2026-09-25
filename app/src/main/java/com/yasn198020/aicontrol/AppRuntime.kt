@@ -244,7 +244,7 @@ class AppRuntime private constructor(private val appContext: Context) {
     fun ensureConnected() {
         if (mqtt.isConnected() || mqtt.isConnecting()) return
 
-        val host = prefs.getString("mqtt_host", "m4.wqtt.ru") ?: "m4.wqtt.ru"
+        val host = prefs.getString("mqtt_host", "") ?: ""
         val port = prefs.getString("mqtt_port", "1883")?.toIntOrNull() ?: 1883
         val tls = prefs.getBoolean("mqtt_tls", false)
         val prefix = prefs.getString("mqtt_prefix", "IoTManager") ?: "IoTManager"
