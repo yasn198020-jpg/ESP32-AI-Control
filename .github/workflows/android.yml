@@ -105,13 +105,20 @@ jobs:
 
           echo "Keeping release: $KEEP_TAG"
 
-          gh release list --repo "$GITHUB_REPOSITORY" --limit 1000 --json tagName --jq '.[].tagName' |
-          while IFS= read -r TAG; do
-            [ -z "$TAG" ] && continue
-            if [ "$TAG" = "$KEEP_TAG" ]; then
-              echo "KEEP $TAG"
-            else
-              echo "DELETE $TAG"
-              gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
-            fi
+          PAGE=1
+          while true; do
+            TAGS=$(gh api "/repos/${GITHUB_REPOSITORY}/releases?per_page=100&page=${PAGE}" --jq '.[].tag_name')
+            [ -z "$TAGS" ] && break
+
+            while IFS= read -r TAG; do
+              [ -z "$TAG" ] && continue
+              if [ "$TAG" = "$KEEP_TAG" ]; then
+                echo "KEEP $TAG"
+              else
+                echo "DELETE $TAG"
+                gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
+              fi
+            done <<< "$TAGS"
+
+            PAGE=$((PAGE + 1))
           done
