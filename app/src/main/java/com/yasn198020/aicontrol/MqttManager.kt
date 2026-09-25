@@ -40,7 +40,12 @@ class MqttManager(
     }
 
     @Volatile private var connectionStateLoggingStarted = false
+    @Volatile private var reconnectHeartbeatStarted = false
     @Volatile private var initialReconnectAttempt = 0
+    @Volatile private var connectionHeartbeatCount = 0L
+    @Volatile private var reconnectHeartbeatCount = 0L
+    @Volatile private var lastConnectionHeartbeatAt = 0L
+    @Volatile private var lastReconnectHeartbeatAt = 0L
 
     private data class PendingPublish(val topic: String, val payload: String, val eventId: Long?)
     private data class LastStatusEvent(
@@ -59,6 +64,11 @@ class MqttManager(
     companion object {
         private const val STATUS_EVENT_DEDUP_WINDOW_MS = 750L
         private const val MAX_STATUS_EVENT_KEYS = 512
+        private const val BACKGROUND_HEARTBEAT_MS = 15_000L
+    }
+
+    init {
+        startReconnectHeartbeat()
     }
 
     @Synchronized
@@ -659,10 +669,25 @@ class MqttManager(
         if (connectionStateLoggingStarted) return
         connectionStateLoggingStarted = true
         // This is based on Paho isConnected(), not on message reception.
-        // First log immediately, then every 30 seconds.
+        // First log immediately, then every 15 seconds.
         connectionStateLogger.scheduleAtFixedRate({
-            runCatching { emitConnectionStateLog() }
-        }, 0L, 30L, TimeUnit.SECONDS)
+            runCatching {
+                val now = System.currentTimeMillis()
+                val previous = lastConnectionHeartbeatAt
+                val deltaMs = if (previous == 0L) -1L else now - previous
+                lastConnectionHeartbeatAt = now
+                val count = ++connectionHeartbeatCount
+
+                DiagnosticTrace.system(
+                    "HEARTBEAT[MQTT-ConnectionState] #" + count +
+                        " deltaMs=" + deltaMs +
+                        " expectedMs=" + BACKGROUND_HEARTBEAT_MS +
+                        " thread=" + Thread.currentThread().name +
+                        " state=" + diagnostics()
+                )
+                emitConnectionStateLog()
+            }
+        }, 0L, BACKGROUND_HEARTBEAT_MS, TimeUnit.MILLISECONDS)
     }
 
     private fun emitConnectionStateLog() {
@@ -847,6 +872,34 @@ class MqttManager(
         lastRxThread = ""
         emitConnected(false)
         return true
+    }
+
+    private fun startReconnectHeartbeat() {
+        if (reconnectHeartbeatStarted) return
+        reconnectHeartbeatStarted = true
+
+        reconnectExecutor.scheduleAtFixedRate({
+            runCatching {
+                val now = System.currentTimeMillis()
+                val previous = lastReconnectHeartbeatAt
+                val deltaMs = if (previous == 0L) -1L else now - previous
+                lastReconnectHeartbeatAt = now
+                val count = ++reconnectHeartbeatCount
+
+                DiagnosticTrace.system(
+                    "HEARTBEAT[MQTT-ReconnectSupervisor] #" + count +
+                        " deltaMs=" + deltaMs +
+                        " expectedMs=" + BACKGROUND_HEARTBEAT_MS +
+                        " thread=" + Thread.currentThread().name +
+                        " clientState=" + diagnostics()
+                )
+            }.onFailure {
+                DiagnosticTrace.system(
+                    "HEARTBEAT[MQTT-ReconnectSupervisor] ERROR " +
+                        (it.message ?: it.javaClass.simpleName)
+                )
+            }
+        }, 0L, BACKGROUND_HEARTBEAT_MS, TimeUnit.MILLISECONDS)
     }
 
     private fun scheduleInitialReconnect(reason: String, delayMs: Long? = null) {
