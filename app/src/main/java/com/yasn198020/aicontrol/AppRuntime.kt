@@ -41,21 +41,48 @@ class AppRuntime private constructor(private val appContext: Context) {
     val scenarioStore: ScenarioStore = ScenarioStore(prefs)
     val scenarioActionExecutor: ScenarioActionExecutor = ScenarioActionExecutor()
 
-    private val currentTriggeredScenario = ThreadLocal<((Scenario, String) -> Unit)?>()
-
     val scenarioEngine: ScenarioEngine = ScenarioEngine(
         scenarioStore,
         onTrigger = { scenario, rawValue, _ ->
             DiagnosticTrace.step(
                 "TRIGGER",
-                "scenario=${scenario.id} title=${scenario.title} value=$rawValue"
+                "scenario=${scenario.id} title=${scenario.title} value=${rawValue}"
             )
             DiagnosticTrace.step(
                 "ACTION",
                 "type=${scenario.actionType} actions=${scenario.actions.size}"
             )
-            scenarioActionExecutor.execute(scenario)
-            currentTriggeredScenario.get()?.invoke(scenario, rawValue)
+
+            runCatching {
+                scenarioActionExecutor.execute(scenario)
+            }.onFailure {
+                DiagnosticTrace.error(
+                    "ACTION dispatch failed scenario=${scenario.id} error=${it.message ?: it.javaClass.simpleName}"
+                )
+            }
+
+            if (scenario.notificationEnabled) {
+                runCatching {
+                    ScenarioNotifier.notify(
+                        appContext,
+                        scenario,
+                        rawValue
+                    )
+                    DiagnosticTrace.step(
+                        "NOTIFY",
+                        "trigger notification requested scenario=${scenario.id}"
+                    )
+                }.onFailure {
+                    DiagnosticTrace.error(
+                        "NOTIFY dispatch failed scenario=${scenario.id} error=${it.message ?: it.javaClass.simpleName}"
+                    )
+                }
+            } else {
+                DiagnosticTrace.step(
+                    "NOTIFY",
+                    "trigger notification skipped: disabled scenario=${scenario.id}"
+                )
+            }
         },
         onVerificationResult = { scenario, success, rawValue ->
             DiagnosticTrace.step(
@@ -91,14 +118,8 @@ class AppRuntime private constructor(private val appContext: Context) {
             uiListeners.forEach { it.onConnected(connected) }
         },
         onStatus = { deviceId, widgetId, value ->
-            var triggeredScenario: Scenario? = null
-            var triggeredRawValue: String? = null
             val originalEngine = scenarioEngine
             val eventId = DiagnosticTrace.currentEventId()
-            currentTriggeredScenario.set { scenario, raw ->
-                triggeredScenario = scenario
-                triggeredRawValue = raw
-            }
 
             try {
                 deviceRepository.onStatus(deviceId, widgetId, value)
@@ -109,26 +130,6 @@ class AppRuntime private constructor(private val appContext: Context) {
                     "INPUT device=$deviceId widget=$widgetId value=$value"
                 )
 
-                val historyResult = historyStore.add(deviceId, widgetId, value)
-                if (historyResult.accepted) {
-                    DiagnosticTrace.stepForEvent(
-                        eventId,
-                        "HISTORY",
-                        "QUEUED device=" + deviceId +
-                            " widget=" + widgetId +
-                            " value=" + value +
-                            " points=" + historyResult.pointCount
-                    )
-                } else {
-                    DiagnosticTrace.stepForEvent(
-                        eventId,
-                        "HISTORY",
-                        "SKIPPED device=" + deviceId +
-                            " widget=" + widgetId +
-                            " value=" + value +
-                            " reason=" + historyResult.reason
-                    )
-                }
                 if (widgetId == "vbtn90") {
                     DiagnosticTrace.stepForEvent(
                         eventId,
@@ -173,7 +174,7 @@ class AppRuntime private constructor(private val appContext: Context) {
                 )
                 android.util.Log.e("MQTT_RUNTIME", "Background status processing failed", e)
             } finally {
-                currentTriggeredScenario.remove()
+                // Scenario actions and notifications are dispatched by onTrigger.
             }
 
             mainHandler.post {
