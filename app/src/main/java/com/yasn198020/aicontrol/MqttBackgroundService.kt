@@ -49,6 +49,20 @@ class MqttBackgroundService : Service() {
             }
         }
 
+    // Dedicated diagnostic timer. It does not perform MQTT work.
+    private val heartbeat: ScheduledExecutorService =
+        Executors.newSingleThreadScheduledExecutor { runnable ->
+            Thread(runnable, "MQTT-BackgroundHeartbeat").apply {
+                isDaemon = true
+            }
+        }
+
+    @Volatile
+    private var heartbeatCount = 0L
+
+    @Volatile
+    private var lastHeartbeatElapsedRealtime = 0L
+
     @Volatile
     private var running = false
 
@@ -192,6 +206,29 @@ class MqttBackgroundService : Service() {
             TimeUnit.MILLISECONDS
         )
 
+        heartbeat.scheduleAtFixedRate(
+            {
+                if (!running) return@scheduleAtFixedRate
+
+                val now = SystemClock.elapsedRealtime()
+                val previous = lastHeartbeatElapsedRealtime
+                val deltaMs = if (previous == 0L) -1L else now - previous
+                lastHeartbeatElapsedRealtime = now
+                val count = ++heartbeatCount
+
+                DiagnosticTrace.system(
+                    "HEARTBEAT[MqttBackgroundService] #" + count +
+                        " deltaMs=" + deltaMs +
+                        " expectedMs=" + CHECK_INTERVAL_MS +
+                        " thread=" + Thread.currentThread().name +
+                        " uptimeMs=" + now
+                )
+            },
+            0L,
+            CHECK_INTERVAL_MS,
+            TimeUnit.MILLISECONDS
+        )
+
         DiagnosticTrace.system(
             "BACKGROUND SERVICE onCreate supervisorScheduled intervalMs=" +
                 CHECK_INTERVAL_MS +
@@ -226,6 +263,7 @@ class MqttBackgroundService : Service() {
         supervisorFuture?.cancel(false)
         supervisorFuture = null
         supervisor.shutdownNow()
+        heartbeat.shutdownNow()
 
         // IMPORTANT: do not disconnect MQTT here.
         // The runtime owns the MQTT client; Android may recreate this service.
