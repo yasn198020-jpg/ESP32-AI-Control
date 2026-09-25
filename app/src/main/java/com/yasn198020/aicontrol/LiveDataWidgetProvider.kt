@@ -128,7 +128,7 @@ class LiveDataWidgetProvider : AppWidgetProvider() {
 
             views.setTextViewText(
                 R.id.live_widget_updated,
-                "Обновлено: " + formatLastUpdated(widget?.lastUpdated)
+                "Обновлено: " + formatLastUpdated(widget?.lastUpdated ?: 0L)
             )
             views.setTextViewText(
                 R.id.live_widget_title,
