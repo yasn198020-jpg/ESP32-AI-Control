@@ -14,6 +14,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.input.pointer.awaitPointerEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yasn198020.aicontrol.core.Device
@@ -116,6 +117,7 @@ import kotlin.math.min
     onSelectIndex:(Int)->Unit
 ){
     var canvasWidth by remember{mutableFloatStateOf(0f)}
+    val touchSlopPx = with(LocalDensity.current) { 8.dp.toPx() }
 
     val latestPoints by rememberUpdatedState(points)
     val latestZoom by rememberUpdatedState(zoom)
@@ -176,7 +178,7 @@ import kotlin.math.min
                         val totalDy=change.position.y-down.position.y
 
                         if(!moved){
-                            val slop=viewConfiguration.touchSlop
+                            val slop=touchSlopPx
                             if(totalDx*totalDx+totalDy*totalDy>slop*slop){
                                 moved=true
                             }
