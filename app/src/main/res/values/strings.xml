@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="voice_widget_description">Кнопка запуска микрофона Марфа</string>
+    <string name="live_data_widget_description">Данные MQTT в реальном времени</string>
 </resources>
