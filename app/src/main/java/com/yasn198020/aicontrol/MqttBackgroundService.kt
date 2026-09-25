@@ -51,8 +51,7 @@ class MqttBackgroundService : Service() {
                 val runtime = AppRuntime.get(applicationContext)
                 val staleRecovered = runtime.mqtt.reconnectIfStale(90_000L)
                 DiagnosticTrace.system(
-                    "SERVICE watchdog connected=" + runtime.mqtt.isConnected() +
-                        " connecting=" + runtime.mqtt.isConnecting() +
+                    "SERVICE watchdog " + runtime.mqtt.diagnostics() +
                         " staleRecovered=" + staleRecovered
                 )
                 if (!staleRecovered) runtime.ensureConnected()
