@@ -599,7 +599,8 @@ class MqttManager(
     }
 
     fun publishHello() {
-        publish("/dghjko", "HELLO")
+        if (prefix.isBlank()) return
+        publish("/" + prefix.trim('/'), "HELLO")
     }
 
     fun publishWidget(topic: String, value: String): Boolean {
