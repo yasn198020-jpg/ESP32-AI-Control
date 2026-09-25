@@ -1,7 +1,7 @@
 package com.yasn198020.aicontrol
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -11,7 +11,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -128,34 +127,29 @@ import kotlin.math.min
             .fillMaxWidth()
             .height(220.dp)
             .onSizeChanged{canvasWidth=it.width.toFloat()}
-            .pointerInput(points){
-                detectTransformGestures{centroid,pan,gestureZoom,_->
-                    if(canvasWidth<=0f)return@detectTransformGestures
-                    val oldZoom=currentZoom
-                    val newZoom=(oldZoom*gestureZoom).coerceIn(1f,20f)
-                    val worldX=(centroid.x+currentOffsetX)/oldZoom
-                    val newOffset=clampOffset(
-                        newZoom,
-                        worldX*newZoom-centroid.x-pan.x,
-                        canvasWidth
-                    )
-                    onZoomOffsetChanged(newZoom,newOffset)
-                }
-            }
-            .pointerInput(points,zoom,offsetX){
-                detectTapGestures { position ->
-                    if(canvasWidth>0f){
-                        onSelectIndex(
-                            nearestPointIndex(
-                                points,
-                                position.x,
-                                canvasWidth,
-                                zoom,
-                                offsetX
-                            )
-                        )
+            .pointerInput(zoom,offsetX,points){
+                var dragStartX=0f
+                var dragStartOffset=0f
+                var totalDrag=0f
+                detectDragGestures(
+                    onDragStart={position->
+                        dragStartX=position.x
+                        dragStartOffset=offsetX
+                        totalDrag=0f
+                    },
+                    onDragEnd={
+                        if(abs(totalDrag)<12f && canvasWidth>0f){
+                            onSelectIndex(nearestPointIndex(points,dragStartX,canvasWidth,zoom,offsetX))
+                        }
+                    },
+                    onDragCancel={},
+                    onDrag={change,dragAmount->
+                        change.consume()
+                        totalDrag+=abs(dragAmount.x)
+                        val newOffset=clampOffset(zoom,dragStartOffset-dragAmountAccumulatedX(totalDrag,dragAmount.x,dragStartOffset,offsetX),canvasWidth)
+                        onZoomOffsetChanged(zoom,newOffset)
                     }
-                }
+                )
             }
     ){
         val contentWidth=size.width*zoom
@@ -200,6 +194,9 @@ import kotlin.math.min
         }
     }
 }
+
+private fun dragAmountAccumulatedX(total:Float, current:Float, startOffset:Float, currentOffset:Float):Float =
+    (startOffset-currentOffset+current).let { _ -> 0f }
 
 private fun nearestPointIndex(
     points:List<HistoryPoint>,
