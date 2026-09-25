@@ -77,12 +77,30 @@ jobs:
             "/repos/${GITHUB_REPOSITORY}/actions/runs?per_page=100" \
             --jq ".workflow_runs[] | select(.id != ${CURRENT_RUN_ID} and .status == \"completed\") | .id" > /tmp/completed_ids
 
+          MAX_PARALLEL=20
+          PIDS=()
+
           while IFS= read -r RUN_ID; do
             [ -z "${RUN_ID}" ] && continue
+
             echo "DELETE run ${RUN_ID}"
-            gh api --method DELETE \
-              -H "Accept: application/vnd.github+json" \
-              "/repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" >/dev/null
+            (
+              gh api --method DELETE \
+                -H "Accept: application/vnd.github+json" \
+                "/repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" >/dev/null 2>&1 || true
+            ) &
+            PIDS+=("$!")
+
+            if [ "${#PIDS[@]}" -ge "${MAX_PARALLEL}" ]; then
+              for PID in "${PIDS[@]}"; do
+                wait "${PID}" || true
+              done
+              PIDS=()
+            fi
           done < /tmp/completed_ids
+
+          for PID in "${PIDS[@]}"; do
+            wait "${PID}" || true
+          done
 
           echo "Actions history cleanup finished."
