@@ -21,6 +21,7 @@ class MqttManager(
     @Volatile private var connecting = false
     @Volatile private var reconnecting = false
     @Volatile private var lastConnectAttemptAt = 0L
+    @Volatile private var reconnectStartedAt = 0L
     @Volatile private var lastRxAt = 0L
     @Volatile private var rxCallbackCount = 0L
     @Volatile private var lastRxTopic = ""
@@ -139,6 +140,7 @@ class MqttManager(
                     connecting = false
                     reconnecting = false
                     lastConnectAttemptAt = 0L
+                    reconnectStartedAt = 0L
                     initialReconnectAttempt = 0
                     lastRxAt = System.currentTimeMillis()
                     rxCallbackCount = 0L
@@ -171,6 +173,7 @@ class MqttManager(
                     connecting = false
                     reconnecting = true
                     lastConnectAttemptAt = 0L
+                    reconnectStartedAt = System.currentTimeMillis()
 
                     DiagnosticTrace.system(
                         "MQTT Paho connectionLost thread=" + Thread.currentThread().name +
@@ -418,6 +421,11 @@ class MqttManager(
                 isCleanSession = true
                 connectionTimeout = 10
                 keepAliveInterval = 30
+
+                // Paho automatic reconnect uses exponential backoff. Keep the
+                // maximum delay bounded so a connection lost after Android
+                // sleep does not leave the app disconnected for minutes.
+                maxReconnectDelay = 10
 
                 if (username.isNotBlank()) {
                     userName = username
@@ -695,6 +703,7 @@ class MqttManager(
         connecting = false
         reconnecting = false
         lastConnectAttemptAt = 0L
+        reconnectStartedAt = 0L
         connectionConfigKey = ""
 
         try {
@@ -741,6 +750,61 @@ class MqttManager(
             " lastRxIdleMs=" + idleMs +
             " lastRxTopic=" + lastRxTopic +
             " lastRxThread=" + lastRxThread
+    }
+
+    /**
+     * Recovery safety net for a client that is stuck in Paho automatic
+     * reconnect for an unexpectedly long time.
+     *
+     * This is deliberately much slower than the normal reconnect loop and is
+     * only used after a real connectionLost callback. It never reacts to
+     * message-idle time, so normal telemetry gaps cannot cause forced resets.
+     */
+    @Synchronized
+    fun reconnectIfAutomaticReconnectStuck(maxReconnectMs: Long = 45_000L): Boolean {
+        if (!reconnecting || connecting) return false
+
+        val startedAt = reconnectStartedAt
+        if (startedAt <= 0L) return false
+
+        val elapsedMs = System.currentTimeMillis() - startedAt
+        if (elapsedMs < maxReconnectMs) return false
+
+        val current = client
+        if (current?.isConnected == true) {
+            reconnecting = false
+            reconnectStartedAt = 0L
+            return false
+        }
+
+        DiagnosticTrace.system(
+            "MQTT WATCHDOG RECONNECT_STUCK elapsedMs=" + elapsedMs +
+                " thresholdMs=" + maxReconnectMs +
+                " thread=" + Thread.currentThread().name
+        )
+        emitLog(
+            "MQTT watchdog: automatic reconnect stuck elapsedMs=" +
+                elapsedMs + "; replacing MQTT client"
+        )
+
+        // Keep the effective settings so ensureConnected() can recreate the
+        // same client without treating this as a configuration change.
+        val oldClient = client
+        client = null
+        connecting = false
+        reconnecting = false
+        lastConnectAttemptAt = 0L
+        reconnectStartedAt = 0L
+
+        try { oldClient?.disconnect() } catch (_: Exception) {}
+        try { oldClient?.close() } catch (_: Exception) {}
+
+        lastRxAt = 0L
+        rxCallbackCount = 0L
+        lastRxTopic = ""
+        lastRxThread = ""
+        emitConnected(false)
+        return true
     }
 
     /**
