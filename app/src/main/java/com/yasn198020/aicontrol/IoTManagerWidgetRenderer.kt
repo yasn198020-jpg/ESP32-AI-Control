@@ -231,7 +231,7 @@ private fun DateWidgetRow(
                     val selected = Calendar.getInstance().apply {
                         set(year, month, day)
                     }
-                    val formatted = SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).format(selected.time)
+                    val formatted = SimpleDateFormat("dd.MM.yyyy", Locale.ROOT).format(selected.time)
                     value = formatted
                     onSend(formatted)
                 },
