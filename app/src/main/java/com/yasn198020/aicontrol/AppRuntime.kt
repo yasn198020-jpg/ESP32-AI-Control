@@ -233,6 +233,7 @@ class AppRuntime private constructor(private val appContext: Context) {
         uiListeners.remove(listener)
     }
 
+    @Synchronized
     fun ensureConnected() {
         if (mqtt.isConnected() || mqtt.isConnecting()) return
 
@@ -248,6 +249,7 @@ class AppRuntime private constructor(private val appContext: Context) {
 
 
 
+    @Synchronized
     fun reconnect() {
         mqtt.disconnect()
         ensureConnected()
