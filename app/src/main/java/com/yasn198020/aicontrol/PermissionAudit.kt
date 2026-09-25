@@ -1,6 +1,7 @@
 package com.yasn198020.aicontrol
 
 import android.Manifest
+import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -114,6 +115,133 @@ object PermissionAudit {
             }
         }
 
+            add(
+                PermissionAuditItem(
+                    id = "internet",
+                    title = "Интернет",
+                    detail = "INTERNET заявлено в манифесте и доступно приложению",
+                    granted = true
+                )
+            )
+
+            add(
+                PermissionAuditItem(
+                    id = "boot_completed",
+                    title = "Запуск после перезагрузки",
+                    detail = "RECEIVE_BOOT_COMPLETED заявлено в манифесте",
+                    granted = true
+                )
+            )
+
+            add(
+                PermissionAuditItem(
+                    id = "foreground_service",
+                    title = "Фоновая служба",
+                    detail = "FOREGROUND_SERVICE заявлено в манифесте",
+                    granted = true
+                )
+            )
+
+            if (Build.VERSION.SDK_INT >= 34) {
+                val fgsMic =
+                    ContextCompat.checkSelfPermission(
+                        app,
+                        Manifest.permission.FOREGROUND_SERVICE_MICROPHONE
+                    ) == PackageManager.PERMISSION_GRANTED
+                add(
+                    PermissionAuditItem(
+                        id = "foreground_service_microphone",
+                        title = "Фоновая служба: микрофон",
+                        detail = if (fgsMic) {
+                            "FOREGROUND_SERVICE_MICROPHONE доступно"
+                        } else {
+                            "FOREGROUND_SERVICE_MICROPHONE не доступно"
+                        },
+                        granted = fgsMic
+                    )
+                )
+
+                val fgsMqtt =
+                    ContextCompat.checkSelfPermission(
+                        app,
+                        Manifest.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING
+                    ) == PackageManager.PERMISSION_GRANTED
+                add(
+                    PermissionAuditItem(
+                        id = "foreground_service_remote_messaging",
+                        title = "Фоновая служба: MQTT",
+                        detail = if (fgsMqtt) {
+                            "FOREGROUND_SERVICE_REMOTE_MESSAGING доступно"
+                        } else {
+                            "FOREGROUND_SERVICE_REMOTE_MESSAGING не доступно"
+                        },
+                        granted = fgsMqtt
+                    )
+                )
+            } else {
+                add(
+                    PermissionAuditItem(
+                        id = "foreground_service_microphone",
+                        title = "Фоновая служба: микрофон",
+                        detail = "Не требуется до Android 14",
+                        granted = true
+                    )
+                )
+                add(
+                    PermissionAuditItem(
+                        id = "foreground_service_remote_messaging",
+                        title = "Фоновая служба: MQTT",
+                        detail = "Не требуется до Android 14",
+                        granted = true
+                    )
+                )
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val activityManager =
+                    app.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+                val backgroundRestricted = activityManager.isBackgroundRestricted
+                add(
+                    PermissionAuditItem(
+                        id = "background",
+                        title = "Работа в фоне",
+                        detail = if (backgroundRestricted) {
+                            "Система ограничивает работу приложения в фоне"
+                        } else {
+                            "Фоновая работа приложения не ограничена системой"
+                        },
+                        granted = !backgroundRestricted
+                    )
+                )
+            } else {
+                add(
+                    PermissionAuditItem(
+                        id = "background",
+                        title = "Работа в фоне",
+                        detail = "Отдельный флаг фонового ограничения отсутствует",
+                        granted = true
+                    )
+                )
+            }
+
+            add(
+                PermissionAuditItem(
+                    id = "request_ignore_battery_optimizations",
+                    title = "Запрос исключения из энергосбережения",
+                    detail = "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS заявлено в манифесте",
+                    granted = true
+                )
+            )
+
+            add(
+                PermissionAuditItem(
+                    id = "request_install_packages",
+                    title = "Запрос установки пакетов",
+                    detail = "REQUEST_INSTALL_PACKAGES заявлено в манифесте",
+                    granted = true
+                )
+            )
+
         val signature = items.joinToString("|") { "${it.id}=${it.granted}" }
         if (signature != lastSignature) {
             val old = lastSignature
@@ -159,6 +287,9 @@ object PermissionAudit {
                 } else {
                     return
                 }
+            }
+            "background" -> Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.parse("package:${app.packageName}")
             }
             else -> return
         }
