@@ -360,7 +360,11 @@ class ScenarioEngine(
     fun primeFromStoredValues() {
         if (shutdown) return
         store.load().forEach { scenario ->
-            if (!scenario.enabled) return@forEach
+            if (!scenario.enabled) {
+                conditionStates.remove(scenario.id)
+                return@forEach
+            }
+
             val conditions = scenario.conditions.ifEmpty {
                 listOf(
                     ScenarioCondition(
@@ -371,9 +375,19 @@ class ScenarioEngine(
                     )
                 )
             }
+
             expressionMatches(conditions)?.let { matched ->
-                conditionStates[scenario.id] = matched
-            }
+                if (matched) {
+                    // Stored TRUE is only a baseline. A live MQTT value must
+                    // still be able to enter TRUE while the app runs in background.
+                    conditionStates.remove(scenario.id)
+                    DiagnosticTrace.system(
+                        "Scenario prime TRUE baseline cleared id=" + scenario.id
+                    )
+                } else {
+                    conditionStates[scenario.id] = false
+                }
+            } ?: conditionStates.remove(scenario.id)
         }
     }
 
