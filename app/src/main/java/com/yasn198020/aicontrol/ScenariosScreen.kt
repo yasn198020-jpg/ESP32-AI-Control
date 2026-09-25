@@ -106,6 +106,7 @@ fun ScenariosScreen(
                                                 armed = true
                                             )
                                             store.add(copy)
+                                            engine.reload()
                                             refresh()
                                         },
                                         modifier = Modifier.weight(1f)
@@ -118,6 +119,7 @@ fun ScenariosScreen(
                                         // the scenario so a stale timeout can never report its result.
                                         engine.cancelScenario(scenario.id)
                                         store.delete(scenario.id)
+                                        engine.reload()
                                         refresh()
                                     },
                                     modifier = Modifier.fillMaxWidth()
@@ -134,7 +136,7 @@ fun ScenariosScreen(
     if (adding) {
         ScenarioEditorDialog(devices, null, onDismiss = { adding = false }, onSave = { scenario ->
             if (scenario.notificationEnabled) {
-                onRequestNotifications { store.add(scenario); refresh(); adding = false }
+                onRequestNotifications { store.add(scenario); engine.reload(); refresh(); adding = false }
             } else {
                 store.add(scenario); refresh(); adding = false
             }
@@ -148,11 +150,13 @@ fun ScenariosScreen(
             if (updated.notificationEnabled) {
                 onRequestNotifications {
                     store.update(updated)
+                    engine.reload()
                     refresh()
                     editing = null
                 }
             } else {
                 store.update(updated)
+                engine.reload()
                 refresh()
                 editing = null
             }
