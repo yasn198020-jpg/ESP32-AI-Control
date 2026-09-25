@@ -111,6 +111,24 @@ class MqttManager(
                         retained = message.isRetained
                     )
 
+                    // Dedicated VBTN90 ingress trace: record every packet related
+                    // to vbtn90 immediately after MQTT delivery and before any
+                    // parsing, deduplication, scenario processing or callbacks.
+                    val isVbtn90Ingress =
+                        topic.contains("/vbtn90/", ignoreCase = true) ||
+                        topic.endsWith("/vbtn90", ignoreCase = true) ||
+                        (topic.endsWith("/config", ignoreCase = true) &&
+                            payload.contains("/vbtn90", ignoreCase = true))
+                    if (isVbtn90Ingress) {
+                        DiagnosticTrace.system(
+                            "VBTN90_RAW topic=" + topic +
+                                " payload=" + payload +
+                                " qos=" + message.qos +
+                                " retained=" + message.isRetained +
+                                " thread=" + Thread.currentThread().name
+                        )
+                    }
+
                     val messageType = when {
                         topic.endsWith("/config") -> "CONFIG"
                         topic.endsWith("/status") -> "STATUS"
