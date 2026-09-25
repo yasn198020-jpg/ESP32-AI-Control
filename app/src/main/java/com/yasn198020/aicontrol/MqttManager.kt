@@ -96,17 +96,44 @@ class MqttManager(
         // late callbacks from the old client and can produce stale-client
         // races during foreground/background transitions.
         val current = client
-        if (connectionConfigKey == newConfigKey &&
-            current != null &&
-            (current.isConnected || connecting || reconnecting)
-        ) {
+        if (connectionConfigKey == newConfigKey && current != null) {
+            if (current.isConnected || connecting || reconnecting) {
+                DiagnosticTrace.system(
+                    "MQTT connect ignored: existing client owns same configuration " +
+                        "connected=" + current.isConnected +
+                        " connecting=" + connecting +
+                        " reconnecting=" + reconnecting +
+                        " thread=" + Thread.currentThread().name
+                )
+                return
+            }
+
+            // After Android sleep the Paho socket can report isConnected=false
+            // before its connectionLost callback updates our reconnecting flag.
+            // Do NOT close/replace this client in that small race window.
+            // Reuse the same client and let its existing callbacks continue.
             DiagnosticTrace.system(
-                "MQTT connect ignored: existing client owns same configuration " +
-                    "connected=" + current.isConnected +
-                    " connecting=" + connecting +
-                    " reconnecting=" + reconnecting +
-                    " thread=" + Thread.currentThread().name
+                "MQTT reconnect same client: state temporarily NOT_CONNECTED " +
+                    "thread=" + Thread.currentThread().name
             )
+            reconnecting = true
+            reconnectStartedAt = System.currentTimeMillis()
+            try {
+                current.reconnect()
+                DiagnosticTrace.system(
+                    "MQTT reconnect same client started automaticReconnect=true " +
+                        "thread=" + Thread.currentThread().name
+                )
+            } catch (e: Exception) {
+                DiagnosticTrace.system(
+                    "MQTT reconnect same client not started: " +
+                        mqttExceptionText("reconnect", e)
+                )
+                // Keep the original client alive. If Paho's own reconnect is
+                // already in progress, connectionLost/connectComplete will
+                // settle the flags. The existing reconnect watchdog remains
+                // available as the final recovery path.
+            }
             return
         }
 
