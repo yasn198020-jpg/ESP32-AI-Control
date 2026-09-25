@@ -10,11 +10,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.pointer.awaitEachGesture
-import androidx.compose.ui.input.pointer.awaitFirstDown
-import androidx.compose.ui.input.pointer.awaitPointerEvent
-import androidx.compose.ui.input.pointer.consume
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.detectTapGestures
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -133,22 +130,17 @@ import java.util.Locale
                 }
             }
             .pointerInput(points,zoom,offsetX){
-                awaitEachGesture{
-                    val down=awaitFirstDown(requireUnconsumed=false)
-                    var moved=false
-                    while(true){
-                        val event=awaitPointerEvent()
-                        val change=event.changes.firstOrNull{it.id==down.id}?:break
-                        if(!change.pressed){
-                            if(!moved&&canvasWidth>0f){
-                                onSelectIndex(nearestPointIndex(points,down.position.x,canvasWidth,zoom,offsetX))
-                            }
-                            break
-                        }
-                        if((change.position-down.position).getDistance()>8f){
-                            moved=true
-                            change.consume()
-                        }
+                detectTapGestures { position ->
+                    if(canvasWidth>0f){
+                        onSelectIndex(
+                            nearestPointIndex(
+                                points,
+                                position.x,
+                                canvasWidth,
+                                zoom,
+                                offsetX
+                            )
+                        )
                     }
                 }
             }
@@ -214,3 +206,6 @@ private fun nearestPointIndex(
     return if(abs(lowerX-tapX)<=abs(upperX-tapX))lower else upper
 }
 
+
+import kotlin.math.abs
+import kotlin.math.min
