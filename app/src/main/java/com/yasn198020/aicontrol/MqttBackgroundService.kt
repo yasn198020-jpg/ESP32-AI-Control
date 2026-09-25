@@ -60,9 +60,16 @@ class MqttBackgroundService : Service() {
                         " thread=" + Thread.currentThread().name
                 )
 
-                // Real MQTT connection check is performed by AppRuntime/MqttManager.
-                // If the client is not connected and is not already connecting,
-                // ensureConnected() starts a new connection attempt.
+                // Do not trust isConnected() alone: a dead TCP session can remain
+                // visible as connected until Paho detects the failure.
+                val staleReconnect = runtime.mqtt.reconnectIfStale()
+                if (staleReconnect) {
+                    DiagnosticTrace.system(
+                        "BACKGROUND CHECK #" + backgroundCheckCount +
+                            " MQTT watchdog forced reconnect"
+                    )
+                }
+
                 runtime.ensureConnected()
 
                 val afterConnected = runtime.mqtt.isConnected()
@@ -93,6 +100,7 @@ class MqttBackgroundService : Service() {
                     "CHECK #" + backgroundCheckCount +
                         " beforeConnected=" + beforeConnected +
                         " beforeConnecting=" + beforeConnecting +
+                        " staleReconnect=" + staleReconnect +
                         " afterConnected=" + afterConnected +
                         " afterConnecting=" + afterConnecting
                 )
