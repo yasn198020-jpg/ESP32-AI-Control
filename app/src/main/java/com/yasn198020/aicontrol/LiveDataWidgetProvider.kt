@@ -8,6 +8,9 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.widget.RemoteViews
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class LiveDataWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(
@@ -104,7 +107,7 @@ class LiveDataWidgetProvider : AppWidgetProvider() {
             val medium = width < 170 || height < 90
 
             views.setTextViewTextSize(
-                R.id.live_widget_connection,
+                R.id.live_widget_updated,
                 android.util.TypedValue.COMPLEX_UNIT_SP,
                 if (compact) 9f else if (medium) 10f else 11f
             )
@@ -124,8 +127,8 @@ class LiveDataWidgetProvider : AppWidgetProvider() {
             )
 
             views.setTextViewText(
-                R.id.live_widget_connection,
-                if (runtime.mqtt.isConnected()) "● MQTT подключен" else "○ MQTT нет соединения"
+                R.id.live_widget_updated,
+                "Обновлено: " + formatLastUpdated(widget?.lastUpdated)
             )
             views.setTextViewText(
                 R.id.live_widget_title,
@@ -165,6 +168,11 @@ class LiveDataWidgetProvider : AppWidgetProvider() {
             )
             views.setOnClickPendingIntent(R.id.live_data_widget_root, pendingIntent)
             return views
+        }
+
+        private fun formatLastUpdated(timestamp: Long): String {
+            if (timestamp <= 0L) return "—"
+            return SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(timestamp))
         }
 
     }
