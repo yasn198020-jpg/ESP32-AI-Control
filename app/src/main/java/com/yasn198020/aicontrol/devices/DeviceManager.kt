@@ -67,6 +67,7 @@ class DeviceManager(
         }
         val newPage = page.ifBlank { "Основная" }
         val newUnit = json.optString("after").trim()
+        val definitionName = json.optString("name", widgetType).trim().ifBlank { widgetType }
         val key = "$deviceId/$widgetId"
         val pendingValue = pendingValues[key]
         val existing = devices.firstOrNull { it.id == deviceId }
@@ -79,7 +80,9 @@ class DeviceManager(
             newPage,
             topic,
             order,
-            newUnit
+            newUnit,
+            definitionName,
+            json.toString()
         )
 
         if (existing == null) {
