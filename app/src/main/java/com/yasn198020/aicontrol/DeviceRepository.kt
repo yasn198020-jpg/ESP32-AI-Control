@@ -85,6 +85,7 @@ class DeviceRepository {
                 else -> WidgetState.Type.STATUS
             }
 
+            val definitionName = json.optString("name", widgetType).trim().ifBlank { widgetType }
             val key = "$deviceId/$widgetId"
             val pendingValue = pendingValues[key]
             val existingDevice = devices.firstOrNull { it.id == deviceId }
@@ -98,7 +99,9 @@ class DeviceRepository {
                 page = page.ifBlank { "Основная" },
                 topic = topic,
                 order = order,
-                unit = json.optString("after").trim()
+                unit = json.optString("after").trim(),
+                definitionName = definitionName,
+                configJson = json.toString()
             )
 
             val updatedDevice = if (existingDevice == null) {
