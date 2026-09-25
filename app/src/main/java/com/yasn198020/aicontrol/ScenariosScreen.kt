@@ -55,7 +55,7 @@ fun ScenariosScreen(
                             scenario.conditions.forEachIndexed { index, condition ->
                                 Text(
                                     (if (index == 0) "" else "${condition.connector} ") +
-                                        "${condition.deviceId} / ${condition.widgetId} ${condition.operator} ${condition.threshold}"
+                                        "${condition.widgetId} ${condition.operator} ${condition.threshold}"
                                 )
                             }
                             Text(scenario.message)
@@ -205,7 +205,7 @@ private fun ScenarioWidgetTile(
             Column(Modifier.weight(1f)) {
                 Text(widget.title, fontSize = 17.sp, fontWeight = FontWeight.Medium)
                 Text(
-                    "${device.id} / ${widget.id}" +
+                    widget.id +
                         if (widget.value.isNotBlank()) "  •  ${widget.value}${widget.unit}" else "",
                     style = MaterialTheme.typography.bodySmall
                 )
@@ -240,6 +240,8 @@ private fun ScenarioEditorDialog(
                     .thenBy { it.second.title }
                     .thenBy { it.first.id }
             )
+            // widgetId is the global scenario variable identity.
+            .distinctBy { it.second.id }
     }
     val sensors = remember(conditionWidgets) {
         conditionWidgets.filter {
@@ -288,7 +290,7 @@ private fun ScenarioEditorDialog(
     LaunchedEffect(initialScenario, conditionWidgets) {
         initialScenario?.conditions?.forEachIndexed { index, condition ->
             if (index < drafts.size) {
-                val found = conditionWidgets.indexOfFirst { it.first.id == condition.deviceId && it.second.id == condition.widgetId }
+                val found = conditionWidgets.indexOfFirst { it.second.id == condition.widgetId }
                 if (found >= 0) drafts[index] = drafts[index].copy(selectedIndex = found)
             }
         }
@@ -303,7 +305,7 @@ private fun ScenarioEditorDialog(
             if (found >= 0) actionDrafts[0] = actionDrafts[0].copy(selectedIndex = found)
         }
         if (initialScenario != null && initialScenario.verifyDeviceId.isNotBlank()) {
-            val found = conditionWidgets.indexOfFirst { it.first.id == initialScenario.verifyDeviceId && it.second.id == initialScenario.verifyWidgetId }
+            val found = conditionWidgets.indexOfFirst { it.second.id == initialScenario.verifyWidgetId }
             if (found >= 0) verifyTargetIndex = found
         }
     }
@@ -445,7 +447,7 @@ private fun ScenarioEditorDialog(
                     OutlinedButton(onClick = { drafts.add(ConditionDraft()) }, modifier = Modifier.fillMaxWidth()) {
                         Text("+ Условие")
                     }
-                    Text("В условиях можно использовать датчики, кнопки и переключатели. Для кнопок обычно используйте = 1 или = 0.")
+                    Text("Переменные глобальны по имени виджета: например, vbtn90 от любого устройства — одна переменная. Для кнопок обычно используйте = 1 или = 0.")
 
                     OutlinedTextField(
                         value = title,
@@ -675,7 +677,8 @@ private fun ScenarioEditorDialog(
                     if (threshold == null || !threshold.isFinite() || conditionWidgets.isEmpty()) null
                     else {
                         val pair = conditionWidgets[draft.selectedIndex.coerceIn(0, conditionWidgets.lastIndex)]
-                        ScenarioCondition(pair.first.id, pair.second.id, draft.operator, threshold, draft.connector)
+                        // Conditions reference the global variable by widgetId.
+                        ScenarioCondition("", pair.second.id, draft.operator, threshold, draft.connector)
                     }
                 }
                 if (parsed.size == drafts.size && parsed.isNotEmpty()) {
@@ -707,7 +710,8 @@ private fun ScenarioEditorDialog(
                         notificationEnabled = notificationEnabled,
                         verifyEnabled = verifyEnabled,
                         verifyTimeoutSec = verifyTimeoutText.toIntOrNull()?.coerceIn(1, 300) ?: 30,
-                        verifyDeviceId = if (verifyEnabled && conditionWidgets.isNotEmpty()) conditionWidgets[verifyTargetIndex.coerceIn(0, conditionWidgets.lastIndex)].first.id else "",
+                        // Verification references the global variable by widgetId.
+                        verifyDeviceId = "",
                         verifyWidgetId = if (verifyEnabled && conditionWidgets.isNotEmpty()) conditionWidgets[verifyTargetIndex.coerceIn(0, conditionWidgets.lastIndex)].second.id else "",
                         verifyOperator = "=",
                         verifyValue = verifyValueText.replace(',', '.').toDoubleOrNull()?.takeIf { it.isFinite() } ?: 1.0,
