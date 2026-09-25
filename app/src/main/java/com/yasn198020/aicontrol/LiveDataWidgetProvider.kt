@@ -86,15 +86,6 @@ class LiveDataWidgetProvider : AppWidgetProvider() {
                     else -> widget.value + widget.unit
                 }
             )
-            views.setTextViewText(
-                R.id.live_widget_subtitle,
-                when {
-                    selection == null -> "Добавьте виджет и выберите устройство"
-                    widget == null -> "Проверьте настройки виджета"
-                    else -> "Обновляется из MQTT в реальном времени"
-                }
-            )
-
             val openIntent = Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             }
