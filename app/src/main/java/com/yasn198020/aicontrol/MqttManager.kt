@@ -130,23 +130,63 @@ class MqttManager(
                         }
                     } else if (topic.startsWith(root) && topic.endsWith("/status")) {
                         val parts = topic.removePrefix(root).trim('/').split("/")
+                        DiagnosticTrace.stepForEvent(
+                            traceId,
+                            "MQTT",
+                            "STATUS route matched parts=" + parts.joinToString("/")
+                        )
                         if (parts.size >= 3) {
+                            val widgetId = parts[parts.size - 2]
                             val json = try { org.json.JSONObject(payload) } catch (_: Exception) { null }
                             val value = json?.optString("status")?.takeIf { json.has("status") } ?: payload
-                            DiagnosticTrace.step("MQTT", "STATUS parsed device=" + parts[0] + " widget=" + parts[parts.size - 2] + " value=" + value)
+                            DiagnosticTrace.stepForEvent(
+                                traceId,
+                                "MQTT",
+                                "STATUS parsed device=" + parts[0] + " widget=" + widgetId + " value=" + value
+                            )
                             emitLog(
                                 "MQTT STATUS parsed: device=" + parts[0] +
-                                    " widget=" + parts[parts.size - 2] +
+                                    " widget=" + widgetId +
                                     " value=" + value
                             )
-                            if (parts[parts.size - 2] == "vbtn90") {
+                            if (widgetId == "vbtn90") {
                                 DiagnosticTrace.stepForEvent(
                                     traceId,
-                                    "MQTT",
-                                    "VBTN90 STATUS parsed value=" + value
+                                    "VBTN90",
+                                    "STATUS parsed value=" + value
+                                )
+                                DiagnosticTrace.stepForEvent(
+                                    traceId,
+                                    "VBTN90",
+                                    "STATUS BEFORE emitStatus value=" + value
                                 )
                             }
-                            emitStatus(parts[0], parts[parts.size - 2], value)
+                            try {
+                                emitStatus(parts[0], widgetId, value)
+                                if (widgetId == "vbtn90") {
+                                    DiagnosticTrace.stepForEvent(
+                                        traceId,
+                                        "VBTN90",
+                                        "STATUS AFTER emitStatus value=" + value
+                                    )
+                                }
+                            } catch (e: Exception) {
+                                DiagnosticTrace.stepForEvent(
+                                    traceId,
+                                    "ERROR",
+                                    "STATUS emitStatus failed device=" + parts[0] +
+                                        " widget=" + widgetId +
+                                        " value=" + value +
+                                        " error=" + (e.message ?: e.javaClass.simpleName)
+                                )
+                                throw e
+                            }
+                        } else {
+                            DiagnosticTrace.stepForEvent(
+                                traceId,
+                                "ERROR",
+                                "STATUS route invalid parts=" + parts.size + " topic=" + topic
+                            )
                         }
                     } else if (topic.startsWith(root) && topic.endsWith("/event")) {
                         val parts = topic.removePrefix(root).trim('/').split("/")
