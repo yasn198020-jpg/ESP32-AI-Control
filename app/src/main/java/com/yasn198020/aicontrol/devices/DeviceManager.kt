@@ -71,11 +71,11 @@ class DeviceManager(
         val newUnit = json.optString("after").trim()
         val definitionName = json.optString("name", widgetType).trim().ifBlank { widgetType }
         val key = "$deviceId/$widgetId"
+        val existing = devices.firstOrNull { it.id == deviceId }
+        val existingWidget = existing?.widgets?.firstOrNull { it.id == widgetId }
         val pendingValue = pendingValues[key]
         val pendingValueText = pendingValue?.value ?: existingWidget?.value ?: ""
         val pendingUpdated = pendingValue?.timestamp ?: existingWidget?.lastUpdated ?: 0L
-        val existing = devices.firstOrNull { it.id == deviceId }
-        val existingWidget = existing?.widgets?.firstOrNull { it.id == widgetId }
         val newWidget = WidgetState(
             widgetId,
             label.ifBlank { widgetId },
