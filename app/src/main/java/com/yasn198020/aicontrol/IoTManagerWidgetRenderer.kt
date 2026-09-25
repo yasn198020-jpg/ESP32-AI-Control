@@ -545,7 +545,7 @@ private fun ProgressRoundWidgetRow(
                     style = Stroke(stroke)
                 )
                 drawArc(
-                    color = parseColor(json.optString("color"), MaterialTheme.colorScheme.primary),
+                    color = parseColor(json.optString("color"), primaryColor),
                     startAngle = -90f,
                     sweepAngle = 360f * fraction,
                     useCenter = false,
