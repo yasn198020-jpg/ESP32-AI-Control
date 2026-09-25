@@ -268,8 +268,7 @@ private fun WidgetConfiguration(
     }
 }
 
-private fun deviceLabel(device: Device): String =
-    device.name.ifBlank { device.id } + "  •  " + device.id
+private fun deviceLabel(device: Device): String = device.name.ifBlank { "ESP32" }
 
 private fun widgetLabel(widget: WidgetState): String =
     widget.title.ifBlank { widget.id }
