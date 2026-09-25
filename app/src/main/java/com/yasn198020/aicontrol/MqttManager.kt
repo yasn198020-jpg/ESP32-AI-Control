@@ -571,7 +571,7 @@ class MqttManager(
     private fun subscribeDevice() {
         val c = client ?: return
         val root = "/" + prefix.trim('/')
-        val topics = if (root == "/dghjko") arrayOf("/dghjko/#") else arrayOf(root + "/#", "/dghjko/#")
+        val topics = arrayOf(root + "/#")
 
         try {
             c.subscribe(
