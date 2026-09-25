@@ -18,6 +18,7 @@ class MqttManager(
     private val main = Handler(Looper.getMainLooper())
     private var client: MqttAsyncClient? = null
     @Volatile private var connecting = false
+    @Volatile private var lastConnectAttemptAt = 0L
     @Volatile private var lastRxAt = 0L
     @Volatile private var rxCallbackCount = 0L
     @Volatile private var lastRxTopic = ""
@@ -74,11 +75,17 @@ class MqttManager(
             client = c
             lastRxAt = System.currentTimeMillis()
             connecting = true
+            lastConnectAttemptAt = System.currentTimeMillis()
             startConnectionStateLogger()
 
             c.setCallback(object : MqttCallbackExtended {
                 override fun connectComplete(reconnect: Boolean, serverURI: String?) {
+                    if (client !== c) {
+                        DiagnosticTrace.system("MQTT Paho connectComplete ignored: stale client")
+                        return
+                    }
                     connecting = false
+                    lastConnectAttemptAt = 0L
                     lastRxAt = System.currentTimeMillis()
                     rxCallbackCount = 0L
                     lastRxTopic = ""
@@ -93,7 +100,12 @@ class MqttManager(
                 }
 
                 override fun connectionLost(cause: Throwable?) {
+                    if (client !== c) {
+                        DiagnosticTrace.system("MQTT Paho connectionLost ignored: stale client")
+                        return
+                    }
                     connecting = false
+                    lastConnectAttemptAt = 0L
                     DiagnosticTrace.system("MQTT Paho connectionLost thread=" + Thread.currentThread().name + " connected=" + (client?.isConnected == true) + " rxCount=" + rxCallbackCount + " lastRxAt=" + lastRxAt + " lastRxTopic=" + lastRxTopic + " cause=" + mqttExceptionText("cause", cause))
                     DiagnosticTrace.system("VBTN90 CONNECTION lost")
                     emitLog(mqttExceptionText("MQTT connection lost", cause))
@@ -102,6 +114,10 @@ class MqttManager(
 
                 override fun messageArrived(topic: String?, message: MqttMessage?) {
                     if (topic == null || message == null) return
+                    if (client !== c) {
+                        DiagnosticTrace.system("MQTT Paho messageArrived ignored: stale client topic=" + topic)
+                        return
+                    }
 
                     lastRxAt = System.currentTimeMillis()
                     rxCallbackCount++
@@ -326,7 +342,10 @@ class MqttManager(
             })
 
             val options = MqttConnectOptions().apply {
-                isAutomaticReconnect = true
+                // Reconnect is controlled by MqttBackgroundService supervisor.
+                // Keeping Paho auto-reconnect disabled avoids two independent
+                // reconnect loops creating competing MQTT clients.
+                isAutomaticReconnect = false
                 isCleanSession = true
                 connectionTimeout = 10
                 keepAliveInterval = 30
@@ -349,6 +368,7 @@ class MqttManager(
                     exception: Throwable?
                 ) {
                     connecting = false
+                    lastConnectAttemptAt = 0L
                     emitLog(mqttExceptionText("MQTT connect failed", exception))
                     emitLog("MQTT credentials supplied: " + username.isNotBlank())
                     emitLog("MQTT TLS: " + tls)
@@ -358,6 +378,7 @@ class MqttManager(
             })
         } catch (e: Exception) {
             connecting = false
+            lastConnectAttemptAt = 0L
             emitLog(mqttExceptionText("MQTT error", e))
             emitConnected(false)
         }
@@ -582,15 +603,17 @@ class MqttManager(
         )
     }
 
+    @Synchronized
     fun disconnect() {
-        val c = client ?: return
+        val c = client
         try {
-            if (c.isConnected) c.disconnect()
+            if (c?.isConnected == true) c.disconnect()
         } catch (e: Exception) {
             emitLog(mqttExceptionText("MQTT disconnect error", e))
         } finally {
             client = null
             connecting = false
+            lastConnectAttemptAt = 0L
             emitConnectionStateLog()
             lastRxAt = 0L
             rxCallbackCount = 0L
@@ -637,6 +660,44 @@ class MqttManager(
         rxCallbackCount = 0L
         lastRxTopic = ""
         lastRxThread = ""
+        return true
+    }
+
+    /** Detect a connect attempt that never completes. */
+    @Synchronized
+    fun reconnectIfConnectingTooLong(maxConnectingMs: Long = 25_000L): Boolean {
+        if (!connecting) return false
+
+        val startedAt = lastConnectAttemptAt
+        if (startedAt <= 0L) return false
+
+        val elapsedMs = System.currentTimeMillis() - startedAt
+        if (elapsedMs < maxConnectingMs) return false
+
+        DiagnosticTrace.system(
+            "MQTT WATCHDOG CONNECTING_STUCK elapsedMs=" + elapsedMs +
+                " thresholdMs=" + maxConnectingMs
+        )
+        emitLog(
+            "MQTT watchdog: connecting stuck elapsedMs=" + elapsedMs +
+                " thresholdMs=" + maxConnectingMs + "; forcing reconnect"
+        )
+
+        val oldClient = client
+        try {
+            oldClient?.disconnect()
+        } catch (e: Exception) {
+            emitLog(mqttExceptionText("MQTT watchdog stuck disconnect", e))
+        }
+
+        client = null
+        connecting = false
+        lastConnectAttemptAt = 0L
+        lastRxAt = 0L
+        rxCallbackCount = 0L
+        lastRxTopic = ""
+        lastRxThread = ""
+        emitConnected(false)
         return true
     }
 
