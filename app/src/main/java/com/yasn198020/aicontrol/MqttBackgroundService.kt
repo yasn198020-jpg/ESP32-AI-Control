@@ -145,12 +145,18 @@ class MqttBackgroundService : Service() {
                     " reconnectReset=" + stuckAutomaticReconnect
             )
 
-            runtime.historyStore.flushNow()
-
-            DiagnosticTrace.system(
-                "BACKGROUND CHECK #" + checkNumber +
-                    " HISTORY flushed diagnostics=" + runtime.historyStore.diagnostics()
-            )
+            if (DiagnosticTrace.isForeground()) {
+                runtime.historyStore.flushNow()
+                DiagnosticTrace.system(
+                    "BACKGROUND CHECK #" + checkNumber +
+                        " HISTORY flushed foreground=true diagnostics=" + runtime.historyStore.diagnostics()
+                )
+            } else {
+                DiagnosticTrace.system(
+                    "BACKGROUND CHECK #" + checkNumber +
+                        " HISTORY skipped background graph recording disabled diagnostics=" + runtime.historyStore.diagnostics()
+                )
+            }
 
             DiagnosticTrace.system(
                 "BACKGROUND CHECK #" + checkNumber +
