@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import android.os.SystemClock
 import android.app.AlarmManager
 import android.app.PendingIntent
@@ -59,6 +60,7 @@ class MqttBackgroundService : Service() {
     private var lastCheckElapsedRealtime = 0L
 
     private var supervisorFuture: ScheduledFuture<*>? = null
+    private var wakeLock: PowerManager.WakeLock? = null
 
     private fun runBackgroundCheck(reason: String) {
         if (!running) return
@@ -157,6 +159,21 @@ class MqttBackgroundService : Service() {
         super.onCreate()
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification())
+
+        val powerManager = getSystemService(PowerManager::class.java)
+        wakeLock = powerManager.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            "ESP32-AI-Control:MqttBackground"
+        ).apply {
+            setReferenceCounted(false)
+            acquire()
+        }
+
+        DiagnosticTrace.system(
+            "BACKGROUND SERVICE wakeLock acquired held=" +
+                (wakeLock?.isHeld == true)
+        )
+
         running = true
 
         // The MQTT supervisor runs off the main looper so UI/main-thread stalls
@@ -200,6 +217,14 @@ class MqttBackgroundService : Service() {
         supervisorFuture?.cancel(false)
         supervisorFuture = null
         supervisor.shutdownNow()
+
+        runCatching {
+            wakeLock?.let {
+                if (it.isHeld) it.release()
+            }
+        }
+        wakeLock = null
+        DiagnosticTrace.system("BACKGROUND SERVICE wakeLock released")
 
         // IMPORTANT: do not disconnect MQTT here.
         // The runtime owns the MQTT client; Android may recreate this service.
