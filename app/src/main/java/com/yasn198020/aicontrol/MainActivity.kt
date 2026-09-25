@@ -9,6 +9,8 @@ import android.speech.tts.TextToSpeech
 import java.util.Locale
 import android.os.Bundle
 import android.os.Build
+import android.os.PowerManager
+import android.provider.Settings
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.core.content.ContextCompat
@@ -288,6 +290,53 @@ private fun App(
             "Микрофон готов — удерживайте кнопку"
         } else {
             "Нужно разрешение на микрофон"
+        }
+    }
+
+    val requestAllRuntimePermissions = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
+        val micGranted = results[Manifest.permission.RECORD_AUDIO] == true ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        val notificationsGranted = Build.VERSION.SDK_INT < 33 ||
+            results[Manifest.permission.POST_NOTIFICATIONS] == true ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        DiagnosticTrace.log("PERMISSIONS runtime mic=" + micGranted + " notifications=" + notificationsGranted)
+    }
+
+    LaunchedEffect(Unit) {
+        val missing = buildList {
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                add(Manifest.permission.RECORD_AUDIO)
+            }
+            if (Build.VERSION.SDK_INT >= 33 &&
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+        if (missing.isNotEmpty()) {
+            requestAllRuntimePermissions.launch(missing.toTypedArray())
+        } else {
+            DiagnosticTrace.log("PERMISSIONS runtime all_granted")
+        }
+
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+        val ignoringBatteryOptimizations = powerManager.isIgnoringBatteryOptimizations(context.packageName)
+        DiagnosticTrace.log("PERMISSIONS batteryOptimizationIgnored=" + ignoringBatteryOptimizations)
+        if (!ignoringBatteryOptimizations) {
+            try {
+                context.startActivity(
+                    Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                        data = Uri.parse("package:" + context.packageName)
+                    }
+                )
+            } catch (e: Exception) {
+                DiagnosticTrace.log("PERMISSIONS batteryOptimizationRequest failed=" + e.javaClass.simpleName)
+                try {
+                    context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                } catch (_: Exception) {
+                }
+            }
         }
     }
 
