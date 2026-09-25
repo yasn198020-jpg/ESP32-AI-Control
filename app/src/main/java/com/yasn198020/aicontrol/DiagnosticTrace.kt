@@ -8,6 +8,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.Executors
 
 /**
  * Compact diagnostic trace used for troubleshooting MQTT -> scenario -> action flow.
@@ -24,6 +25,11 @@ object DiagnosticTrace {
     private val eventCounter = AtomicLong(System.currentTimeMillis())
     private val currentEvent = ThreadLocal<Long?>()
     private val foreground = AtomicBoolean(false)
+    private val writeExecutor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "DiagnosticTraceWriter").apply {
+            isDaemon = true
+        }
+    }
 
     @Volatile private var initialized = false
     private lateinit var file: File
@@ -96,34 +102,41 @@ object DiagnosticTrace {
         ensureInitialized()
         synchronized(lock) {
             lines.clear()
+        }
+        writeExecutor.execute {
             runCatching { file.writeText("") }
         }
     }
-
     private fun append(eventId: Long?, stage: String, message: String) {
         val safeStage = stage.trim().uppercase(Locale.ROOT).ifBlank { "TRACE" }
         if (safeStage !in importantStages) return
 
+        val line: String
         synchronized(lock) {
             if (!initialized) return
             val timestamp = formatter.format(Date())
-            val idPart = eventId?.let { " #$it" } ?: ""
-            val line = "$timestamp [$safeStage$idPart] ${compact(message)}"
+            val idPart = eventId?.let { " #" + it } ?: ""
+            line = timestamp + " [" + safeStage + idPart + "] " + compact(message)
             if (!foreground.get() && safeStage in setOf("SCENARIO", "HISTORY", "CONDITION", "EDGE", "TRIGGER", "ACTION", "VERIFY", "NOTIFY", "VBTN90", "ERROR")) {
                 BackgroundTrace.event(safeStage, message, eventId)
             }
             lines.addLast(line)
             while (lines.size > MAX_LINES) lines.removeFirst()
+        }
 
+        // MQTT/scenario threads only update memory; disk I/O happens on one writer.
+        writeExecutor.execute {
             runCatching {
                 file.appendText(line + "\n", Charsets.UTF_8)
                 if (file.length() > MAX_FILE_BYTES) {
-                    file.writeText(lines.joinToString("\n", postfix = "\n"), Charsets.UTF_8)
+                    val snapshot = synchronized(lock) {
+                        lines.joinToString("\n", postfix = "\n")
+                    }
+                    file.writeText(snapshot, Charsets.UTF_8)
                 }
             }
         }
     }
-
     private fun compact(value: String): String {
         val oneLine = value.replace("\n", " ").replace("\r", " ").trim()
         return if (oneLine.length <= MAX_MESSAGE_LENGTH) oneLine
