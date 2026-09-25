@@ -111,7 +111,21 @@ class AppRuntime private constructor(private val appContext: Context) {
                     "HISTORY",
                     "stored device=$deviceId widget=$widgetId value=$value"
                 )
+                if (widgetId == "vbtn90") {
+                    DiagnosticTrace.stepForEvent(
+                        eventId,
+                        "VBTN90",
+                        "CALLBACK BEFORE ScenarioEngine device=" + deviceId + " value=" + value
+                    )
+                }
                 originalEngine.onValue(deviceId, widgetId, value)
+                if (widgetId == "vbtn90") {
+                    DiagnosticTrace.stepForEvent(
+                        eventId,
+                        "VBTN90",
+                        "CALLBACK AFTER ScenarioEngine device=" + deviceId + " value=" + value
+                    )
+                }
 
                 if (triggeredScenario?.notificationEnabled == true) {
                     ScenarioNotifier.notify(
