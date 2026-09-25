@@ -37,6 +37,9 @@ class AiCommandManager {
                         put("widgetId", widget.id)
                         put("title", widget.title)
                         put("type", widget.type.name)
+                        put("definitionName", widget.definitionName)
+                        put("unit", widget.unit)
+                        put("config", runCatching { JSONObject(widget.configJson) }.getOrDefault(JSONObject()))
                         put("value", widget.value)
                     }
                 }
