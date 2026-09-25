@@ -5,6 +5,9 @@ import android.os.Looper
 import org.eclipse.paho.client.mqttv3.*
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence
 import java.util.UUID
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.TimeUnit
 
 class MqttManager(
     private val onLog: (String) -> Unit,
@@ -20,6 +23,10 @@ class MqttManager(
     @Volatile private var lastRxTopic = ""
     @Volatile private var lastRxThread = ""
     private var prefix = ""
+    private val connectionStateLogger: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { runnable ->
+        Thread(runnable, "MQTT-ConnectionState").apply { isDaemon = true }
+    }
+    @Volatile private var connectionStateLoggingStarted = false
     private data class PendingPublish(val topic: String, val payload: String, val eventId: Long?)
     private data class LastStatusEvent(
         val source: String,
@@ -67,6 +74,7 @@ class MqttManager(
             client = c
             lastRxAt = System.currentTimeMillis()
             connecting = true
+            startConnectionStateLogger()
 
             c.setCallback(object : MqttCallbackExtended {
                 override fun connectComplete(reconnect: Boolean, serverURI: String?) {
@@ -537,6 +545,43 @@ class MqttManager(
         }
     }
 
+    private fun startConnectionStateLogger() {
+        if (connectionStateLoggingStarted) return
+        connectionStateLoggingStarted = true
+        // This is based on Paho isConnected(), not on message reception.
+        // First log immediately, then every 30 seconds.
+        connectionStateLogger.scheduleAtFixedRate({
+            runCatching { emitConnectionStateLog() }
+        }, 0L, 30L, TimeUnit.SECONDS)
+    }
+
+    private fun emitConnectionStateLog() {
+        val c = client
+        val connected = c?.isConnected == true
+        val idleMs = if (lastRxAt == 0L) -1L else System.currentTimeMillis() - lastRxAt
+        val state = when {
+            connected -> "CONNECTED"
+            connecting -> "CONNECTING"
+            c == null -> "DISCONNECTED"
+            else -> "NOT_CONNECTED"
+        }
+        DiagnosticTrace.system(
+            "MQTT CONNECTION STATE state=" + state +
+                " connected=" + connected +
+                " connecting=" + connecting +
+                " rxCount=" + rxCallbackCount +
+                " lastRxIdleMs=" + idleMs +
+                " lastRxTopic=" + lastRxTopic
+        )
+        emitLog(
+            "MQTT connection state: " + state +
+                " connected=" + connected +
+                " connecting=" + connecting +
+                " rxCount=" + rxCallbackCount +
+                " lastRxIdleMs=" + idleMs
+        )
+    }
+
     fun disconnect() {
         val c = client ?: return
         try {
@@ -546,6 +591,7 @@ class MqttManager(
         } finally {
             client = null
             connecting = false
+            emitConnectionStateLog()
             lastRxAt = 0L
             rxCallbackCount = 0L
             lastRxTopic = ""
