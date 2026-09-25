@@ -412,6 +412,7 @@ class ScenarioEngine(
 
         val scenarios = store.load()
         DiagnosticTrace.stepForEvent(eventId, "SCENARIO", "loaded=${scenarios.size} current=$deviceId/$widgetId=$value")
+        var triggeredCount = 0
 
         val activeScenarioIds = scenarios.filter { it.enabled && it.verifyEnabled }.mapTo(mutableSetOf()) { it.id }
         val staleIds = verificationTasks.keys.filter { it !in activeScenarioIds }
@@ -494,7 +495,16 @@ class ScenarioEngine(
 
             if (scenario.verifyEnabled) startVerification(scenario)
 
+            triggeredCount++
             onTrigger(scenario.copy(armed = true), rawValue, value)
+        }
+
+        if (triggeredCount == 0) {
+            DiagnosticTrace.stepForEvent(
+                eventId,
+                "SCENARIO",
+                "no trigger for this event"
+            )
         }
     }
 }
