@@ -97,7 +97,11 @@ object DiagnosticTrace {
     }
 
     fun system(message: String) {
-        // Intentionally ignored: connection/lifecycle noise is not useful in the compact trace.
+        // Keep lifecycle/background-service diagnostics in the same trace that
+        // is visible while the Activity is backgrounded. Previously these
+        // messages were discarded, making the watchdog impossible to verify.
+        ensureInitialized()
+        BackgroundTrace.event("SYSTEM", message)
     }
 
     fun error(message: String) {
