@@ -26,6 +26,7 @@ class MqttManager(
     @Volatile private var lastRxTopic = ""
     @Volatile private var lastRxThread = ""
     private var prefix = ""
+    @Volatile private var connectionConfigKey = ""
 
     private val connectionStateLogger: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { runnable ->
         Thread(runnable, "MQTT-ConnectionState").apply { isDaemon = true }
@@ -61,10 +62,6 @@ class MqttManager(
 
     @Synchronized
     fun connect(host: String, port: Int, mqttPrefix: String, username: String, password: String, tls: Boolean) {
-        // Explicit connect/reconnect requests start a completely new client.
-        // Paho automatic reconnect is never combined with a second client.
-        disconnect()
-
         val normalizedHost = host.trim()
         val normalizedPort = port.coerceIn(1, 65535)
         prefix = mqttPrefix.trim().trim('/')
@@ -81,6 +78,40 @@ class MqttManager(
             .removePrefix("mqtts://")
 
         val normalizedUrl = (if (tls) "ssl://" else "tcp://") + cleanHost + ":" + normalizedPort
+        val newConfigKey = normalizedUrl + "|" + username + "|" + password + "|" + prefix
+
+        // Do not tear down a healthy Paho client just because the Activity or
+        // service asked for "connect" again. Replacing a live client creates
+        // late callbacks from the old client and can produce stale-client
+        // races during foreground/background transitions.
+        val current = client
+        if (connectionConfigKey == newConfigKey &&
+            current != null &&
+            (current.isConnected || connecting || reconnecting)
+        ) {
+            DiagnosticTrace.system(
+                "MQTT connect ignored: existing client owns same configuration " +
+                    "connected=" + current.isConnected +
+                    " connecting=" + connecting +
+                    " reconnecting=" + reconnecting +
+                    " thread=" + Thread.currentThread().name
+            )
+            return
+        }
+
+        if (current != null || connecting || reconnecting) {
+            DiagnosticTrace.system(
+                "MQTT client replacement requested oldConfigSame=" +
+                    (connectionConfigKey == newConfigKey) +
+                    " oldConnected=" + (current?.isConnected == true) +
+                    " oldConnecting=" + connecting +
+                    " oldReconnecting=" + reconnecting +
+                    " thread=" + Thread.currentThread().name
+            )
+            disconnect()
+        }
+
+        connectionConfigKey = newConfigKey
 
         emitLog("MQTT target: " + normalizedUrl)
 
@@ -664,6 +695,7 @@ class MqttManager(
         connecting = false
         reconnecting = false
         lastConnectAttemptAt = 0L
+        connectionConfigKey = ""
 
         try {
             oldClient?.disconnect()
