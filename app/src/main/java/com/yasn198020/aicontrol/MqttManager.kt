@@ -101,6 +101,16 @@ class MqttManager(
                     lastRxThread = Thread.currentThread().name
                     DiagnosticTrace.system("MQTT Paho messageArrived #" + rxCallbackCount + " thread=" + lastRxThread + " topic=" + topic + " bytes=" + message.payload.size + " connected=" + (client?.isConnected == true))
                     val payload = String(message.payload, Charsets.UTF_8)
+
+                    // Record the raw MQTT packet before any topic parsing,
+                    // deduplication, scenario processing or history updates.
+                    DiagnosticTrace.rawMqttReceived(
+                        topic = topic,
+                        payload = payload,
+                        qos = message.qos,
+                        retained = message.isRetained
+                    )
+
                     val messageType = when {
                         topic.endsWith("/config") -> "CONFIG"
                         topic.endsWith("/status") -> "STATUS"
