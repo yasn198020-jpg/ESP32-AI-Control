@@ -7,12 +7,15 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import android.os.Handler
 import android.os.IBinder
-import android.os.Looper
+import android.os.SystemClock
 import android.app.AlarmManager
 import android.app.PendingIntent
 import androidx.core.app.NotificationCompat
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
 
 /**
  * Single owner of the always-on MQTT background lifetime.
@@ -25,7 +28,9 @@ class MqttBackgroundService : Service() {
     companion object {
         private const val CHANNEL_ID = "mqtt_background"
         private const val NOTIFICATION_ID = 1301
-        private const val CHECK_INTERVAL_MS = 30_000L
+        private const val CHECK_INTERVAL_MS = 15_000L
+        private const val STALE_RX_MS = 120_000L
+        private const val STUCK_CONNECT_MS = 25_000L
 
         fun start(context: Context) {
             val intent = Intent(context, MqttBackgroundService::class.java)
@@ -37,82 +42,114 @@ class MqttBackgroundService : Service() {
         }
     }
 
-    private val handler = Handler(Looper.getMainLooper())
+    private val supervisor: ScheduledExecutorService =
+        Executors.newSingleThreadScheduledExecutor { runnable ->
+            Thread(runnable, "MQTT-BackgroundSupervisor").apply {
+                isDaemon = true
+            }
+        }
+
+    @Volatile
     private var running = false
+
+    @Volatile
     private var backgroundCheckCount = 0L
 
-    private val checkRunnable = object : Runnable {
-        override fun run() {
-            if (!running) return
+    @Volatile
+    private var lastCheckElapsedRealtime = 0L
 
-            backgroundCheckCount++
+    private var supervisorFuture: ScheduledFuture<*>? = null
 
-            try {
-                val runtime = AppRuntime.get(applicationContext)
+    private fun runBackgroundCheck(reason: String) {
+        if (!running) return
 
-                val beforeConnected = runtime.mqtt.isConnected()
-                val beforeConnecting = runtime.mqtt.isConnecting()
+        val now = SystemClock.elapsedRealtime()
+        val previous = lastCheckElapsedRealtime
+        val gapMs = if (previous == 0L) -1L else now - previous
+        lastCheckElapsedRealtime = now
 
+        val checkNumber = ++backgroundCheckCount
+
+        try {
+            val runtime = AppRuntime.get(applicationContext)
+
+            val beforeConnected = runtime.mqtt.isConnected()
+            val beforeConnecting = runtime.mqtt.isConnecting()
+
+            DiagnosticTrace.system(
+                "BACKGROUND CHECK #" + checkNumber +
+                    " START reason=" + reason +
+                    " gapMs=" + gapMs +
+                    " connected=" + beforeConnected +
+                    " connecting=" + beforeConnecting +
+                    " thread=" + Thread.currentThread().name
+            )
+
+            val stuckReconnect =
+                runtime.mqtt.reconnectIfConnectingTooLong(STUCK_CONNECT_MS)
+
+            if (stuckReconnect) {
                 DiagnosticTrace.system(
-                    "BACKGROUND CHECK #" + backgroundCheckCount +
-                        " START connected=" + beforeConnected +
-                        " connecting=" + beforeConnecting +
-                        " thread=" + Thread.currentThread().name
+                    "BACKGROUND CHECK #" + checkNumber +
+                        " MQTT watchdog reset stuck CONNECTING"
                 )
-
-                // Do not trust isConnected() alone: a dead TCP session can remain
-                // visible as connected until Paho detects the failure.
-                val staleReconnect = runtime.mqtt.reconnectIfStale()
-                if (staleReconnect) {
-                    DiagnosticTrace.system(
-                        "BACKGROUND CHECK #" + backgroundCheckCount +
-                            " MQTT watchdog forced reconnect"
-                    )
-                }
-
-                runtime.ensureConnected()
-
-                val afterConnected = runtime.mqtt.isConnected()
-                val afterConnecting = runtime.mqtt.isConnecting()
-
-                DiagnosticTrace.system(
-                    "BACKGROUND CHECK #" + backgroundCheckCount +
-                        " MQTT afterEnsure connected=" + afterConnected +
-                        " connecting=" + afterConnecting +
-                        " changed=" + (beforeConnected != afterConnected)
-                )
-
-                // Flush telemetry/history independently from MQTT packet reception.
-                runtime.historyStore.flushNow()
-
-                DiagnosticTrace.system(
-                    "BACKGROUND CHECK #" + backgroundCheckCount +
-                        " HISTORY flushed diagnostics=" + runtime.historyStore.diagnostics()
-                )
-
-                DiagnosticTrace.system(
-                    "BACKGROUND CHECK #" + backgroundCheckCount +
-                        " END mqtt=" + runtime.mqtt.diagnostics()
-                )
-
-                android.util.Log.d(
-                    "MQTT_BACKGROUND",
-                    "CHECK #" + backgroundCheckCount +
-                        " beforeConnected=" + beforeConnected +
-                        " beforeConnecting=" + beforeConnecting +
-                        " staleReconnect=" + staleReconnect +
-                        " afterConnected=" + afterConnected +
-                        " afterConnecting=" + afterConnecting
-                )
-            } catch (e: Exception) {
-                DiagnosticTrace.system(
-                    "BACKGROUND CHECK #" + backgroundCheckCount +
-                        " ERROR " + (e.message ?: e.javaClass.simpleName)
-                )
-                android.util.Log.e("MQTT_BACKGROUND", "background check failed", e)
             }
 
-            handler.postDelayed(this, CHECK_INTERVAL_MS)
+            val staleReconnect =
+                runtime.mqtt.reconnectIfStale(STALE_RX_MS)
+
+            if (staleReconnect) {
+                DiagnosticTrace.system(
+                    "BACKGROUND CHECK #" + checkNumber +
+                        " MQTT watchdog reset stale CONNECTED"
+                )
+            }
+
+            // If disconnected and no connection attempt is active, reconnect now.
+            runtime.ensureConnected()
+
+            val afterConnected = runtime.mqtt.isConnected()
+            val afterConnecting = runtime.mqtt.isConnecting()
+
+            DiagnosticTrace.system(
+                "BACKGROUND CHECK #" + checkNumber +
+                    " MQTT afterEnsure connected=" + afterConnected +
+                    " connecting=" + afterConnecting +
+                    " changed=" + (beforeConnected != afterConnected) +
+                    " reconnectLost=" + (stuckReconnect || staleReconnect)
+            )
+
+            runtime.historyStore.flushNow()
+
+            DiagnosticTrace.system(
+                "BACKGROUND CHECK #" + checkNumber +
+                    " HISTORY flushed diagnostics=" + runtime.historyStore.diagnostics()
+            )
+
+            DiagnosticTrace.system(
+                "BACKGROUND CHECK #" + checkNumber +
+                    " END durationMs=" + (SystemClock.elapsedRealtime() - now) +
+                    " mqtt=" + runtime.mqtt.diagnostics()
+            )
+
+            android.util.Log.d(
+                "MQTT_BACKGROUND",
+                "CHECK #" + checkNumber +
+                    " reason=" + reason +
+                    " gapMs=" + gapMs +
+                    " beforeConnected=" + beforeConnected +
+                    " beforeConnecting=" + beforeConnecting +
+                    " stuckReconnect=" + stuckReconnect +
+                    " staleReconnect=" + staleReconnect +
+                    " afterConnected=" + afterConnected +
+                    " afterConnecting=" + afterConnecting
+            )
+        } catch (e: Exception) {
+            DiagnosticTrace.system(
+                "BACKGROUND CHECK #" + checkNumber +
+                    " ERROR " + (e.message ?: e.javaClass.simpleName)
+            )
+            android.util.Log.e("MQTT_BACKGROUND", "background check failed", e)
         }
     }
 
@@ -122,20 +159,25 @@ class MqttBackgroundService : Service() {
         startForeground(NOTIFICATION_ID, createNotification())
         running = true
 
-        // Create/keep the single process-wide runtime alive immediately.
-        // Scenarios must remain available while the Activity is stopped.
+        // The MQTT supervisor runs off the main looper so UI/main-thread stalls
+        // cannot stop background reconnects or history persistence.
         val runtime = AppRuntime.get(applicationContext)
         DiagnosticTrace.system(
             "BACKGROUND SERVICE onCreate runtimeBefore=" + runtime.mqtt.diagnostics()
         )
-        runtime.ensureConnected()
-        DiagnosticTrace.system(
-            "BACKGROUND SERVICE onCreate runtimeAfter=" + runtime.mqtt.diagnostics()
+
+        supervisorFuture = supervisor.scheduleWithFixedDelay(
+            { runBackgroundCheck("scheduled") },
+            0L,
+            CHECK_INTERVAL_MS,
+            TimeUnit.MILLISECONDS
         )
 
-        // First diagnostic pass immediately, then every 30 seconds.
-        handler.post(checkRunnable)
-
+        DiagnosticTrace.system(
+            "BACKGROUND SERVICE onCreate supervisorScheduled intervalMs=" +
+                CHECK_INTERVAL_MS +
+                " thread=MQTT-BackgroundSupervisor"
+        )
         DiagnosticTrace.system("SERVICE created: foreground MQTT service started")
         android.util.Log.d("MQTT_BACKGROUND", "background MQTT runtime started")
     }
@@ -149,13 +191,15 @@ class MqttBackgroundService : Service() {
                 " mqtt=" + runtime.mqtt.diagnostics()
         )
         runtime.scenarioEngine.setRuntimeActive(true)
-        runtime.ensureConnected()
+        supervisor.execute { runBackgroundCheck("onStartCommand") }
         return START_STICKY
     }
 
     override fun onDestroy() {
         running = false
-        handler.removeCallbacksAndMessages(null)
+        supervisorFuture?.cancel(false)
+        supervisorFuture = null
+        supervisor.shutdownNow()
 
         // IMPORTANT: do not disconnect MQTT here.
         // The runtime owns the MQTT client; Android may recreate this service.
@@ -177,7 +221,7 @@ class MqttBackgroundService : Service() {
         // Keep the service independent from the Activity task.
         val runtime = AppRuntime.get(applicationContext)
         runtime.scenarioEngine.setRuntimeActive(true)
-        runtime.ensureConnected()
+        supervisor.execute { runBackgroundCheck("onTaskRemoved") }
 
         DiagnosticTrace.system(
             "BACKGROUND SERVICE onTaskRemoved ensureConnected done mqtt=" +
