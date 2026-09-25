@@ -6,6 +6,7 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.graphics.Color
 import android.widget.RemoteViews
 import com.yasn198020.aicontrol.core.Device
 
@@ -86,6 +87,15 @@ class LiveDataWidgetProvider : AppWidgetProvider() {
                     else -> widget.value + widget.unit
                 }
             )
+            val value = widget?.value?.trim()?.replace(',', '.')?.toFloatOrNull()
+            val background = when {
+                value == null || selection == null -> Color.rgb(30, 30, 30)
+                value < selection.low -> selection.colorLow
+                value <= selection.high -> selection.colorMid
+                else -> selection.colorHigh
+            }
+            views.setInt(R.id.live_data_widget_root, "setBackgroundColor", background)
+
             val openIntent = Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             }
