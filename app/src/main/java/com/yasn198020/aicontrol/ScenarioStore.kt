@@ -502,38 +502,80 @@ class ScenarioEngine(
 class ScenarioActionExecutor {
     @Volatile var mqtt: MqttManager? = null
 
+    private val executor = java.util.concurrent.Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "ScenarioActionExecutor").apply {
+            isDaemon = true
+        }
+    }
+
     fun execute(scenario: Scenario) {
+        val eventId = DiagnosticTrace.currentEventId()
+        DiagnosticTrace.stepForEvent(
+            eventId,
+            "ACTION",
+            "DISPATCH scenario=${scenario.id} type=${scenario.actionType}"
+        )
+
+        executor.execute {
+            executeNow(scenario, eventId)
+        }
+    }
+
+    private fun executeNow(scenario: Scenario, eventId: Long?) {
         if (scenario.actionType != "MQTT_CONTROL") {
-            DiagnosticTrace.step("ACTION", "SKIP scenario=${scenario.id} type=${scenario.actionType}")
+            DiagnosticTrace.stepForEvent(
+                eventId,
+                "ACTION",
+                "SKIP scenario=${scenario.id} type=${scenario.actionType}"
+            )
             return
         }
 
         val manager = mqtt
         if (manager == null) {
-            DiagnosticTrace.error("ACTION MQTT manager is null scenario=${scenario.id}")
+            DiagnosticTrace.stepForEvent(
+                eventId,
+                "ERROR",
+                "ACTION MQTT manager is null scenario=${scenario.id}"
+            )
             return
         }
 
         val actions = scenario.actions.ifEmpty {
             if (scenario.actionDeviceId.isNotBlank() && scenario.actionWidgetId.isNotBlank()) {
-                listOf(ScenarioAction(scenario.actionDeviceId, scenario.actionWidgetId, scenario.actionValue.ifBlank { "1" }))
-            } else emptyList()
+                listOf(
+                    ScenarioAction(
+                        scenario.actionDeviceId,
+                        scenario.actionWidgetId,
+                        scenario.actionValue.ifBlank { "1" }
+                    )
+                )
+            } else {
+                emptyList()
+            }
         }.toList()
 
-        DiagnosticTrace.step(
+        DiagnosticTrace.stepForEvent(
+            eventId,
             "ACTION",
             "START scenario=${scenario.id} type=MQTT_CONTROL actionCount=${actions.size}"
         )
 
         if (actions.isEmpty()) {
-            DiagnosticTrace.step("ACTION", "NO ACTIONS scenario=${scenario.id}")
+            DiagnosticTrace.stepForEvent(
+                eventId,
+                "ACTION",
+                "NO ACTIONS scenario=${scenario.id}"
+            )
             return
         }
 
         actions.forEachIndexed { index, action ->
             val number = index + 1
+
             if (action.deviceId.isBlank() || action.widgetId.isBlank()) {
-                DiagnosticTrace.step(
+                DiagnosticTrace.stepForEvent(
+                    eventId,
                     "ACTION",
                     "#$number SKIP blank target device=${action.deviceId} widget=${action.widgetId}"
                 )
@@ -541,24 +583,39 @@ class ScenarioActionExecutor {
             }
 
             val actionValue = action.value.ifBlank { "1" }
-            DiagnosticTrace.step(
+
+            DiagnosticTrace.stepForEvent(
+                eventId,
                 "ACTION",
                 "#$number SEND target=${action.deviceId}/${action.widgetId} value=$actionValue"
             )
 
             try {
-                val result = manager.publishControl(action.deviceId, action.widgetId, actionValue)
-                DiagnosticTrace.step(
+                val result = manager.publishControl(
+                    action.deviceId,
+                    action.widgetId,
+                    actionValue,
+                    eventId
+                )
+
+                DiagnosticTrace.stepForEvent(
+                    eventId,
                     "ACTION",
                     "#$number RESULT target=${action.deviceId}/${action.widgetId} value=$actionValue result=$result"
                 )
             } catch (e: Exception) {
-                DiagnosticTrace.error(
+                DiagnosticTrace.stepForEvent(
+                    eventId,
+                    "ERROR",
                     "ACTION #$number EXCEPTION target=${action.deviceId}/${action.widgetId} error=${e.message ?: e.javaClass.simpleName}"
                 )
             }
         }
 
-        DiagnosticTrace.step("ACTION", "COMPLETE scenario=${scenario.id} actionCount=${actions.size}")
+        DiagnosticTrace.stepForEvent(
+            eventId,
+            "ACTION",
+            "COMPLETE scenario=${scenario.id} actionCount=${actions.size}"
+        )
     }
 }
