@@ -13,6 +13,8 @@ data class WidgetState(
     val title: String,
     val type: Type,
     val value: String,
+    /** Epoch milliseconds of the last received value update. */
+    val lastUpdated: Long = 0L,
     val page: String = "Основная",
     val topic: String = "",
     val order: Int = 0,
