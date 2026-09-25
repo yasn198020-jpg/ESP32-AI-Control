@@ -43,7 +43,8 @@ data class Scenario(
     val verifySuccessMessage: String = "Подтверждение получено: {value}",
     val verifyFailureMessage: String = "Подтверждение не получено",
     val conditions: List<ScenarioCondition> = listOf(
-        ScenarioCondition(deviceId, widgetId, operator, threshold)
+        // deviceId is legacy metadata; scenario variables are global by widgetId.
+        ScenarioCondition("", widgetId, operator, threshold)
     )
 )
 
