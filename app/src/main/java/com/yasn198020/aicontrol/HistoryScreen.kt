@@ -1,7 +1,6 @@
 package com.yasn198020.aicontrol
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -10,7 +9,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.awaitEachGesture
+import androidx.compose.ui.input.pointer.awaitFirstDown
+import androidx.compose.ui.input.pointer.awaitPointerEvent
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -114,6 +117,12 @@ import kotlin.math.min
     onSelectIndex:(Int)->Unit
 ){
     var canvasWidth by remember{mutableFloatStateOf(0f)}
+
+    val latestZoom by rememberUpdatedState(zoom)
+    val latestOffsetX by rememberUpdatedState(offsetX)
+    val latestOnZoomOffsetChanged by rememberUpdatedState(onZoomOffsetChanged)
+    val latestOnSelectIndex by rememberUpdatedState(onSelectIndex)
+
     fun clampOffset(scale:Float,rawOffset:Float,width:Float):Float{
         val contentWidth=width*scale
         return if(contentWidth<=width||width<=0f) 0f else rawOffset.coerceIn(0f,contentWidth-width)
@@ -124,29 +133,72 @@ import kotlin.math.min
             .fillMaxWidth()
             .height(220.dp)
             .onSizeChanged{canvasWidth=it.width.toFloat()}
-            .pointerInput(zoom,offsetX,points){
-                var downX=0f
-                var workingOffset=offsetX
-                var moved=false
-                detectDragGestures(
-                    onDragStart={position->
-                        downX=position.x
-                        workingOffset=offsetX
-                        moved=false
-                    },
-                    onDragEnd={
-                        if(!moved && canvasWidth>0f){
-                            onSelectIndex(nearestPointIndex(points,downX,canvasWidth,zoom,workingOffset))
+            .pointerInput(points){
+                awaitEachGesture{
+                    val down=awaitFirstDown(requireUnconsumed=false)
+                    var lastPosition=down.position
+                    var workingOffset=latestOffsetX
+                    var moved=false
+                    var cancelled=false
+
+                    while(true){
+                        val event=awaitPointerEvent()
+                        if(event.changes.size>1){
+                            cancelled=true
+                            event.changes.forEach{it.consume()}
+                            break
                         }
-                    },
-                    onDragCancel={},
-                    onDrag={change,dragAmount->
-                        change.consume()
-                        if(abs(dragAmount.x)>0.5f)moved=true
-                        workingOffset=clampOffset(zoom,workingOffset-dragAmount.x,canvasWidth)
-                        onZoomOffsetChanged(zoom,workingOffset)
+
+                        val change=event.changes.firstOrNull{it.id==down.id}
+                        if(change==null){
+                            cancelled=true
+                            break
+                        }
+
+                        if(!change.pressed){
+                            if(!cancelled&&!moved&&canvasWidth>0f){
+                                latestOnSelectIndex(
+                                    nearestPointIndex(
+                                        points,
+                                        down.position.x,
+                                        canvasWidth,
+                                        latestZoom,
+                                        workingOffset
+                                    )
+                                )
+                            }
+                            break
+                        }
+
+                        val dx=change.position.x-lastPosition.x
+                        val dy=change.position.y-lastPosition.y
+                        val totalDx=change.position.x-down.position.x
+                        val totalDy=change.position.y-down.position.y
+
+                        if(!moved){
+                            val slop=event.changes.first().position.x.let{
+                                viewConfiguration.touchSlop
+                            }
+                            if(totalDx*totalDx+totalDy*totalDy>slop*slop){
+                                moved=true
+                            }
+                        }
+
+                        if(moved&&abs(totalDx)>=abs(totalDy)){
+                            change.consume()
+                            if(latestZoom>1f&&canvasWidth>0f){
+                                workingOffset=clampOffset(
+                                    latestZoom,
+                                    workingOffset-dx,
+                                    canvasWidth
+                                )
+                                latestOnZoomOffsetChanged(latestZoom,workingOffset)
+                            }
+                        }
+
+                        lastPosition=change.position
                     }
-                )
+                }
             }
     ){
         val contentWidth=size.width*zoom
@@ -191,7 +243,6 @@ import kotlin.math.min
         }
     }
 }
-
 private fun nearestPointIndex(
     points:List<HistoryPoint>,
     tapX:Float,
