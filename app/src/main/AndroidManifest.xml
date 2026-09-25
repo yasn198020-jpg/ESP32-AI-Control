@@ -58,7 +58,7 @@
 
         <activity
             android:name=".LiveDataWidgetConfigActivity"
-            android:exported="false"
+            android:exported="true"
             android:theme="@style/Theme.App.NoActionBar" />
 
         <service
