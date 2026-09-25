@@ -3,6 +3,8 @@ package com.yasn198020.aicontrol
 import android.content.SharedPreferences
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
 
 data class HistoryPoint(val timestamp: Long, val deviceId: String, val widgetId: String, val value: Double)
 
