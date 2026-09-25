@@ -145,7 +145,7 @@ class ScenarioStore(private val prefs: android.content.SharedPreferences) {
                                 val widgetId = item.optString("widgetId").trim()
 
                                 if (
-                                    deviceId.isNotBlank() &&
+                                    // deviceId is legacy metadata; widgetId is the global variable identity.
                                     widgetId.isNotBlank() &&
                                     threshold.isFinite()
                                 ) {
