@@ -126,9 +126,14 @@ class MqttManager(
                         )
                     }
 
-                    val root = "/dghjko/"
-                    if (topic.startsWith(root) && topic.endsWith("/config")) {
-                        val parts = topic.removePrefix(root).trim('/').split("/")
+                    val topicRoots = listOf(
+                        "/" + prefix.trim('/'),
+                        "/dghjko"
+                    ).distinct()
+                    val matchingRoot = topicRoots.firstOrNull { topic.startsWith(it + "/") }
+
+                    if (matchingRoot != null && topic.endsWith("/config")) {
+                        val parts = topic.removePrefix(matchingRoot).trim('/').split("/")
                         if (parts.size == 2) {
                             try {
                                 val json = org.json.JSONObject(payload)
@@ -157,8 +162,8 @@ class MqttManager(
                                 emitLog("MQTT config parse failed: " + topic)
                             }
                         }
-                    } else if (topic.startsWith(root) && topic.endsWith("/status")) {
-                        val parts = topic.removePrefix(root).trim('/').split("/")
+                    } else if (matchingRoot != null && topic.endsWith("/status")) {
+                        val parts = topic.removePrefix(matchingRoot).trim('/').split("/")
                         DiagnosticTrace.stepForEvent(
                             traceId,
                             "MQTT",
@@ -233,8 +238,8 @@ class MqttManager(
                                 "STATUS route invalid parts=" + parts.size + " topic=" + topic
                             )
                         }
-                    } else if (topic.startsWith(root) && topic.endsWith("/event")) {
-                        val parts = topic.removePrefix(root).trim('/').split("/")
+                    } else if (matchingRoot != null && topic.endsWith("/event")) {
+                        val parts = topic.removePrefix(matchingRoot).trim('/').split("/")
                         if (parts.size >= 3) {
                             try {
                                 val json = org.json.JSONObject(payload)
@@ -391,7 +396,7 @@ class MqttManager(
         try {
             c.subscribe(
                 topics,
-                IntArray(topics.size) { 0 },
+                IntArray(topics.size) { 1 },
                 null,
                 object : IMqttActionListener {
                     override fun onSuccess(asyncActionToken: IMqttToken?) {
@@ -422,17 +427,24 @@ class MqttManager(
         return publish(topic, value)
     }
 
-    fun publishControl(deviceId: String, widgetId: String, value: String): Boolean {
+    fun publishControl(
+        deviceId: String,
+        widgetId: String,
+        value: String,
+        eventId: Long? = DiagnosticTrace.currentEventId()
+    ): Boolean {
         if (prefix.isBlank() || deviceId.isBlank() || widgetId.isBlank()) return false
+        val root = "/" + prefix.trim('/')
         return publish(
-            "/dghjko/" + deviceId + "/" + widgetId + "/control",
-            org.json.JSONObject().put("status", value).toString()
+            root + "/" + deviceId + "/" + widgetId + "/control",
+            org.json.JSONObject().put("status", value).toString(),
+            eventId
         )
     }
 
-    private fun publish(topic: String, payload: String): Boolean {
+    private fun publish(topic: String, payload: String, eventIdOverride: Long? = null): Boolean {
         val c = client
-        val eventId = DiagnosticTrace.currentEventId()
+        val eventId = eventIdOverride ?: DiagnosticTrace.currentEventId()
 
         if (c == null || !c.isConnected) {
             synchronized(publishLock) {
