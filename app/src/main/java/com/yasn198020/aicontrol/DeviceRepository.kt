@@ -80,8 +80,8 @@ class DeviceRepository {
             val type = when (widgetType.lowercase()) {
                 "toggle" -> WidgetState.Type.TOGGLE
                 "button", "vbtn", "btn" -> WidgetState.Type.BUTTON
-                "input", "text", "number", "slider" -> WidgetState.Type.INPUT
-                "anydata", "anydatavlt", "value" -> WidgetState.Type.VALUE
+                "input", "text", "number", "slider", "range", "select" -> WidgetState.Type.INPUT
+                "anydata", "anydatavlt", "value", "chart", "fillgauge", "progress-line", "progress-round" -> WidgetState.Type.VALUE
                 else -> WidgetState.Type.STATUS
             }
 
