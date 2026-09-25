@@ -667,9 +667,9 @@ private fun ChartWidgetRow(
                 .load()
                 .asSequence()
                 .filter { it.deviceId == deviceId && it.widgetId == widget.id }
-                .takeLast(maxCount)
                 .map { ChartSeriesPoint(it.timestamp, listOf(it.value)) }
                 .toList()
+                .takeLast(maxCount)
         }
     }
 
