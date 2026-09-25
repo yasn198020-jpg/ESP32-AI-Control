@@ -55,8 +55,6 @@ import kotlin.math.min
     var zoom by remember(points.firstOrNull()?.timestamp,points.size){mutableFloatStateOf(1f)}
     var offsetX by remember(points.firstOrNull()?.timestamp,points.size){mutableFloatStateOf(0f)}
     var selectedIndex by remember(points.firstOrNull()?.timestamp,points.size){mutableIntStateOf(points.lastIndex)}
-    val currentZoom by rememberUpdatedState(zoom)
-    val currentOffsetX by rememberUpdatedState(offsetX)
 
     Column(Modifier.fillMaxWidth()){
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically){
