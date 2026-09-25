@@ -204,6 +204,10 @@ class AppRuntime private constructor(private val appContext: Context) {
                     raw
                 )
             }
+        },
+        onReconnectRequested = {
+            DiagnosticTrace.system("MQTT RECONNECT requested directly by Paho callback")
+            ensureConnected()
         }
     )
 
