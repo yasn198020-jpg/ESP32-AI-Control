@@ -4,7 +4,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="14dp"
+    android:padding="10dp"
     android:background="@drawable/live_widget_background">
 
     <TextView
@@ -20,12 +20,12 @@
         android:id="@+id/live_widget_title"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
+        android:layout_marginTop="3dp"
         android:ellipsize="end"
         android:maxLines="2"
         android:text="Настройте виджет"
         android:textColor="#D0FFFFFF"
-        android:textSize="12sp" />
+        android:textSize="11sp" />
 
     <TextView
         android:id="@+id/live_widget_value"
@@ -40,13 +40,4 @@
         android:textSize="30sp"
         android:textStyle="bold" />
 
-    <TextView
-        android:id="@+id/live_widget_subtitle"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:gravity="center"
-        android:maxLines="2"
-        android:text="Обновляется из MQTT в реальном времени"
-        android:textColor="#B8FFFFFF"
-        android:textSize="10sp" />
 </LinearLayout>
