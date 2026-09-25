@@ -113,7 +113,6 @@ object PermissionAudit {
                     )
                 )
             }
-        }
 
             add(
                 PermissionAuditItem(
@@ -241,6 +240,7 @@ object PermissionAudit {
                     granted = true
                 )
             )
+        }
 
         val signature = items.joinToString("|") { "${it.id}=${it.granted}" }
         if (signature != lastSignature) {
