@@ -24,6 +24,10 @@ class DeviceRepository {
         }
     }
 
+    fun setLocalValue(deviceId: String, widgetId: String, value: String) {
+        onStatus(deviceId, widgetId, value)
+    }
+
     fun onStatus(deviceId: String, widgetId: String, value: String) {
         synchronized(lock) {
             val key = "$deviceId/$widgetId"
