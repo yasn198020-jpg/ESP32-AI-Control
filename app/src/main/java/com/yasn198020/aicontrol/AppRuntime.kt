@@ -146,25 +146,25 @@ class AppRuntime private constructor(private val appContext: Context) {
                     )
                 }
 
-                if (triggeredScenario?.notificationEnabled == true) {
-                    ScenarioNotifier.notify(
-                        appContext,
-                        triggeredScenario!!,
-                        triggeredRawValue ?: value
-                    )
+                val historyResult = historyStore.add(deviceId, widgetId, value)
+                if (historyResult.accepted) {
                     DiagnosticTrace.stepForEvent(
                         eventId,
-                        "NOTIFY",
-                        "trigger notification requested scenario=${triggeredScenario!!.id}"
-                    )
-                } else if (triggeredScenario != null) {
-                    DiagnosticTrace.stepForEvent(
-                        eventId,
-                        "NOTIFY",
-                        "trigger notification skipped: disabled scenario=${triggeredScenario!!.id}"
+                        "HISTORY",
+                        "QUEUED device=" + deviceId +
+                            " widget=" + widgetId +
+                            " value=" + value +
+                            " points=" + historyResult.pointCount
                     )
                 } else {
-                    DiagnosticTrace.stepForEvent(eventId, "SCENARIO", "no trigger for this event")
+                    DiagnosticTrace.stepForEvent(
+                        eventId,
+                        "HISTORY",
+                        "SKIPPED device=" + deviceId +
+                            " widget=" + widgetId +
+                            " value=" + value +
+                            " reason=" + historyResult.reason
+                    )
                 }
             } catch (e: Exception) {
                 DiagnosticTrace.stepForEvent(
