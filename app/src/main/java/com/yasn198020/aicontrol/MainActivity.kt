@@ -1067,7 +1067,12 @@ private fun DevicesScreen(
             items = entries,
             key = { it.first + "/" + it.second.id }
         ) { (deviceId, widget) ->
-            DashboardWidgetRow(widget, onSend = { value -> onSend(deviceId, widget.id, value) }, onTrain = { onTrain(deviceId, widget) })
+            IoTManagerWidgetRow(
+                deviceId = deviceId,
+                widget = widget,
+                onSend = { value -> onSend(deviceId, widget.id, value) },
+                onTrain = { onTrain(deviceId, widget) }
+            )
         }
 
         item(key = "voice-status") {
@@ -1082,125 +1087,19 @@ private fun DevicesScreen(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun DashboardWidgetRow(
+    deviceId: String,
     widget: WidgetState,
     onSend: (String) -> Unit,
     onTrain: () -> Unit
 ) {
-    when (widget.type) {
-        WidgetState.Type.INPUT -> {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 22.dp, vertical = 6.dp)
-                    .combinedClickable(onLongClick = onTrain, onClick = { }),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    "⌨",
-                    color = Color(0xFF8065E8),
-                    fontSize = 22.sp,
-                    modifier = Modifier.width(44.dp)
-                )
-                InputWidget(
-                    widget = widget,
-                    onSend = onSend
-                )
-            }
-        }
-
-        WidgetState.Type.VALUE, WidgetState.Type.STATUS -> {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(68.dp)
-                    .padding(horizontal = 22.dp)
-                    .combinedClickable(onLongClick = onTrain, onClick = { }),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("🌡", fontSize = 22.sp, modifier = Modifier.width(34.dp))
-                Text(
-                    widget.title,
-                    fontSize = 19.sp,
-                    modifier = Modifier.weight(1f)
-                )
-                Surface(
-                    modifier = Modifier
-                        .width(86.dp)
-                        .height(64.dp),
-                    shape = RoundedCornerShape(18.dp),
-                    color = Color(0xFF4285F4)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            widget.value.ifBlank { "—" } +
-                                if (widget.unit.isNotBlank()) " " + widget.unit else "",
-                            color = Color.White,
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
-            }
-        }
-
-        WidgetState.Type.BUTTON -> {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(66.dp)
-                    .padding(horizontal = 22.dp)
-                    .combinedClickable(onLongClick = onTrain, onClick = { }),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    "◉",
-                    color = Color(0xFF8065E8),
-                    fontSize = 22.sp,
-                    modifier = Modifier.width(44.dp)
-                )
-                Text(
-                    widget.title,
-                    fontSize = 19.sp,
-                    modifier = Modifier.weight(1f)
-                )
-                Button(onClick = { onSend("1") }) {
-                    Text("Нажать")
-                }
-            }
-        }
-
-        WidgetState.Type.TOGGLE -> {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(66.dp)
-                    .padding(horizontal = 22.dp)
-                    .combinedClickable(onLongClick = onTrain, onClick = { }),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    "◉",
-                    color = Color(0xFF8065E8),
-                    fontSize = 22.sp,
-                    modifier = Modifier.width(44.dp)
-                )
-                Text(
-                    widget.title,
-                    fontSize = 19.sp,
-                    modifier = Modifier.weight(1f)
-                )
-                Switch(
-                    checked = widget.value == "1" || widget.value.equals("true", true),
-                    onCheckedChange = { checked ->
-                        onSend(if (checked) "1" else "0")
-                    }
-                )
-            }
-        }
-    }
+    IoTManagerWidgetRow(
+        deviceId = deviceId,
+        widget = widget,
+        onSend = onSend,
+        onTrain = onTrain
+    )
 }
 
 @Composable
