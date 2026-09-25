@@ -105,12 +105,27 @@ class AppRuntime private constructor(private val appContext: Context) {
                     "SCENARIO",
                     "INPUT device=$deviceId widget=$widgetId value=$value"
                 )
-                historyStore.add(deviceId, widgetId, value)
-                DiagnosticTrace.stepForEvent(
-                    eventId,
-                    "HISTORY",
-                    "stored device=$deviceId widget=$widgetId value=$value"
-                )
+
+                val historyResult = historyStore.add(deviceId, widgetId, value)
+                if (historyResult.accepted) {
+                    DiagnosticTrace.stepForEvent(
+                        eventId,
+                        "HISTORY",
+                        "QUEUED device=" + deviceId +
+                            " widget=" + widgetId +
+                            " value=" + value +
+                            " points=" + historyResult.pointCount
+                    )
+                } else {
+                    DiagnosticTrace.stepForEvent(
+                        eventId,
+                        "HISTORY",
+                        "SKIPPED device=" + deviceId +
+                            " widget=" + widgetId +
+                            " value=" + value +
+                            " reason=" + historyResult.reason
+                    )
+                }
                 if (widgetId == "vbtn90") {
                     DiagnosticTrace.stepForEvent(
                         eventId,
@@ -181,6 +196,7 @@ class AppRuntime private constructor(private val appContext: Context) {
     init {
         DiagnosticTrace.init(appContext)
         DiagnosticTrace.system("AppRuntime initialized")
+        DiagnosticTrace.system("HISTORY startup " + historyStore.diagnostics())
         scenarioActionExecutor.mqtt = mqtt
 
         // Restore the last known values once, so multi-condition scenarios can
