@@ -157,6 +157,7 @@ private fun App(
     var menuOpen by remember { mutableStateOf(false) }
     var textSizeDialogOpen by remember { mutableStateOf(false) }
     var selectedPage by remember { mutableStateOf<String?>(null) }
+    var permissionItems by remember { mutableStateOf(PermissionAudit.snapshot(context)) }
     var connected by remember { mutableStateOf(false) }
     var manualMqttDisconnect by remember { mutableStateOf(false) }
     var log by remember { mutableStateOf(listOf("MQTT diagnostic log ready")) }
@@ -286,6 +287,13 @@ private fun App(
     val requestMicPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
+        PermissionAudit.logRuntimeResult(
+            context,
+            micGranted = granted,
+            notificationsGranted = Build.VERSION.SDK_INT < 33 ||
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        )
+        permissionItems = PermissionAudit.snapshot(context)
         voiceStatus = if (granted) {
             "Микрофон готов — удерживайте кнопку"
         } else {
@@ -301,6 +309,8 @@ private fun App(
         val notificationsGranted = Build.VERSION.SDK_INT < 33 ||
             results[Manifest.permission.POST_NOTIFICATIONS] == true ||
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        PermissionAudit.logRuntimeResult(context, micGranted, notificationsGranted)
+        permissionItems = PermissionAudit.snapshot(context)
         DiagnosticTrace.system("PERMISSIONS runtime mic=" + micGranted + " notifications=" + notificationsGranted)
     }
 
@@ -324,26 +334,32 @@ private fun App(
         val ignoringBatteryOptimizations = powerManager.isIgnoringBatteryOptimizations(context.packageName)
         DiagnosticTrace.system("PERMISSIONS batteryOptimizationIgnored=" + ignoringBatteryOptimizations)
         if (!ignoringBatteryOptimizations) {
-            try {
-                context.startActivity(
-                    Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                        data = Uri.parse("package:" + context.packageName)
-                    }
-                )
-            } catch (e: Exception) {
-                DiagnosticTrace.system("PERMISSIONS batteryOptimizationRequest failed=" + e.javaClass.simpleName)
-                try {
-                    context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-                } catch (_: Exception) {
-                }
+            PermissionAudit.openSettings(context, "battery")
+        }
+        permissionItems = PermissionAudit.snapshot(context)
+    }
+
+    DisposableEffect(context) {
+        val lifecycle = (context as? ComponentActivity)?.lifecycle
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                permissionItems = PermissionAudit.snapshot(context)
             }
         }
+        lifecycle?.addObserver(observer)
+        onDispose { lifecycle?.removeObserver(observer) }
     }
 
     var pendingNotificationAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     val requestNotificationPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
+        PermissionAudit.logRuntimeResult(
+            context,
+            micGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED,
+            notificationsGranted = granted
+        )
+        permissionItems = PermissionAudit.snapshot(context)
         if (granted) pendingNotificationAction?.invoke()
         pendingNotificationAction = null
     }
@@ -774,6 +790,17 @@ private fun App(
                     Box {
                         Text("☰", fontSize = 30.sp, modifier = Modifier.clickable { menuOpen = true }.padding(end = 18.dp))
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Выданные разрешения") },
+                                trailingIcon = {
+                                    Text(
+                                        "●",
+                                        color = if (permissionItems.all { it.granted }) Color(0xFF4CAF50) else Color(0xFFF44336),
+                                        fontSize = 18.sp
+                                    )
+                                },
+                                onClick = { menuOpen = false; tab = 7 }
+                            )
                             DropdownMenuItem(text = { Text("MQTT подключение") }, onClick = { menuOpen = false; tab = 2 })
                             DropdownMenuItem(text = { Text("Журнал") }, onClick = { menuOpen = false; tab = 3 })
                             DropdownMenuItem(text = { Text("История и графики") }, onClick = { menuOpen = false; tab = 6 })
@@ -939,6 +966,18 @@ private fun App(
                 }
             )
             6 -> HistoryScreen(Modifier.padding(padding), devices, historyStore)
+            7 -> PermissionAuditScreen(
+                modifier = Modifier.padding(padding),
+                items = permissionItems,
+                onRequestMicrophone = { requestMicPermission.launch(Manifest.permission.RECORD_AUDIO) },
+                onRequestNotifications = {
+                    if (Build.VERSION.SDK_INT >= 33) {
+                        requestNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                },
+                onOpenSettings = { itemId -> PermissionAudit.openSettings(context, itemId) },
+                onRefresh = { permissionItems = PermissionAudit.snapshot(context) }
+            )
             else -> VoiceSettingsScreen(
                 Modifier.padding(padding), voicePreset, voiceRate, voicePitch,
                 availableVoices, selectedVoiceName,
@@ -1487,6 +1526,105 @@ private fun LogScreen(modifier: Modifier, log: List<String>, onClear: () -> Unit
         SelectionContainer {
             LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 items(visibleTrace) { line -> Text(line, style = MaterialTheme.typography.bodySmall) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PermissionAuditScreen(
+    modifier: Modifier,
+    items: List<PermissionAuditItem>,
+    onRequestMicrophone: () -> Unit,
+    onRequestNotifications: () -> Unit,
+    onOpenSettings: (String) -> Unit,
+    onRefresh: () -> Unit
+) {
+    LazyColumn(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        item {
+            Text(
+                text = "Выданные разрешения",
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "Зелёный — доступ выдан. Красный — доступ не выдан.",
+                fontSize = 14.sp,
+                color = Color.LightGray
+            )
+            Spacer(Modifier.height(6.dp))
+            OutlinedButton(onClick = onRefresh) {
+                Text("Обновить")
+            }
+        }
+
+        items(items, key = { it.id }) { item ->
+            val statusColor = if (item.granted) Color(0xFF4CAF50) else Color(0xFFF44336)
+            val statusText = if (item.granted) "ВЫДАНО" else "НЕ ВЫДАНО"
+
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                color = Color(0xFF2C2C2C)
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(7.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(text = "●", color = statusColor, fontSize = 20.sp)
+                        Spacer(Modifier.width(9.dp))
+                        Text(
+                            text = item.title,
+                            modifier = Modifier.weight(1f),
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = statusText,
+                            color = statusColor,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Text(
+                        text = item.detail,
+                        color = Color.LightGray,
+                        fontSize = 13.sp
+                    )
+
+                    when (item.id) {
+                        "microphone" -> {
+                            if (!item.granted) {
+                                Button(onClick = onRequestMicrophone) {
+                                    Text("Выдать разрешение")
+                                }
+                            }
+                        }
+                        "notifications" -> {
+                            if (Build.VERSION.SDK_INT >= 33 && !item.granted) {
+                                Button(onClick = onRequestNotifications) {
+                                    Text("Выдать разрешение")
+                                }
+                            }
+                        }
+                        "battery", "install_unknown" -> {
+                            Button(onClick = { onOpenSettings(item.id) }) {
+                                Text("Открыть настройки")
+                            }
+                        }
+                    }
+                }
             }
         }
     }
