@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
@@ -90,21 +92,34 @@ private fun WidgetConfiguration(
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val runtime = remember { AppRuntime.get(context) }
+    val storedSelection = remember { LiveDataWidgetStore.get(context, appWidgetId) }
 
     var devices by remember { mutableStateOf(runtime.deviceRepository.snapshot()) }
     var selectedDeviceId by rememberSaveable {
-        mutableStateOf(LiveDataWidgetStore.get(context, appWidgetId)?.deviceId)
+        mutableStateOf(storedSelection?.deviceId)
     }
     var selectedWidgetId by rememberSaveable {
-        mutableStateOf(LiveDataWidgetStore.get(context, appWidgetId)?.widgetId)
+        mutableStateOf(storedSelection?.widgetId)
     }
     var deviceMenuOpen by remember { mutableStateOf(false) }
     var widgetMenuOpen by remember { mutableStateOf(false) }
-    var lowText by rememberSaveable { mutableStateOf("0") }
-    var highText by rememberSaveable { mutableStateOf("20") }
-    var lowColor by rememberSaveable { mutableStateOf(0xFF1976D2.toInt()) }
-    var midColor by rememberSaveable { mutableStateOf(0xFF2E7D32.toInt()) }
-    var highColor by rememberSaveable { mutableStateOf(0xFFD32F2F.toInt()) }
+
+    var belowColor by rememberSaveable {
+        mutableStateOf(storedSelection?.belowColor ?: 0xFF1976D2.toInt())
+    }
+    var thresholdTexts by rememberSaveable {
+        mutableStateOf(
+            storedSelection?.thresholds?.map { it.value.toString() }
+                ?: listOf("0", "20")
+        )
+    }
+    var thresholdColors by rememberSaveable {
+        mutableStateOf(
+            storedSelection?.thresholds?.map { it.color }
+                ?: listOf(0xFF2E7D32.toInt(), 0xFFD32F2F.toInt())
+        )
+    }
+    var validationError by rememberSaveable { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -129,7 +144,10 @@ private fun WidgetConfiguration(
     val selectedWidget = availableWidgets.firstOrNull { it.id == selectedWidgetId }
 
     Column(
-        modifier = Modifier.fillMaxSize().padding(20.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("Настройка виджета MQTT", style = MaterialTheme.typography.headlineSmall)
@@ -197,13 +215,78 @@ private fun WidgetConfiguration(
         }
 
         Text("Цвет по значению", style = MaterialTheme.typography.titleMedium)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(value = lowText, onValueChange = { lowText = it }, label = { Text("Нижний порог") }, modifier = Modifier.weight(1f), singleLine = true)
-            OutlinedTextField(value = highText, onValueChange = { highText = it }, label = { Text("Верхний порог") }, modifier = Modifier.weight(1f), singleLine = true)
+        Text(
+            "Добавляйте сколько угодно порогов. Цвет ниже первого порога задаётся отдельно, а каждый порог задаёт цвет начиная с этого значения.",
+            style = MaterialTheme.typography.bodySmall
+        )
+
+        ColorChoice("Ниже первого порога", belowColor) { belowColor = it }
+
+        thresholdTexts.forEachIndexed { index, textValue ->
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    Modifier.padding(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = textValue,
+                            onValueChange = {
+                                validationError = ""
+                                thresholdTexts = thresholdTexts.toMutableList().also { list ->
+                                    list[index] = it
+                                }
+                            },
+                            label = { Text("Порог ${index + 1}") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                        if (thresholdTexts.size > 1) {
+                            OutlinedButton(
+                                onClick = {
+                                    thresholdTexts = thresholdTexts.toMutableList().also { it.removeAt(index) }
+                                    thresholdColors = thresholdColors.toMutableList().also { it.removeAt(index) }
+                                    validationError = ""
+                                }
+                            ) {
+                                Text("−")
+                            }
+                        }
+                    }
+
+                    ColorChoice(
+                        "Цвет после порога ${index + 1}",
+                        thresholdColors.getOrElse(index) { 0xFF2E7D32.toInt() }
+                    ) { color ->
+                        thresholdColors = thresholdColors.toMutableList().also { list ->
+                            if (index < list.size) list[index] = color
+                        }
+                    }
+                }
+            }
         }
-        ColorChoice("Ниже нижнего", lowColor) { lowColor = it }
-        ColorChoice("Между порогами", midColor) { midColor = it }
-        ColorChoice("Выше верхнего", highColor) { highColor = it }
+
+        OutlinedButton(
+            onClick = {
+                thresholdTexts = thresholdTexts + "30"
+                thresholdColors = thresholdColors + 0xFFF9A825.toInt()
+                validationError = ""
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("+ Порог")
+        }
+
+        if (validationError.isNotBlank()) {
+            Text(
+                validationError,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
 
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -251,14 +334,37 @@ private fun WidgetConfiguration(
 
                 Button(
                     onClick = {
-                        val deviceId = selectedDeviceId ?: return@Button
-                        val widgetId = selectedWidgetId ?: return@Button
-                        val low = lowText.replace(',', '.').toFloatOrNull() ?: 0f
-                        val high = highText.replace(',', '.').toFloatOrNull() ?: 20f
-                        if (low >= high) return@Button
-                        LiveDataWidgetStore.save(context, appWidgetId, deviceId, widgetId, low, high, lowColor, midColor, highColor)
-                        LiveDataWidgetProvider.updateOne(context, appWidgetId)
-                        onSaved()
+                        val deviceId = selectedDeviceId
+                        val widgetId = selectedWidgetId
+                        val parsed = thresholdTexts.mapIndexed { index, raw ->
+                            raw.replace(',', '.').toFloatOrNull()?.let { value ->
+                                LiveDataWidgetStore.Threshold(
+                                    value = value,
+                                    color = thresholdColors.getOrElse(index) { 0xFF2E7D32.toInt() }
+                                )
+                            }
+                        }
+
+                        when {
+                            deviceId.isNullOrBlank() || widgetId.isNullOrBlank() ->
+                                validationError = "Выберите ESP32 и параметр"
+                            parsed.any { it == null } ->
+                                validationError = "Все пороги должны быть числами"
+                            parsed.zipWithNext().any { (a, b) -> a!!.value >= b!!.value } ->
+                                validationError = "Пороги должны идти строго по возрастанию"
+                            else -> {
+                                LiveDataWidgetStore.save(
+                                    context = context,
+                                    appWidgetId = appWidgetId,
+                                    deviceId = deviceId,
+                                    widgetId = widgetId,
+                                    thresholds = parsed.filterNotNull(),
+                                    belowColor = belowColor
+                                )
+                                LiveDataWidgetProvider.updateOne(context, appWidgetId)
+                                onSaved()
+                            }
+                        }
                     },
                     enabled = selectedDevice != null && selectedWidget != null,
                     modifier = Modifier.weight(1f)
@@ -290,7 +396,13 @@ private fun ColorChoice(label: String, selected: Int, onSelected: (Int) -> Unit)
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             colors.forEach { (name, color) ->
-                androidx.compose.material3.DropdownMenuItem(text = { Text(name) }, onClick = { onSelected(color); open = false })
+                androidx.compose.material3.DropdownMenuItem(
+                    text = { Text(name) },
+                    onClick = {
+                        onSelected(color)
+                        open = false
+                    }
+                )
             }
         }
     }
