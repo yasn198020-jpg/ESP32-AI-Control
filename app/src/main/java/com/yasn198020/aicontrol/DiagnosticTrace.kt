@@ -30,7 +30,7 @@ object DiagnosticTrace {
     private val formatter = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
 
     private val importantStages = setOf(
-        "MQTT", "CONDITION", "EDGE", "TRIGGER", "ACTION",
+        "MQTT", "SCENARIO", "HISTORY", "CONDITION", "EDGE", "TRIGGER", "ACTION",
         "VERIFY", "NOTIFY", "VBTN90", "ERROR", "APP_STATE"
     )
 
@@ -109,7 +109,7 @@ object DiagnosticTrace {
             val timestamp = formatter.format(Date())
             val idPart = eventId?.let { " #$it" } ?: ""
             val line = "$timestamp [$safeStage$idPart] ${compact(message)}"
-            if (!foreground.get() && safeStage in setOf("CONDITION", "EDGE", "TRIGGER", "ACTION", "VERIFY", "NOTIFY", "VBTN90", "ERROR")) {
+            if (!foreground.get() && safeStage in setOf("SCENARIO", "HISTORY", "CONDITION", "EDGE", "TRIGGER", "ACTION", "VERIFY", "NOTIFY", "VBTN90", "ERROR")) {
                 BackgroundTrace.event(safeStage, message, eventId)
             }
             lines.addLast(line)
