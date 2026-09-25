@@ -114,9 +114,6 @@ import kotlin.math.min
     onSelectIndex:(Int)->Unit
 ){
     var canvasWidth by remember{mutableFloatStateOf(0f)}
-    val currentZoom by rememberUpdatedState(zoom)
-    val currentOffsetX by rememberUpdatedState(offsetX)
-
     fun clampOffset(scale:Float,rawOffset:Float,width:Float):Float{
         val contentWidth=width*scale
         return if(contentWidth<=width||width<=0f) 0f else rawOffset.coerceIn(0f,contentWidth-width)
@@ -128,26 +125,26 @@ import kotlin.math.min
             .height(220.dp)
             .onSizeChanged{canvasWidth=it.width.toFloat()}
             .pointerInput(zoom,offsetX,points){
-                var dragStartX=0f
-                var dragStartOffset=0f
-                var totalDrag=0f
+                var downX=0f
+                var workingOffset=offsetX
+                var moved=false
                 detectDragGestures(
                     onDragStart={position->
-                        dragStartX=position.x
-                        dragStartOffset=offsetX
-                        totalDrag=0f
+                        downX=position.x
+                        workingOffset=offsetX
+                        moved=false
                     },
                     onDragEnd={
-                        if(abs(totalDrag)<12f && canvasWidth>0f){
-                            onSelectIndex(nearestPointIndex(points,dragStartX,canvasWidth,zoom,offsetX))
+                        if(!moved && canvasWidth>0f){
+                            onSelectIndex(nearestPointIndex(points,downX,canvasWidth,zoom,workingOffset))
                         }
                     },
                     onDragCancel={},
                     onDrag={change,dragAmount->
                         change.consume()
-                        totalDrag+=abs(dragAmount.x)
-                        val newOffset=clampOffset(zoom,dragStartOffset-dragAmountAccumulatedX(totalDrag,dragAmount.x,dragStartOffset,offsetX),canvasWidth)
-                        onZoomOffsetChanged(zoom,newOffset)
+                        if(abs(dragAmount.x)>0.5f)moved=true
+                        workingOffset=clampOffset(zoom,workingOffset-dragAmount.x,canvasWidth)
+                        onZoomOffsetChanged(zoom,workingOffset)
                     }
                 )
             }
@@ -194,9 +191,6 @@ import kotlin.math.min
         }
     }
 }
-
-private fun dragAmountAccumulatedX(total:Float, current:Float, startOffset:Float, currentOffset:Float):Float =
-    (startOffset-currentOffset+current).let { _ -> 0f }
 
 private fun nearestPointIndex(
     points:List<HistoryPoint>,
