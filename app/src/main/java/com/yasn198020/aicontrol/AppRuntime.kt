@@ -146,34 +146,29 @@ class AppRuntime private constructor(private val appContext: Context) {
                     )
                 }
 
-                if (DiagnosticTrace.isForeground()) {
-                    val historyResult = historyStore.add(deviceId, widgetId, value)
-                    if (historyResult.accepted) {
-                        DiagnosticTrace.stepForEvent(
-                            eventId,
-                            "HISTORY",
-                            "QUEUED device=" + deviceId +
-                                " widget=" + widgetId +
-                                " value=" + value +
-                                " points=" + historyResult.pointCount
-                        )
-                    } else {
-                        DiagnosticTrace.stepForEvent(
-                            eventId,
-                            "HISTORY",
-                            "SKIPPED device=" + deviceId +
-                                " widget=" + widgetId +
-                                " value=" + value +
-                                " reason=" + historyResult.reason
-                        )
-                    }
+                // History must be recorded in both foreground and background.
+                // MQTT continues to arrive through MqttBackgroundService even when
+                // the Activity is not visible, so background samples must not be dropped.
+                val historyResult = historyStore.add(deviceId, widgetId, value)
+                if (historyResult.accepted) {
+                    DiagnosticTrace.stepForEvent(
+                        eventId,
+                        "HISTORY",
+                        "QUEUED state=" + (if (DiagnosticTrace.isForeground()) "FOREGROUND" else "BACKGROUND") +
+                            " device=" + deviceId +
+                            " widget=" + widgetId +
+                            " value=" + value +
+                            " points=" + historyResult.pointCount
+                    )
                 } else {
                     DiagnosticTrace.stepForEvent(
                         eventId,
                         "HISTORY",
-                        "SKIPPED background graph recording disabled device=" + deviceId +
+                        "SKIPPED state=" + (if (DiagnosticTrace.isForeground()) "FOREGROUND" else "BACKGROUND") +
+                            " device=" + deviceId +
                             " widget=" + widgetId +
-                            " value=" + value
+                            " value=" + value +
+                            " reason=" + historyResult.reason
                     )
                 }
             } catch (e: Exception) {
