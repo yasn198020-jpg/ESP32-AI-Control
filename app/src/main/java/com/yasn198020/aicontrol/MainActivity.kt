@@ -45,7 +45,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import org.json.JSONObject
 import com.yasn198020.aicontrol.core.Device
 import com.yasn198020.aicontrol.core.WidgetState
-import com.yasn198020.aicontrol.devices.DeviceManager
 
 data class TrainingTarget(val deviceId: String, val widgetId: String, val title: String)
 
@@ -325,16 +324,7 @@ private fun App(
     val scenarioEngine = runtime.scenarioEngine
     val scenarioActionExecutor = runtime.scenarioActionExecutor
 
-    val deviceManager = remember {
-        DeviceManager(
-            onDevicesChanged = { devices = it },
-            onPendingValueStored = { key, value ->
-                addLog("MQTT state stored until CONFIG: " + key + " = " + value)
-            }
-        )
-    }
-
-    DisposableEffect(runtime, deviceManager) {
+    DisposableEffect(runtime) {
         val listener = object : AppRuntime.UiListener {
             override fun onLog(message: String) {
                 addLog(message)
@@ -345,7 +335,7 @@ private fun App(
             }
 
             override fun onStatus(deviceId: String, widgetId: String, value: String) {
-                deviceManager.onStatus(deviceId, widgetId, value)
+                devices = runtime.deviceRepository.snapshot()
             }
 
             override fun onConfig(
@@ -358,19 +348,11 @@ private fun App(
                 order: Int,
                 raw: String
             ) {
-                deviceManager.onConfig(
-                    deviceId,
-                    widgetId,
-                    label,
-                    widgetType,
-                    page,
-                    topic,
-                    order,
-                    raw
-                )
+                devices = runtime.deviceRepository.snapshot()
             }
         }
         runtime.addUiListener(listener)
+        devices = runtime.deviceRepository.snapshot()
         onDispose {
             runtime.removeUiListener(listener)
         }
@@ -422,14 +404,16 @@ private fun App(
 
 
     fun sendWidget(deviceId: String, widgetId: String, value: String): Boolean {
-        val widget = devices.firstOrNull { it.id == deviceId }?.widgets?.firstOrNull { it.id == widgetId }
+        val widget = runtime.deviceRepository.snapshot()
+            .firstOrNull { it.id == deviceId }
+            ?.widgets
+            ?.firstOrNull { it.id == widgetId }
+
         if (widget == null) {
             addLog("MQTT TX skipped: widget not found: " + deviceId + "/" + widgetId)
             return false
         }
 
-        // Control commands use the standard device/widget/control topic.
-        // They do not require the CONFIG message to contain a separate topic.
         val published = when (widget.type) {
             WidgetState.Type.TOGGLE, WidgetState.Type.BUTTON ->
                 mqtt.publishControl(deviceId, widgetId, value)
@@ -444,11 +428,8 @@ private fun App(
         }
 
         if (published) {
-            devices = devices.map { device ->
-                if (device.id != deviceId) device else device.copy(
-                    widgets = device.widgets.map { w -> if (w.id == widgetId) w.copy(value = value) else w }
-                )
-            }
+            runtime.deviceRepository.setLocalValue(deviceId, widgetId, value)
+            devices = runtime.deviceRepository.snapshot()
         }
         return published
     }
