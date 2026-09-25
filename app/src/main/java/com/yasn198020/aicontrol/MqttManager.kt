@@ -288,11 +288,8 @@ class MqttManager(
                             )
                         }
 
-                        val topicRoots = listOf(
-                            "/" + prefix.trim('/'),
-                            "/dghjko"
-                        ).distinct()
-                        val matchingRoot = topicRoots.firstOrNull { topic.startsWith(it + "/") }
+                        val topicRoot = "/" + prefix.trim('/')
+                        val matchingRoot = if (topic.startsWith(topicRoot + "/")) topicRoot else null
 
                         if (matchingRoot != null && topic.endsWith("/config")) {
                             val parts = topic.removePrefix(matchingRoot).trim('/').split("/")
