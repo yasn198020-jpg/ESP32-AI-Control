@@ -50,8 +50,11 @@ data class Scenario(
 class ScenarioStore(private val prefs: android.content.SharedPreferences) {
     companion object { private const val KEY = "scenarios_v1" }
 
+    private var cached: List<Scenario>? = null
+
     @Synchronized
     fun load(): List<Scenario> {
+        cached?.let { return it }
         val raw = prefs.getString(KEY, "[]") ?: "[]"
         return runCatching {
             val array = JSONArray(raw)
@@ -133,7 +136,12 @@ class ScenarioStore(private val prefs: android.content.SharedPreferences) {
                     if (scenario != null) add(scenario)
                 }
             }
-        }.getOrDefault(emptyList())
+        }.getOrDefault(emptyList()).also { cached = it }
+    }
+
+    @Synchronized
+    fun invalidate() {
+        cached = null
     }
 
     private fun normalizeOperator(value: String): String = when (value.trim()) {
@@ -194,12 +202,16 @@ class ScenarioStore(private val prefs: android.content.SharedPreferences) {
             })
         }
         prefs.edit().putString(KEY, array.toString()).apply()
+        cached = items
     }
 
     @Synchronized fun add(scenario: Scenario) = save(load() + scenario)
     @Synchronized fun update(scenario: Scenario) = save(load().map { if (it.id == scenario.id) scenario else it })
     @Synchronized fun delete(id: String) = save(load().filterNot { it.id == id })
-    @Synchronized fun clear() = prefs.edit().remove(KEY).apply()
+    @Synchronized fun clear() {
+        prefs.edit().remove(KEY).apply()
+        cached = emptyList()
+    }
 }
 
 class ScenarioEngine(
@@ -339,6 +351,33 @@ class ScenarioEngine(
     }
 
     @Synchronized
+    fun reload() {
+        store.invalidate()
+        store.load()
+    }
+
+    @Synchronized
+    fun primeFromStoredValues() {
+        if (shutdown) return
+        store.load().forEach { scenario ->
+            if (!scenario.enabled) return@forEach
+            val conditions = scenario.conditions.ifEmpty {
+                listOf(
+                    ScenarioCondition(
+                        scenario.deviceId,
+                        scenario.widgetId,
+                        scenario.operator,
+                        scenario.threshold
+                    )
+                )
+            }
+            expressionMatches(conditions)?.let { matched ->
+                conditionStates[scenario.id] = matched
+            }
+        }
+    }
+
+    @Synchronized
     fun onValue(deviceId: String, widgetId: String, rawValue: String) {
         val eventId = DiagnosticTrace.currentEventId()
         if (shutdown) {
@@ -422,9 +461,6 @@ class ScenarioEngine(
                 if (conditions.any { it.deviceId == deviceId && it.widgetId == "vbtn90" }) {
                     DiagnosticTrace.stepForEvent(eventId, "EDGE", "VBTN90 EDGE RESET value=$value scenario=${scenario.id}")
                 }
-                if (scenario.armed) {
-                    store.update(scenario.copy(armed = false))
-                }
                 return@forEach
             }
 
@@ -444,9 +480,6 @@ class ScenarioEngine(
 
             if (scenario.verifyEnabled) startVerification(scenario)
 
-            if (!scenario.armed) {
-                store.update(scenario.copy(armed = true))
-            }
             onTrigger(scenario.copy(armed = true), rawValue, value)
         }
     }
