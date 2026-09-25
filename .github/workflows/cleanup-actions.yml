@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+    paths:
+      - '.github/workflows/cleanup-actions.yml'
   workflow_dispatch:
 
 permissions:
