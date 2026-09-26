@@ -23,12 +23,21 @@ object WordExporter {
         context: Context,
         historyFile: File,
         dayLabel: String
+    ): ExportedFile? =
+        exportJsonlFiles(context, listOf(historyFile), dayLabel)
+
+    fun exportJsonlFiles(
+        context: Context,
+        historyFiles: List<File>,
+        periodLabel: String
     ): ExportedFile? {
-        if (!historyFile.isFile || historyFile.length() == 0L) return null
+        val files = historyFiles.filter { it.isFile && it.length() > 0L }
+        if (files.isEmpty()) return null
 
         val points = mutableListOf<HistoryPoint>()
         runCatching {
-            historyFile.forEachLine { line ->
+            files.forEach { historyFile ->
+                historyFile.forEachLine { line ->
                 if (line.isBlank()) return@forEachLine
                 runCatching {
                     val o = JSONObject(line)
@@ -57,12 +66,13 @@ object WordExporter {
             return null
         }
 
-        val outFile = File(docsDir, "history_${dayLabel}.docx")
+        val safeLabel = periodLabel.replace(Regex("[^0-9A-Za-zА-Яа-я._-]"), "_")
+        val outFile = File(docsDir, "history_${safeLabel}.docx")
         return runCatching {
             ZipOutputStream(FileOutputStream(outFile)).use { zip ->
                 writeTextEntry(zip, "[Content_Types].xml", contentTypesXml())
                 writeTextEntry(zip, "_rels/.rels", rootRelsXml())
-                writeTextEntry(zip, "word/document.xml", documentXml(points, dayLabel))
+                writeTextEntry(zip, "word/document.xml", documentXml(points, periodLabel))
                 writeTextEntry(zip, "word/_rels/document.xml.rels", documentRelsXml())
             }
             ExportedFile(outFile, points.size)
