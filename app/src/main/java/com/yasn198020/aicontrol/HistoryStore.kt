@@ -166,11 +166,26 @@ class HistoryStore(
             }
         }
 
-        val targetLabel = dateFormat.format(Date(targetTimestamp))
-        val targetFile = File(historyDir, targetLabel + DAILY_FILE_SUFFIX)
-        if (!targetFile.isFile || targetFile.length() == 0L) return
+        val files = mutableListOf<File>()
+        val cursor = java.util.Calendar.getInstance().apply {
+            timeInMillis = targetTimestamp
+        }
+        val end = java.util.Calendar.getInstance().apply {
+            timeInMillis = now
+        }
+        while (!cursor.after(end)) {
+            val label = dateFormat.format(cursor.time)
+            files += File(historyDir, label + DAILY_FILE_SUFFIX)
+            cursor.add(java.util.Calendar.DAY_OF_YEAR, 1)
+        }
 
-        val exported = WordExporter.exportJsonlDay(context, targetFile, targetLabel)
+        val periodLabel = when (period) {
+            1 -> dateFormat.format(Date(targetTimestamp))
+            2 -> "week_" + dateFormat.format(Date(targetTimestamp))
+            else -> "month_" + SimpleDateFormat("yyyy-MM", Locale.getDefault()).format(Date(targetTimestamp))
+        }
+
+        val exported = WordExporter.exportJsonlFiles(context, files, periodLabel)
         if (exported != null) {
             prefs.edit()
                 .putLong(LAST_WORD_EXPORT_TIME_KEY, now)
