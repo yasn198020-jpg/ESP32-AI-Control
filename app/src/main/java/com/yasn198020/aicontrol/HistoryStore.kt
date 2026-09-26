@@ -27,6 +27,19 @@ class HistoryStore(private val prefs: SharedPreferences) {
         private const val MAX_POINTS = 5000
         private const val MAX_AGE_MS = 7L * 24L * 60L * 60L * 1000L
         private const val PERSIST_DELAY_MS = 1000L
+        private const val SAMPLE_PERIOD_KEY = "history_sample_period_ms"
+        private const val DEFAULT_SAMPLE_PERIOD_MS = 10_000L
+        private val SUPPORTED_SAMPLE_PERIODS_MS = longArrayOf(
+            1_000L,
+            5_000L,
+            10_000L,
+            30_000L,
+            60_000L,
+            300_000L,
+            600_000L,
+            1_800_000L,
+            3_600_000L
+        )
     }
 
     private val lock = Any()
@@ -45,6 +58,13 @@ class HistoryStore(private val prefs: SharedPreferences) {
 
     private var cache: MutableList<HistoryPoint> = mutableListOf()
 
+    /**
+     * Latest numeric MQTT value for each device/widget.
+     * MQTT only updates this map. History points are created by the sampler
+     * on the configured measurement period.
+     */
+    private val latestCurrent: MutableMap<String, HistoryPoint> = LinkedHashMap()
+
     @Volatile
     private var persistRequested = false
 
@@ -53,6 +73,65 @@ class HistoryStore(private val prefs: SharedPreferences) {
 
     @Volatile
     private var lastPersistError = ""
+
+    @Volatile
+    private var sampleFuture: ScheduledFuture<*>? = null
+
+    init {
+        startSampler()
+    }
+
+    fun samplePeriodMs(): Long {
+        val saved = prefs.getLong(SAMPLE_PERIOD_KEY, DEFAULT_SAMPLE_PERIOD_MS)
+        return normalizeSamplePeriod(saved)
+    }
+
+    fun setSamplePeriodMs(periodMs: Long) {
+        val normalized = normalizeSamplePeriod(periodMs)
+        prefs.edit().putLong(SAMPLE_PERIOD_KEY, normalized).apply()
+
+        synchronized(lock) {
+            sampleFuture?.cancel(false)
+            sampleFuture = scheduleSamplerLocked(normalized)
+        }
+    }
+
+    fun updateLatest(
+        deviceId: String,
+        widgetId: String,
+        rawValue: String,
+        timestamp: Long = System.currentTimeMillis()
+    ): HistoryWriteResult {
+        val value = rawValue.replace(',', '.').trim()
+            .toDoubleOrNull()
+            ?.takeIf { it.isFinite() }
+
+        if (value == null) {
+            val count = synchronized(lock) {
+                ensureLoadedLocked()
+                cache.size
+            }
+            return HistoryWriteResult(
+                accepted = false,
+                pointCount = count,
+                reason = "non_numeric_value raw=" + rawValue
+            )
+        }
+
+        val count: Int
+        synchronized(lock) {
+            latestCurrent[deviceId + "/" + widgetId] =
+                HistoryPoint(timestamp, deviceId, widgetId, value)
+            ensureLoadedLocked()
+            count = cache.size
+        }
+
+        return HistoryWriteResult(
+            accepted = true,
+            pointCount = count,
+            reason = "current_updated"
+        )
+    }
 
     fun add(
         deviceId: String,
@@ -79,16 +158,14 @@ class HistoryStore(private val prefs: SharedPreferences) {
         val count: Int
         synchronized(lock) {
             ensureLoadedLocked()
-            cache.add(HistoryPoint(timestamp, deviceId, widgetId, value))
-
-            val cutoff = timestamp - MAX_AGE_MS
-            val firstKeptIndex = cache.indexOfFirst { it.timestamp >= cutoff }
-            if (firstKeptIndex > 0) {
-                cache = cache.drop(firstKeptIndex).toMutableList()
-            }
-            if (cache.size > MAX_POINTS) {
-                cache = cache.takeLast(MAX_POINTS).toMutableList()
-            }
+            appendPointLocked(
+                HistoryPoint(
+                    timestamp = timestamp,
+                    deviceId = deviceId,
+                    widgetId = widgetId,
+                    value = value
+                )
+            )
 
             count = cache.size
             persistRequested = true
@@ -100,6 +177,87 @@ class HistoryStore(private val prefs: SharedPreferences) {
             accepted = true,
             pointCount = count
         )
+    }
+
+    private fun startSampler() {
+        synchronized(lock) {
+            sampleFuture?.cancel(false)
+            sampleFuture = scheduleSamplerLocked(samplePeriodMs())
+        }
+    }
+
+    private fun scheduleSamplerLocked(periodMs: Long): ScheduledFuture<*> {
+        return persistExecutor.scheduleWithFixedDelay({
+            runCatching {
+                sampleLatest()
+            }.onFailure {
+                DiagnosticTrace.system(
+                    "HISTORY sampler failed: " +
+                        (it.message ?: it.javaClass.simpleName)
+                )
+            }
+        }, periodMs, periodMs, TimeUnit.MILLISECONDS)
+    }
+
+    private fun sampleLatest(now: Long = System.currentTimeMillis()): Int {
+        val sampled: List<HistoryPoint>
+        synchronized(lock) {
+            ensureLoadedLocked()
+            if (latestCurrent.isEmpty()) return 0
+
+            sampled = latestCurrent.values.map { current ->
+                HistoryPoint(
+                    timestamp = now,
+                    deviceId = current.deviceId,
+                    widgetId = current.widgetId,
+                    value = current.value
+                )
+            }
+
+            sampled.forEach { point ->
+                appendPointLocked(point)
+            }
+            if (sampled.isNotEmpty()) {
+                persistRequested = true
+            }
+        }
+
+        if (sampled.isNotEmpty()) {
+            schedulePersist()
+            DiagnosticTrace.system(
+                "HISTORY sample period=" + samplePeriodMs() +
+                    "ms points=" + sampled.size
+            )
+        }
+
+        return sampled.size
+    }
+
+    private fun normalizeSamplePeriod(periodMs: Long): Long {
+        var best = DEFAULT_SAMPLE_PERIOD_MS
+        var bestDistance = Long.MAX_VALUE
+
+        for (candidate in SUPPORTED_SAMPLE_PERIODS_MS) {
+            val distance = kotlin.math.abs(candidate - periodMs)
+            if (distance < bestDistance) {
+                best = candidate
+                bestDistance = distance
+            }
+        }
+        return best
+    }
+
+    private fun appendPointLocked(point: HistoryPoint) {
+        cache.add(point)
+
+        val cutoff = point.timestamp - MAX_AGE_MS
+        val firstKeptIndex = cache.indexOfFirst { it.timestamp >= cutoff }
+        if (firstKeptIndex > 0) {
+            cache = cache.drop(firstKeptIndex).toMutableList()
+        }
+        if (cache.size > MAX_POINTS) {
+            cache = cache.takeLast(MAX_POINTS).toMutableList()
+        }
     }
 
     fun latestValues(): Map<String, Double> {
@@ -172,6 +330,7 @@ class HistoryStore(private val prefs: SharedPreferences) {
             cache.size
         }
         return "points=" + points +
+            " samplePeriodMs=" + samplePeriodMs() +
             " pending=" + synchronized(lock) {
                 if (persistFuture?.isDone == false) 1 else 0
             } +
