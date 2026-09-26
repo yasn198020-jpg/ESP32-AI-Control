@@ -69,6 +69,20 @@ object VoiceScheduleParser {
         RegexOption.IGNORE_CASE
     )
 
+    fun hasScheduleIntent(command: String): Boolean {
+        val text = normalize(command)
+        if (text.isBlank()) return false
+
+        return Regex(
+            """\bчерез\s+(?:[0-9]+|[а-я]+(?:\s+[а-я]+)?)\s+(?:секунд\w*|сек\w*|минут\w*|мин\w*|час\w*|ч\b|дн\w*|день|дня|дней)\b""",
+            RegexOption.IGNORE_CASE
+        ).containsMatchIn(text) ||
+            Regex("""\bчерез\s+(?:полчаса|полтора\s+часа)\b""", RegexOption.IGNORE_CASE).containsMatchIn(text) ||
+            Regex("""\bзавтра\s+в\s+\d{1,2}(?:(?::|\.)\d{2})?(?:\s+(?:утра|дня|вечера|ночи))?\b""", RegexOption.IGNORE_CASE).containsMatchIn(text) ||
+            Regex("""\bв\s+\d{1,2}(?:(?::|\.)\d{2})(?:\s*(?:утра|дня|вечера|ночи))?\b""", RegexOption.IGNORE_CASE).containsMatchIn(text) ||
+            Regex("""\bв\s+\d{1,2}\s+(?:утра|дня|вечера|ночи)\b""", RegexOption.IGNORE_CASE).containsMatchIn(text)
+    }
+
     fun parse(command: String, nowMillis: Long = System.currentTimeMillis()): VoiceSchedule? {
         val normalized = normalize(command)
         if (normalized.isBlank()) return null
