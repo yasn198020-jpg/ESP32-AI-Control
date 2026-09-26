@@ -95,9 +95,8 @@ class HistoryStore(
     private var sampleFuture: ScheduledFuture<*>? = null
 
     init {
-        historyDir.mkdirs()
-        migrateLegacyHistory()
-        pruneExpiredFiles()
+        // Do not touch the history archive during app startup.
+        // Disk migration/pruning is deferred until history is actually used.
         startSampler()
     }
 
@@ -514,6 +513,9 @@ class HistoryStore(
 
     private fun ensureLoadedLocked() {
         if (loaded) return
+        historyDir.mkdirs()
+        migrateLegacyHistory()
+        pruneExpiredFiles()
         cache = readFromPrefs().toMutableList()
         loaded = true
     }
