@@ -7,6 +7,7 @@ on:
   push:
     branches:
       - main
+      - v2
       - android-apk-build
   workflow_dispatch:
 
