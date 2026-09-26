@@ -108,13 +108,20 @@ class MarfaVoiceService : Service() {
         if (command.isBlank()) return
 
         try {
-            val trained = TrainedCommandMatcher(TrainedCommandStore(prefs)).matchAll(command)
+            val schedule = VoiceScheduleParser.parse(command)
+            val effectiveCommand = schedule?.commandText ?: command
+            val trained = TrainedCommandMatcher(TrainedCommandStore(prefs)).matchAll(effectiveCommand)
         android.util.Log.d("MARFA_TRAINED", "command=" + command + " matches=" + trained.size)
 
         // Saved training has absolute priority. A trained read action answers
         // from the exact widget selected during training.
         val readActions = trained.filter { it.value == TRAINED_READ_VALUE }
         if (readActions.isNotEmpty()) {
+            if (schedule != null) {
+                speak("Чтение по времени пока не поддерживается. Можно запланировать действие.")
+                return
+            }
+
             var answered = false
 
             readActions.forEach { action ->
@@ -148,8 +155,35 @@ class MarfaVoiceService : Service() {
         }
 
         if (trained.isNotEmpty()) {
-            var sent = 0
+            if (schedule != null) {
+                var scheduled = 0
+                trained.forEach { action ->
+                    runCatching {
+                        ScheduledCommandScheduler.schedule(
+                            context = applicationContext,
+                            deviceId = action.deviceId,
+                            widgetId = action.widgetId,
+                            value = action.value,
+                            title = "Команда Марфы",
+                            sourceText = command,
+                            executeAtMillis = schedule.executeAtMillis
+                        )
+                        scheduled++
+                    }.onFailure {
+                        DiagnosticTrace.error("SCHEDULE create failed: " + (it.message ?: it.javaClass.simpleName))
+                    }
+                }
 
+                if (scheduled > 0) {
+                    speak("Запланировано " + schedule.spokenTime)
+                    return
+                }
+
+                speak("Не удалось создать запланированную команду")
+                return
+            }
+
+            var sent = 0
             trained.forEach { action ->
                 if (mqtt?.publishControl(action.deviceId, action.widgetId, action.value) == true) {
                     sent++
@@ -170,11 +204,39 @@ class MarfaVoiceService : Service() {
         val result = LocalCommandManager().interpret(command, synchronizedCopyDevices())
         when (result.action) {
             LocalCommandAction.CONTROL -> {
-                val ok = mqtt?.publishControl(result.deviceId, result.widgetId, result.value) == true
-                speak(if (ok) result.reply else "Не удалось отправить команду")
+                if (schedule != null) {
+                    val scheduled = runCatching {
+                        ScheduledCommandScheduler.schedule(
+                            context = applicationContext,
+                            deviceId = result.deviceId,
+                            widgetId = result.widgetId,
+                            value = result.value,
+                            title = result.reply,
+                            sourceText = command,
+                            executeAtMillis = schedule.executeAtMillis
+                        )
+                    }.getOrNull()
+
+                    if (scheduled != null) {
+                        DiagnosticTrace.step(
+                            "SCHEDULE",
+                            "voice command queued id=" + scheduled.id + " text=" + command
+                        )
+                        speak("Запланировано " + schedule.spokenTime)
+                    } else {
+                        speak("Не удалось создать запланированную команду")
+                    }
+                } else {
+                    val ok = mqtt?.publishControl(result.deviceId, result.widgetId, result.value) == true
+                    speak(if (ok) result.reply else "Не удалось отправить команду")
+                }
             }
             LocalCommandAction.READ_VALUE -> {
-                speak(result.reply)
+                if (schedule != null) {
+                    speak("Запланировать чтение пока нельзя. Можно запланировать действие.")
+                } else {
+                    speak(result.reply)
+                }
             }
             LocalCommandAction.CLARIFY,
             LocalCommandAction.NOT_FOUND -> {
