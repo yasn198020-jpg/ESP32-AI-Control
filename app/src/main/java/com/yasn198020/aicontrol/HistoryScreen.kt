@@ -47,6 +47,9 @@ fun HistoryScreen(
     var retentionDays by remember { mutableIntStateOf(store.retentionDays()) }
     var autoWordExportPeriod by remember { mutableIntStateOf(store.wordAutoExportPeriod()) }
     var autoWordMenuExpanded by remember { mutableStateOf(false) }
+    var settingsExpanded by remember { mutableStateOf(false) }
+    var graphZoom by remember { mutableFloatStateOf(1f) }
+    var graphOffsetX by remember { mutableFloatStateOf(0f) }
     var exportMessage by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
 
@@ -66,6 +69,10 @@ fun HistoryScreen(
 
     val selected = selectedKey?.split("/", limit = 2)
 
+    LaunchedEffect(selectedKey) {
+        graphZoom = 1f
+        graphOffsetX = 0f
+    }
     LaunchedEffect(selectedKey, displayPeriod) {
         while (true) {
             points = if (selected != null && selected.size == 2) {
@@ -139,6 +146,21 @@ fun HistoryScreen(
             }
         }
 
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                if (settingsExpanded) "Настройки графиков" else "Настройки скрыты",
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.titleSmall
+            )
+            TextButton(onClick = { settingsExpanded = !settingsExpanded }) {
+                Text(if (settingsExpanded) "Скрыть" else "⚙ Настройки")
+            }
+        }
+
+        if (settingsExpanded) {
         Row(
             Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
@@ -346,6 +368,39 @@ fun HistoryScreen(
             "При выборе периода создаётся .docx с историей соответствующего периода.",
             style = MaterialTheme.typography.bodySmall
         )
+            if (selectedKey != null) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "Масштаб выбранного графика:",
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    TextButton(onClick = {
+                        graphZoom = (graphZoom / 1.5f).coerceAtLeast(1f)
+                        if (graphZoom == 1f) graphOffsetX = 0f
+                    }) { Text("−") }
+                    Text(
+                        "×${String.format(Locale.US, "%.1f", graphZoom)}",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    TextButton(onClick = {
+                        graphZoom = (graphZoom * 1.5f).coerceAtMost(20f)
+                    }) { Text("+") }
+                    TextButton(onClick = {
+                        graphZoom = 1f
+                        graphOffsetX = 0f
+                    }) { Text("Сброс") }
+                }
+                Text(
+                    "Перетаскивание и выбор точки выполняются прямо на графике.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+
+        }
 
         if (numeric.isEmpty()) {
             Text("Нет числовых виджетов. Подключитесь к MQTT и дождитесь CONFIG/STATE.")
@@ -380,7 +435,16 @@ fun HistoryScreen(
                     }
 
                     if (open) {
-                        HistoryChart(selectedPoints, widget.unit)
+                        HistoryChart(
+                            points = selectedPoints,
+                            unit = widget.unit,
+                            zoom = graphZoom,
+                            offsetX = graphOffsetX,
+                            onZoomOffsetChanged = { newZoom, newOffset ->
+                                graphZoom = newZoom
+                                graphOffsetX = newOffset
+                            }
+                        )
                         Text(
                             if (selectedPoints.isEmpty()) {
                                 "Пока нет сохранённых измерений."
@@ -395,7 +459,13 @@ fun HistoryScreen(
         }
     }
 }
-@Composable private fun HistoryChart(points: List<HistoryPoint>, unit:String){
+@Composable private fun HistoryChart(
+    points: List<HistoryPoint>,
+    unit: String,
+    zoom: Float,
+    offsetX: Float,
+    onZoomOffsetChanged: (Float, Float) -> Unit
+){
     if(points.size<2){
         Text("Нужно минимум два измерения для графика.",modifier=Modifier.padding(8.dp))
         return
@@ -407,9 +477,9 @@ fun HistoryScreen(
     val primaryColor=MaterialTheme.colorScheme.primary
     val timeFormat=remember{SimpleDateFormat("dd.MM.yyyy HH:mm:ss",Locale.getDefault())}
 
-    var zoom by remember(points.firstOrNull()?.timestamp,points.size){mutableFloatStateOf(1f)}
-    var offsetX by remember(points.firstOrNull()?.timestamp,points.size){mutableFloatStateOf(0f)}
-    var selectedIndex by remember(points.firstOrNull()?.timestamp,points.size){mutableIntStateOf(points.lastIndex)}
+    var selectedIndex by remember(points.firstOrNull()?.timestamp, points.size){
+        mutableIntStateOf(points.lastIndex)
+    }
 
     Column(Modifier.fillMaxWidth()){
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically){
@@ -417,15 +487,7 @@ fun HistoryScreen(
                 Text(String.format(Locale.US,"%.2f %s",maxValue,unit),style=MaterialTheme.typography.bodySmall)
                 Text(String.format(Locale.US,"%.2f %s",minValue,unit),style=MaterialTheme.typography.bodySmall)
             }
-            Row(horizontalArrangement=Arrangement.spacedBy(4.dp),verticalAlignment=Alignment.CenterVertically){
-                TextButton(onClick={
-                    zoom=(zoom/1.5f).coerceAtLeast(1f)
-                    if(zoom==1f) offsetX=0f
-                }){Text("−")}
-                Text("×${String.format(Locale.US,"%.1f",zoom)}",style=MaterialTheme.typography.bodySmall)
-                TextButton(onClick={zoom=(zoom*1.5f).coerceAtMost(20f)}){Text("+")}
-                TextButton(onClick={zoom=1f;offsetX=0f}){Text("Сброс")}
-            }
+
         }
 
         Surface(Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.medium,tonalElevation=2.dp){
@@ -445,7 +507,7 @@ fun HistoryScreen(
                     offsetX=offsetX,
                     selectedIndex=selectedIndex,
                     primaryColor=primaryColor,
-                    onZoomOffsetChanged={newZoom,newOffset->{zoom=newZoom;offsetX=newOffset}},
+                    onZoomOffsetChanged={newZoom, newOffset -> onZoomOffsetChanged(newZoom, newOffset)},
                     onSelectIndex={selectedIndex=it.coerceIn(0,points.lastIndex)}
                 )
                 Text(
