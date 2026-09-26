@@ -36,7 +36,7 @@ class AppRuntime private constructor(private val appContext: Context) {
 
     private val uiListeners = CopyOnWriteArraySet<UiListener>()
     private val mainHandler = Handler(Looper.getMainLooper())
-    val historyStore: HistoryStore = HistoryStore(prefs)
+    val historyStore: HistoryStore = HistoryStore(appContext, prefs)
     val deviceRepository: DeviceRepository = DeviceRepository()
     val scenarioStore: ScenarioStore = ScenarioStore(prefs)
     val scenarioActionExecutor: ScenarioActionExecutor = ScenarioActionExecutor()
