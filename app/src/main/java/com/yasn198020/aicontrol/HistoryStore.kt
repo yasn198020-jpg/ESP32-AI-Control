@@ -193,8 +193,7 @@ class HistoryStore(
 
         if (value == null) {
             val count = synchronized(lock) {
-                ensureLoadedLocked()
-                cache.size
+                if (loaded) cache.size else -1
             }
             return HistoryWriteResult(
                 accepted = false,
@@ -207,8 +206,7 @@ class HistoryStore(
         synchronized(lock) {
             latestCurrent[deviceId + "/" + widgetId] =
                 HistoryPoint(timestamp, deviceId, widgetId, value)
-            ensureLoadedLocked()
-            count = cache.size
+            count = if (loaded) cache.size else -1
         }
 
         return HistoryWriteResult(
@@ -293,7 +291,6 @@ class HistoryStore(
     private fun sampleLatest(now: Long = System.currentTimeMillis()): Int {
         val sampled: List<HistoryPoint>
         synchronized(lock) {
-            ensureLoadedLocked()
             if (latestCurrent.isEmpty()) return 0
 
             sampled = latestCurrent.values.map { current ->
@@ -305,8 +302,10 @@ class HistoryStore(
                 )
             }
 
-            sampled.forEach { point ->
-                appendPointLocked(point)
+            if (loaded) {
+                sampled.forEach { point ->
+                    appendPointLocked(point)
+                }
             }
         }
 
