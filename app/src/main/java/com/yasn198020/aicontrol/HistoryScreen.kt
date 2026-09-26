@@ -45,7 +45,8 @@ fun HistoryScreen(
     var samplePeriod by remember { mutableLongStateOf(store.samplePeriodMs()) }
     var displayPeriod by remember { mutableLongStateOf(store.displayPeriodMs()) }
     var retentionDays by remember { mutableIntStateOf(store.retentionDays()) }
-    var autoWordExport by remember { mutableStateOf(store.wordAutoExportEnabled()) }
+    var autoWordExportPeriod by remember { mutableIntStateOf(store.wordAutoExportPeriod()) }
+    var autoWordMenuExpanded by remember { mutableStateOf(false) }
     var exportMessage by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
 
@@ -291,22 +292,40 @@ fun HistoryScreen(
             style = MaterialTheme.typography.bodySmall
         )
 
-        Row(
-            Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                "Автоэкспорт Word каждый день",
-                modifier = Modifier.weight(1f),
-                style = MaterialTheme.typography.bodyMedium
-            )
-            Switch(
-                checked = autoWordExport,
-                onCheckedChange = {
-                    autoWordExport = it
-                    store.setWordAutoExportEnabled(it)
+        Text(
+            "Период автоэкспорта Word",
+            style = MaterialTheme.typography.bodyMedium
+        )
+
+        val autoWordPeriodNames = listOf(
+            "Никогда",
+            "1 день",
+            "Неделя",
+            "Месяц"
+        )
+
+        Box(Modifier.fillMaxWidth()) {
+            OutlinedButton(
+                onClick = { autoWordMenuExpanded = true },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(autoWordPeriodNames[autoWordExportPeriod])
+            }
+            DropdownMenu(
+                expanded = autoWordMenuExpanded,
+                onDismissRequest = { autoWordMenuExpanded = false }
+            ) {
+                autoWordPeriodNames.forEachIndexed { index, name ->
+                    DropdownMenuItem(
+                        text = { Text(name) },
+                        onClick = {
+                            autoWordExportPeriod = index
+                            store.setWordAutoExportPeriod(index)
+                            autoWordMenuExpanded = false
+                        }
+                    )
                 }
-            )
+            }
         }
 
         Button(
@@ -324,7 +343,7 @@ fun HistoryScreen(
         }
 
         Text(
-            "Автоэкспорт создаёт отдельный .docx после завершения календарного дня.",
+            "При выборе периода создаётся .docx с историей соответствующего периода.",
             style = MaterialTheme.typography.bodySmall
         )
 
