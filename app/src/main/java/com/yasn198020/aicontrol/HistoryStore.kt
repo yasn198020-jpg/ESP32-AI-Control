@@ -44,6 +44,8 @@ class HistoryStore(
         private const val DAILY_FILE_SUFFIX = ".jsonl"
         private const val SAMPLE_PERIOD_KEY = "history_sample_period_ms"
         private const val DEFAULT_SAMPLE_PERIOD_MS = 10_000L
+        private const val AUTO_WORD_EXPORT_KEY = "history_auto_word_export"
+        private const val LAST_WORD_EXPORT_DAY_KEY = "history_last_word_export_day"
         private val SUPPORTED_SAMPLE_PERIODS_MS = longArrayOf(
             1_000L,
             5_000L,
@@ -103,6 +105,55 @@ class HistoryStore(
     fun retentionDays(): Int {
         val saved = prefs.getInt(RETENTION_DAYS_KEY, DEFAULT_RETENTION_DAYS)
         return normalizeRetentionDays(saved)
+    }
+
+    fun wordAutoExportEnabled(): Boolean =
+        prefs.getBoolean(AUTO_WORD_EXPORT_KEY, true)
+
+    fun setWordAutoExportEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(AUTO_WORD_EXPORT_KEY, enabled).apply()
+    }
+
+    fun exportCurrentDayToWord(): WordExporter.ExportedFile? {
+        return exportDayToWord(System.currentTimeMillis())
+    }
+
+    private fun exportDayToWord(dayTimestamp: Long): WordExporter.ExportedFile? {
+        val dayLabel = dateFormat.format(Date(dayTimestamp))
+        val file = File(historyDir, dayLabel + DAILY_FILE_SUFFIX)
+        return WordExporter.exportJsonlDay(context, file, dayLabel)
+    }
+
+    private fun maybeAutoExportYesterday(now: Long) {
+        if (!wordAutoExportEnabled()) return
+
+        val todayLabel = dateFormat.format(Date(now))
+        if (prefs.getString(LAST_WORD_EXPORT_DAY_KEY, "") == todayLabel) return
+
+        val calendar = java.util.Calendar.getInstance().apply {
+            timeInMillis = now
+            add(java.util.Calendar.DAY_OF_YEAR, -1)
+        }
+        val yesterdayLabel = dateFormat.format(calendar.time)
+        val yesterdayFile = File(historyDir, yesterdayLabel + DAILY_FILE_SUFFIX)
+
+        if (!yesterdayFile.isFile || yesterdayFile.length() == 0L) {
+            prefs.edit().putString(LAST_WORD_EXPORT_DAY_KEY, todayLabel).apply()
+            return
+        }
+
+        val exported = WordExporter.exportJsonlDay(
+            context,
+            yesterdayFile,
+            yesterdayLabel
+        )
+        if (exported != null) {
+            prefs.edit().putString(LAST_WORD_EXPORT_DAY_KEY, todayLabel).apply()
+            DiagnosticTrace.system(
+                "HISTORY Word auto export day=" + yesterdayLabel +
+                    " points=" + exported.pointCount
+            )
+        }
     }
 
     fun setRetentionDays(days: Int) {
@@ -288,6 +339,8 @@ class HistoryStore(
     }
 
     private fun sampleLatest(now: Long = System.currentTimeMillis()): Int {
+        maybeAutoExportYesterday(now)
+
         val sampled: List<HistoryPoint>
         synchronized(lock) {
             if (latestCurrent.isEmpty()) return 0
