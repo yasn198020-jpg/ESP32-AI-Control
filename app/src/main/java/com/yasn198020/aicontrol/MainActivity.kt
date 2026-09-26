@@ -513,78 +513,20 @@ private fun App(
         return published
     }
 
+    // Voice commands are executed only by MarfaVoiceService.
+    // This effect is intentionally limited to training/variant capture so a
+    // recognized command cannot be published once here and then again by Marfa.
     LaunchedEffect(voiceText) {
         val command = voiceText.trim()
-        if (command.isNotBlank()) {
-            if (variantPhraseTarget != null) {
-                variantPhraseText = command
-                voiceStatus = "Вариант распознан — нажмите «Добавить»"
-            } else if (trainingTarget != null) {
-                saveTraining(command)
-            } else {
-                voiceStatus = "Анализ команды…"
-                val trainedActions = trainedMatcher.matchAll(command)
-                if (trainedActions.isNotEmpty()) {
-                    var sent = 0
-                    var skipped = 0
-                    trainedActions.forEach { trained ->
-                        val device = devices.firstOrNull { it.id == trained.deviceId }
-                        val widget = device?.widgets?.firstOrNull { it.id == trained.widgetId }
-                        if (device == null || widget == null) {
-                            skipped++
-                        } else if (trained.value == TRAINED_READ_VALUE) {
-                            if (widget.type == WidgetState.Type.VALUE || widget.type == WidgetState.Type.STATUS) {
-                                val raw = widget.value.trim()
-                                val unit = widget.unit.trim()
-                                val spoken = if (raw.isBlank() || raw == "—") {
-                                    "${widget.title}: значение пока неизвестно"
-                                } else {
-                                    "${widget.title}: ${formatTemperatureForSpeech(raw, unit)}"
-                                }
-                                voiceStatus = spoken
-                                speech.speak(spoken, if (sent == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD, null, "trained-value-$sent")
-                                sent++
-                            } else {
-                                skipped++
-                            }
-                        } else if (widget.type == WidgetState.Type.TOGGLE || widget.type == WidgetState.Type.BUTTON) {
-                            if (sendWidget(trained.deviceId, trained.widgetId, trained.value)) sent++ else skipped++
-                        } else {
-                            skipped++
-                        }
-                    }
-                    voiceStatus = if (skipped == 0) {
-                        "Выполнено действий: $sent"
-                    } else {
-                        "Выполнено действий: $sent, пропущено: $skipped"
-                    }
-                } else {
-                    val result = localCommandManager.interpret(command, devices)
-                    when (result.action) {
-                        LocalCommandAction.CONTROL -> {
-                            val device = devices.firstOrNull { it.id == result.deviceId }
-                            val widget = device?.widgets?.firstOrNull { it.id == result.widgetId }
-                            if (device == null || widget == null) {
-                                voiceStatus = "Подходящий виджет не найден. Команда не отправлена."
-                            } else if (widget.type != WidgetState.Type.TOGGLE && widget.type != WidgetState.Type.BUTTON) {
-                                voiceStatus = "Этот виджет нельзя управлять голосовой командой."
-                            } else {
-                                val published = sendWidget(result.deviceId, result.widgetId, result.value)
-                                voiceStatus = if (published) result.reply else "Команда распознана, но MQTT публикация не выполнена."
-                            }
-                        }
-                        LocalCommandAction.READ_VALUE -> {
-                            voiceStatus = result.reply
-                            speech.speak(result.reply, TextToSpeech.QUEUE_FLUSH, null, "temperature")
-                        }
-                        LocalCommandAction.CLARIFY -> voiceStatus = result.reply
-                        LocalCommandAction.NOT_FOUND -> voiceStatus = result.reply
-                    }
-                }
-            }
+        if (command.isBlank()) return@LaunchedEffect
+
+        if (variantPhraseTarget != null) {
+            variantPhraseText = command
+            voiceStatus = "Вариант распознан — нажмите «Добавить»"
+        } else if (trainingTarget != null) {
+            saveTraining(command)
         }
     }
-
 
     if (updateDialogOpen && updateStatus != null) {
         AlertDialog(
