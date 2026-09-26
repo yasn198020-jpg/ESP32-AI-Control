@@ -823,6 +823,7 @@ private fun App(
                             DropdownMenuItem(text = { Text("Журнал") }, onClick = { menuOpen = false; tab = 3 })
                             DropdownMenuItem(text = { Text("История и графики") }, onClick = { menuOpen = false; tab = 6 })
                             DropdownMenuItem(text = { Text("Сценарии") }, onClick = { menuOpen = false; tab = 4 })
+                            DropdownMenuItem(text = { Text("Запланированные") }, onClick = { menuOpen = false; tab = 9 })
                             DropdownMenuItem(text = { Text("Голос") }, onClick = { menuOpen = false; tab = 5 })
                             DropdownMenuItem(text = { Text("Размер текста") }, onClick = { menuOpen = false; textSizeDialogOpen = true })
                             DropdownMenuItem(
@@ -872,7 +873,7 @@ private fun App(
                         }
                     }
                     Text("?", fontSize = 22.sp, modifier = Modifier.padding(end = 18.dp))
-                    Text(when (tab) { 0 -> "Dashboard"; 1 -> "Обученные команды"; 2 -> "MQTT"; 3 -> "Log"; 4 -> "Сценарии"; 5 -> "Голос"; 8 -> "Очистка приложения"; else -> "История и графики" }, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    Text(when (tab) { 0 -> "Dashboard"; 1 -> "Обученные команды"; 2 -> "MQTT"; 3 -> "Log"; 4 -> "Сценарии"; 5 -> "Голос"; 8 -> "Очистка приложения"; 9 -> "Запланированные"; else -> "История и графики" }, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                     Text("ⓘ", fontSize = 22.sp, modifier = Modifier.padding(horizontal = 10.dp)); Text("☁", fontSize = 27.sp)
                 }
                 if (tab == 0) DashboardPageTabs(devices, selectedPage, onSelect = { selectedPage = it })
@@ -987,6 +988,10 @@ private fun App(
             8 -> CleanupScreen(
                 modifier = Modifier.padding(padding),
                 historyStore = historyStore
+            )
+            9 -> ScheduledCommandsScreen(
+                modifier = Modifier.padding(padding),
+                context = context
             )
             7 -> PermissionAuditScreen(
                 modifier = Modifier.padding(padding),
