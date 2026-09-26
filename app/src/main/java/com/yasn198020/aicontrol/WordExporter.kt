@@ -49,6 +49,8 @@ object WordExporter {
                     )
                 }.getOrNull()?.takeIf { it.timestamp > 0L && it.value.isFinite() }
                     ?.let(points::add)
+                }
+            }
             }
         }.getOrElse {
             DiagnosticTrace.system("HISTORY Word read failed: " + (it.message ?: it.javaClass.simpleName))
