@@ -59,7 +59,7 @@ jobs:
         run: |
           set -euo pipefail
           VERSION_CODE=$((1000 + GITHUB_RUN_NUMBER))
-          VERSION_NAME="1.0.$VERSION_CODE"
+          VERSION_NAME="2.0.$VERSION_CODE"
 
           gradle assembleRelease --no-daemon             -PVERSION_CODE="$VERSION_CODE"             -PVERSION_NAME="$VERSION_NAME"
 
@@ -87,7 +87,7 @@ jobs:
         run: |
           set -euo pipefail
           VERSION_CODE=$((1000 + GITHUB_RUN_NUMBER))
-          VERSION_NAME="1.0.$VERSION_CODE"
+          VERSION_NAME="2.0.$VERSION_CODE"
           TAG="v$VERSION_NAME"
           gh release create "$TAG"             --repo "$GITHUB_REPOSITORY"             --target "$GITHUB_SHA"             --title "ESP32-AI-Control $VERSION_NAME"             --notes "Signed APK build $VERSION_NAME. Install over the previous version using the same signing key."
 
