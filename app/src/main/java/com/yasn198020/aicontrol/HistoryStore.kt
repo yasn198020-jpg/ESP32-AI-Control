@@ -1,6 +1,12 @@
 package com.yasn198020.aicontrol
 
+import android.content.Context
 import android.content.SharedPreferences
+import java.io.File
+import java.io.FileWriter
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.Executors
 import org.json.JSONArray
 import org.json.JSONObject
@@ -21,12 +27,18 @@ data class HistoryWriteResult(
     val reason: String = ""
 )
 
-class HistoryStore(private val prefs: SharedPreferences) {
+class HistoryStore(
+    private val context: Context,
+    private val prefs: SharedPreferences
+) {
     companion object {
         private const val KEY = "telemetry_history_v1"
         private const val MAX_POINTS = 5000
-        private const val MAX_AGE_MS = 7L * 24L * 60L * 60L * 1000L
+        private const val RETENTION_DAYS_KEY = "history_retention_days"
+        private const val DEFAULT_RETENTION_DAYS = 30
         private const val PERSIST_DELAY_MS = 1000L
+        private const val DAILY_HISTORY_DIR = "history"
+        private const val DAILY_FILE_SUFFIX = ".jsonl"
         private const val SAMPLE_PERIOD_KEY = "history_sample_period_ms"
         private const val DEFAULT_SAMPLE_PERIOD_MS = 10_000L
         private val SUPPORTED_SAMPLE_PERIODS_MS = longArrayOf(
@@ -43,6 +55,8 @@ class HistoryStore(private val prefs: SharedPreferences) {
     }
 
     private val lock = Any()
+    private val historyDir = File(context.filesDir, DAILY_HISTORY_DIR)
+    private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
 
     private val persistExecutor: ScheduledExecutorService =
         Executors.newSingleThreadScheduledExecutor { runnable ->
@@ -78,7 +92,21 @@ class HistoryStore(private val prefs: SharedPreferences) {
     private var sampleFuture: ScheduledFuture<*>? = null
 
     init {
+        historyDir.mkdirs()
+        migrateLegacyHistory()
+        pruneExpiredFiles()
         startSampler()
+    }
+
+    fun retentionDays(): Int {
+        val saved = prefs.getInt(RETENTION_DAYS_KEY, DEFAULT_RETENTION_DAYS)
+        return normalizeRetentionDays(saved)
+    }
+
+    fun setRetentionDays(days: Int) {
+        val normalized = normalizeRetentionDays(days)
+        prefs.edit().putInt(RETENTION_DAYS_KEY, normalized).apply()
+        pruneExpiredFiles()
     }
 
     fun samplePeriodMs(): Long {
@@ -158,7 +186,18 @@ class HistoryStore(private val prefs: SharedPreferences) {
         val count: Int
         synchronized(lock) {
             ensureLoadedLocked()
-            appendPointLocked(
+            val point = HistoryPoint(
+                timestamp = timestamp,
+                deviceId = deviceId,
+                widgetId = widgetId,
+                value = value
+            )
+            appendPointLocked(point)
+            count = cache.size
+        }
+
+        appendDailyPoints(
+            listOf(
                 HistoryPoint(
                     timestamp = timestamp,
                     deviceId = deviceId,
@@ -166,12 +205,7 @@ class HistoryStore(private val prefs: SharedPreferences) {
                     value = value
                 )
             )
-
-            count = cache.size
-            persistRequested = true
-        }
-
-        schedulePersist()
+        )
 
         return HistoryWriteResult(
             accepted = true,
@@ -217,13 +251,11 @@ class HistoryStore(private val prefs: SharedPreferences) {
             sampled.forEach { point ->
                 appendPointLocked(point)
             }
-            if (sampled.isNotEmpty()) {
-                persistRequested = true
-            }
         }
 
         if (sampled.isNotEmpty()) {
-            schedulePersist()
+            appendDailyPoints(sampled)
+            pruneExpiredFiles()
             DiagnosticTrace.system(
                 "HISTORY sample period=" + samplePeriodMs() +
                     "ms points=" + sampled.size
@@ -232,6 +264,11 @@ class HistoryStore(private val prefs: SharedPreferences) {
 
         return sampled.size
     }
+
+    private fun normalizeRetentionDays(days: Int): Int =
+        intArrayOf(1, 3, 7, 14, 30, 90, 180, 365, 0)
+            .minByOrNull { kotlin.math.abs(it - days) }
+            ?: DEFAULT_RETENTION_DAYS
 
     private fun normalizeSamplePeriod(periodMs: Long): Long {
         var best = DEFAULT_SAMPLE_PERIOD_MS
@@ -250,10 +287,13 @@ class HistoryStore(private val prefs: SharedPreferences) {
     private fun appendPointLocked(point: HistoryPoint) {
         cache.add(point)
 
-        val cutoff = point.timestamp - MAX_AGE_MS
-        val firstKeptIndex = cache.indexOfFirst { it.timestamp >= cutoff }
-        if (firstKeptIndex > 0) {
-            cache = cache.drop(firstKeptIndex).toMutableList()
+        val retention = retentionDays()
+        if (retention > 0) {
+            val cutoff = point.timestamp - retention * 24L * 60L * 60L * 1000L
+            val firstKeptIndex = cache.indexOfFirst { it.timestamp >= cutoff }
+            if (firstKeptIndex > 0) {
+                cache = cache.drop(firstKeptIndex).toMutableList()
+            }
         }
         if (cache.size > MAX_POINTS) {
             cache = cache.takeLast(MAX_POINTS).toMutableList()
@@ -294,26 +334,88 @@ class HistoryStore(private val prefs: SharedPreferences) {
 
     fun clear() {
         synchronized(lock) {
-            ensureLoadedLocked()
+            historyDir.listFiles()?.forEach { file ->
+                if (file.isFile && file.name.endsWith(DAILY_FILE_SUFFIX)) {
+                    file.delete()
+                }
+            }
             cache.clear()
-            persistRequested = true
+            latestCurrent.clear()
+            persistRequested = false
         }
-        schedulePersist()
+    }
+
+    private fun appendDailyPoints(points: List<HistoryPoint>) {
+        if (points.isEmpty()) return
+
+        synchronized(lock) {
+            historyDir.mkdirs()
+            val grouped = points.groupBy { point ->
+                File(
+                    historyDir,
+                    dateFormat.format(Date(point.timestamp)) + DAILY_FILE_SUFFIX
+                )
+            }
+
+            grouped.forEach { (file, dayPoints) ->
+                runCatching {
+                    FileWriter(file, true).use { writer ->
+                        dayPoints.sortedBy { it.timestamp }.forEach { point ->
+                            writer.append(
+                                JSONObject().apply {
+                                    put("t", point.timestamp)
+                                    put("d", point.deviceId)
+                                    put("w", point.widgetId)
+                                    put("v", point.value)
+                                }.toString()
+                            )
+                            writer.append('\\n')
+                        }
+                    }
+                    lastPersistAt = System.currentTimeMillis()
+                    lastPersistError = ""
+                }.onFailure {
+                    lastPersistError =
+                        it.javaClass.simpleName + ":" + (it.message ?: "<empty>")
+                    DiagnosticTrace.system(
+                        "HISTORY daily write failed: " + lastPersistError
+                    )
+                }
+            }
+        }
+    }
+
+    private fun pruneExpiredFiles(now: Long = System.currentTimeMillis()) {
+        val retention = retentionDays()
+        if (retention <= 0) return
+
+        val cutoff = now - retention * 24L * 60L * 60L * 1000L
+        synchronized(lock) {
+            historyDir.listFiles()?.forEach { file ->
+                if (!file.isFile || !file.name.endsWith(DAILY_FILE_SUFFIX)) return@forEach
+                val day = runCatching {
+                    dateFormat.parse(file.name.removeSuffix(DAILY_FILE_SUFFIX))?.time
+                }.getOrNull() ?: return@forEach
+                val dayEnd = day + 24L * 60L * 60L * 1000L - 1L
+                if (dayEnd < cutoff) file.delete()
+            }
+        }
     }
 
     /** Removes points older than the retention window without clearing newer history. */
     fun pruneExpired(now: Long = System.currentTimeMillis()): Int {
-        val removed: Int
-        synchronized(lock) {
-            ensureLoadedLocked()
-            val cutoff = now - MAX_AGE_MS
-            val before = cache.size
-            cache = cache.filter { it.timestamp >= cutoff }.toMutableList()
-            removed = before - cache.size
-            if (removed > 0) persistRequested = true
+        val before = synchronized(lock) {
+            historyDir.listFiles()?.count {
+                it.isFile && it.name.endsWith(DAILY_FILE_SUFFIX)
+            } ?: 0
         }
-        if (removed > 0) schedulePersist()
-        return removed
+        pruneExpiredFiles(now)
+        val after = synchronized(lock) {
+            historyDir.listFiles()?.count {
+                it.isFile && it.name.endsWith(DAILY_FILE_SUFFIX)
+            } ?: 0
+        }
+        return before - after
     }
 
     /**
@@ -330,6 +432,7 @@ class HistoryStore(private val prefs: SharedPreferences) {
             cache.size
         }
         return "points=" + points +
+            " retentionDays=" + retentionDays() +
             " samplePeriodMs=" + samplePeriodMs() +
             " pending=" + synchronized(lock) {
                 if (persistFuture?.isDone == false) 1 else 0
@@ -345,7 +448,64 @@ class HistoryStore(private val prefs: SharedPreferences) {
         loaded = true
     }
 
+    private fun migrateLegacyHistory() {
+        val raw = prefs.getString(KEY, null) ?: return
+        runCatching {
+            val json = JSONArray(raw)
+            val legacy = buildList(json.length()) {
+                for (i in 0 until json.length()) {
+                    val o = json.getJSONObject(i)
+                    val point = HistoryPoint(
+                        timestamp = o.optLong("t"),
+                        deviceId = o.optString("d"),
+                        widgetId = o.optString("w"),
+                        value = o.optDouble("v", Double.NaN)
+                    )
+                    if (point.timestamp > 0L && point.value.isFinite()) add(point)
+                }
+            }
+            if (legacy.isNotEmpty()) {
+                appendDailyPoints(legacy)
+                DiagnosticTrace.system(
+                    "HISTORY legacy migrated points=" + legacy.size
+                )
+            }
+            prefs.edit().remove(KEY).apply()
+        }.onFailure {
+            DiagnosticTrace.system(
+                "HISTORY legacy migration failed: " +
+                    (it.message ?: it.javaClass.simpleName)
+            )
+        }
+    }
+
     private fun readFromPrefs(): List<HistoryPoint> {
+        val dailyFiles = historyDir.listFiles()
+            ?.filter { it.isFile && it.name.endsWith(DAILY_FILE_SUFFIX) }
+            ?.sortedBy { it.name }
+            ?: emptyList()
+
+        if (dailyFiles.isNotEmpty()) {
+            val daily = ArrayList<HistoryPoint>()
+            dailyFiles.forEach { file ->
+                runCatching {
+                    file.forEachLine { line ->
+                        if (line.isBlank()) return@forEachLine
+                        runCatching {
+                            val o = JSONObject(line)
+                            HistoryPoint(
+                                timestamp = o.optLong("t"),
+                                deviceId = o.optString("d"),
+                                widgetId = o.optString("w"),
+                                value = o.optDouble("v", Double.NaN)
+                            )
+                        }.getOrNull()?.takeIf { it.value.isFinite() }?.let { daily.add(it) }
+                    }
+                }
+            }
+            return daily.takeLast(MAX_POINTS)
+        }
+
         val raw = prefs.getString(KEY, null) ?: return emptyList()
 
         return try {
