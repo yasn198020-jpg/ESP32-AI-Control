@@ -71,6 +71,10 @@
             android:noHistory="true"
             android:excludeFromRecents="true"
             android:theme="@style/Theme.App.NoActionBar" />
+        <receiver
+            android:name=".ScheduledCommandReceiver"
+            android:exported="false" />
+
         <service
             android:name=".MqttBackgroundService"
             android:exported="false"
