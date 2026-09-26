@@ -110,6 +110,15 @@ class MarfaVoiceService : Service() {
         try {
             val schedule = VoiceScheduleParser.parse(command)
             val effectiveCommand = schedule?.commandText ?: command
+
+            // A command containing a time marker must NEVER fall through to
+            // immediate execution. If parsing failed, block immediate MQTT execution.
+            if (schedule == null && VoiceScheduleParser.hasScheduleIntent(command)) {
+                DiagnosticTrace.error("SCHEDULE parse failed, immediate execution blocked: " + command)
+                speak("Я поняла команду, но не смогла определить время выполнения")
+                return
+            }
+
             val trained = TrainedCommandMatcher(TrainedCommandStore(prefs)).matchAll(effectiveCommand)
         android.util.Log.d("MARFA_TRAINED", "command=" + command + " matches=" + trained.size)
 
