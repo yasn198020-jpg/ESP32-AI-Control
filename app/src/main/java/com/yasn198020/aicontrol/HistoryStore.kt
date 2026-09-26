@@ -390,7 +390,9 @@ class HistoryStore(
     fun latestValuesByWidget(): Map<String, Double> {
         val latest = LinkedHashMap<String, HistoryPoint>()
         synchronized(lock) {
-            ensureLoadedLocked()
+            // Use the already loaded cache only. The full daily archive is loaded
+            // lazily by loadSince(), so app startup never scans all history files.
+            if (!loaded) return emptyMap()
             cache.forEach { point ->
                 val previous = latest[point.widgetId]
                 if (previous == null || point.timestamp >= previous.timestamp) {
