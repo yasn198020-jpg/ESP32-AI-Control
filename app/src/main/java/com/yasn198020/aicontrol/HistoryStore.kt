@@ -106,6 +106,13 @@ class HistoryStore(
     fun setRetentionDays(days: Int) {
         val normalized = normalizeRetentionDays(days)
         prefs.edit().putInt(RETENTION_DAYS_KEY, normalized).apply()
+        synchronized(lock) {
+            if (loaded && normalized > 0) {
+                val cutoff = System.currentTimeMillis() -
+                    normalized * 24L * 60L * 60L * 1000L
+                cache = cache.filter { it.timestamp >= cutoff }.toMutableList()
+            }
+        }
         pruneExpiredFiles()
     }
 
@@ -369,7 +376,7 @@ class HistoryStore(
                                     put("v", point.value)
                                 }.toString()
                             )
-                            writer.append('\\n')
+                            writer.append('\n')
                         }
                     }
                     lastPersistAt = System.currentTimeMillis()
