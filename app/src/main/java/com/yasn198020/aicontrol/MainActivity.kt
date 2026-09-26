@@ -375,6 +375,19 @@ private fun App(
                     voiceStatus = "Фраза распознана: $text"
                 } else {
                     voiceStatus = "Команда распознана"
+                    runCatching {
+                        ContextCompat.startForegroundService(
+                            context,
+                            Intent(context, MarfaVoiceService::class.java)
+                                .putExtra("voice_command", text)
+                        )
+                    }.onFailure {
+                        voiceStatus = "Не удалось запустить Марфу"
+                        DiagnosticTrace.error(
+                            "MARFA in-app command start failed: " +
+                                (it.message ?: it.javaClass.simpleName)
+                        )
+                    }
                 }
             },
             onStatus = { status -> voiceStatus = status }
