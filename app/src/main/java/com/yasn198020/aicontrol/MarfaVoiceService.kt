@@ -97,6 +97,16 @@ class MarfaVoiceService : Service() {
         if (intent?.getBooleanExtra("start_listening", false) == true) {
             voiceManager?.startWakeWord()
         }
+
+        // Commands recognized by the in-app microphone use the exact same
+        // command execution path as the launcher shortcut.
+        intent?.getStringExtra("voice_command")
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?.let { command ->
+                handleCommand(command)
+            }
+
         // The microphone shortcut is explicitly user-controlled.
         // Do not let Android resurrect the service after it was stopped or crashed,
         // otherwise the shortcut can remain visually stuck in the ON state.
