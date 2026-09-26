@@ -500,8 +500,7 @@ class HistoryStore(
 
     fun diagnostics(): String {
         val points = synchronized(lock) {
-            ensureLoadedLocked()
-            cache.size
+            if (loaded) cache.size else -1
         }
         return "points=" + points +
             " retentionDays=" + retentionDays() +
