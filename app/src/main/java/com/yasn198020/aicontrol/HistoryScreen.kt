@@ -18,6 +18,11 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.FileProvider
+import android.content.Context
+import android.content.Intent
+import java.io.File
 import com.yasn198020.aicontrol.core.Device
 import com.yasn198020.aicontrol.core.WidgetState
 import java.text.SimpleDateFormat
@@ -40,6 +45,23 @@ fun HistoryScreen(
     var samplePeriod by remember { mutableLongStateOf(store.samplePeriodMs()) }
     var displayPeriod by remember { mutableLongStateOf(store.displayPeriodMs()) }
     var retentionDays by remember { mutableIntStateOf(store.retentionDays()) }
+    var autoWordExport by remember { mutableStateOf(store.wordAutoExportEnabled()) }
+    var exportMessage by remember { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
+
+    fun exportWord() {
+        val result = store.exportCurrentDayToWord()
+        if (result == null) {
+            exportMessage = "За сегодня пока нет сохранённых измерений."
+        } else {
+            exportMessage = "Word сохранён: " + result.file.name
+            runCatching {
+                shareWordFile(context, result.file)
+            }.onFailure {
+                exportMessage = "Word сохранён: " + result.file.name
+            }
+        }
+    }
 
     val selected = selectedKey?.split("/", limit = 2)
 
@@ -266,6 +288,43 @@ fun HistoryScreen(
         Text(
             "История записывается в отдельный файл на каждый календарный день. " +
                 "По умолчанию хранение — 30 дней.",
+            style = MaterialTheme.typography.bodySmall
+        )
+
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "Автоэкспорт Word каждый день",
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Switch(
+                checked = autoWordExport,
+                onCheckedChange = {
+                    autoWordExport = it
+                    store.setWordAutoExportEnabled(it)
+                }
+            )
+        }
+
+        Button(
+            onClick = { exportWord() },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Экспорт Word за сегодня")
+        }
+
+        exportMessage?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+
+        Text(
+            "Автоэкспорт создаёт отдельный .docx после завершения календарного дня.",
             style = MaterialTheme.typography.bodySmall
         )
 
@@ -528,3 +587,20 @@ private fun nearestPointIndex(
     return if(abs(lowerX-tapX)<=abs(upperX-tapX))lower else upper
 }
 
+
+
+private fun shareWordFile(context: Context, file: File) {
+    val uri = FileProvider.getUriForFile(
+        context,
+        context.packageName + ".fileprovider",
+        file
+    )
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(
+        Intent.createChooser(intent, "Экспорт Word")
+    )
+}
