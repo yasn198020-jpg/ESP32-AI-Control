@@ -126,14 +126,16 @@ object WordExporter {
         grouped.forEach { (key, values) ->
             body.append(paragraph("Устройство: ${xmlEscape(key.first)}"))
             body.append(paragraph("Виджет: ${xmlEscape(key.second)}"))
-            body.append(
-                table(
-                    listOf("Время", "Значение") +
-                        values.sortedBy { it.timestamp }.map { point ->
-                            listOf(time.format(Date(point.timestamp)), formatValue(point.value))
-                        }
-                )
-            )
+            val rows: List<List<String>> =
+                listOf(listOf("Время", "Значение")) +
+                    values.sortedBy { it.timestamp }.map { point ->
+                        listOf(
+                            time.format(Date(point.timestamp)),
+                            formatValue(point.value)
+                        )
+                    }
+
+            body.append(table(rows))
             body.append(paragraph(" "))
         }
 
