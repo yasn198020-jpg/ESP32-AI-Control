@@ -20,6 +20,7 @@ class VoiceCommandManager(
     private var listening = false
     private var finishing = false
     private var restarting = false
+    private var singleShot = false
     private var lastPartialText = ""
     private val handler = Handler(Looper.getMainLooper())
 
@@ -33,7 +34,7 @@ class VoiceCommandManager(
         hasMicrophonePermission() && SpeechRecognizer.isRecognitionAvailable(context)
 
     fun startWakeWord() {
-        startListening()
+        startListening(singleShot = false)
     }
 
     private fun createRecognizerIfNeeded() {
@@ -54,8 +55,20 @@ class VoiceCommandManager(
                     if (finishing) {
                         finishing = false
                         releaseRecognizer()
+                        onStatus("Микрофон выключен")
                         return
                     }
+
+                    if (singleShot) {
+                        listening = false
+                        restarting = false
+                        finishing = false
+                        handler.removeCallbacksAndMessages(null)
+                        releaseRecognizer()
+                        onStatus("Микрофон выключен")
+                        return
+                    }
+
                     if (!listening || restarting) return
                     scheduleRestart(1200L)
                 }
@@ -92,19 +105,27 @@ class VoiceCommandManager(
 
                     lastPartialText = ""
 
-                    // On button release we call stopListening(). Android then
-                    // delivers the final result asynchronously. Do not destroy
-                    // the recognizer before that result reaches the app.
-                    if (!listening && !finishing) return
+                    // Manual microphone-button commands are one-shot:
+                    // after one final result the recognizer must be released
+                    // instead of automatically starting a new listening session.
+                    if (singleShot) {
+                        listening = false
+                        restarting = false
+                        finishing = true
+                        handler.removeCallbacksAndMessages(null)
+                    } else if (!listening && !finishing) {
+                        return
+                    }
 
                     if (text.isNotBlank()) {
                         onStatus("Команда: $text")
                         onResult(text)
                     }
 
-                    if (finishing) {
+                    if (singleShot || finishing) {
                         finishing = false
                         releaseRecognizer()
+                        onStatus("Микрофон выключен")
                     } else {
                         scheduleRestart(300L)
                     }
@@ -115,7 +136,7 @@ class VoiceCommandManager(
         }
     }
 
-    private fun startListening() {
+    private fun startListening(singleShot: Boolean) {
         // Recognition may only be started by an explicit caller (button/shortcut).
         // Ignore duplicate starts so recomposition, repeated lifecycle events, or
         // a second click cannot restart the microphone underneath the current one.
@@ -132,9 +153,10 @@ class VoiceCommandManager(
             return
         }
 
+        this.singleShot = singleShot
         listening = true
         finishing = false
-        if (restarting) return
+        restarting = false
 
         handler.removeCallbacksAndMessages(null)
         lastPartialText = ""
@@ -156,18 +178,24 @@ class VoiceCommandManager(
         try {
             recognizer?.startListening(intent)
         } catch (_: Exception) {
-            scheduleRestart(1500L)
+            if (singleShot) {
+                listening = false
+                releaseRecognizer()
+                onStatus("Микрофон выключен")
+            } else {
+                scheduleRestart(1500L)
+            }
         }
     }
 
     private fun scheduleRestart(delayMs: Long) {
-        if (!listening || restarting || finishing) return
+        if (singleShot || !listening || restarting || finishing) return
 
         restarting = true
         handler.removeCallbacksAndMessages(null)
         handler.postDelayed({
             restarting = false
-            if (!listening || finishing) return@postDelayed
+            if (singleShot || !listening || finishing) return@postDelayed
 
             try {
                 val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
@@ -184,19 +212,23 @@ class VoiceCommandManager(
                 }
                 recognizer?.startListening(intent)
             } catch (_: Exception) {
-                if (listening && !finishing) scheduleRestart(1500L)
+                if (listening && !finishing && !singleShot) scheduleRestart(1500L)
             }
         }, delayMs)
     }
 
-    // Explicit microphone-button entry point. There is no automatic
-    // microphone start from lifecycle or MQTT callbacks.
+    // Explicit microphone-button entry point.
+    // One press starts exactly one recognition session and it is released
+    // immediately after the final command is delivered.
     fun startRussian() {
-        startListening()
+        startListening(singleShot = true)
     }
 
     fun finishRussian() {
-        if (!listening) return
+        if (!listening && !finishing) {
+            onStatus("Микрофон выключен")
+            return
+        }
 
         listening = false
         restarting = false
@@ -206,16 +238,17 @@ class VoiceCommandManager(
         val current = recognizer
         if (current == null) {
             finishing = false
+            onStatus("Микрофон выключен")
             return
         }
 
         try {
             // stopListening() requests the final recognition result.
-            // Do NOT call cancel()/destroy() immediately here.
             current.stopListening()
         } catch (_: Exception) {
             finishing = false
             releaseRecognizer()
+            onStatus("Микрофон выключен")
             return
         }
 
@@ -224,6 +257,7 @@ class VoiceCommandManager(
             if (finishing) {
                 finishing = false
                 releaseRecognizer()
+                onStatus("Микрофон выключен")
             }
         }, 1200L)
     }
@@ -237,7 +271,7 @@ class VoiceCommandManager(
 
         if (normalized.isBlank()) return ""
 
-        val words = normalized.split(Regex("\\s+"))
+        val words = normalized.split(Regex("\s+"))
         val wakeIndex = words.indexOfFirst {
             it == "марфа" || it == "марфу" || it == "марфе" || it == "марфой"
         }
@@ -266,6 +300,7 @@ class VoiceCommandManager(
         listening = false
         finishing = false
         restarting = false
+        singleShot = false
         lastPartialText = ""
         handler.removeCallbacksAndMessages(null)
         releaseRecognizer()
