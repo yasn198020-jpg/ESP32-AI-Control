@@ -71,6 +71,7 @@ class MainActivity : ComponentActivity() {
 
         // MQTT is owned by the background service, not by the Activity.
         MqttBackgroundService.start(applicationContext)
+        CleanupManager.autoCleanup(this, AppRuntime.get(applicationContext).historyStore)
 
         if (intent?.action == "com.yasn198020.aicontrol.action.MARFA_SHORTCUT"
             && intent?.getBooleanExtra("marfa_shortcut_toggle", false) == true) {
@@ -791,6 +792,10 @@ private fun App(
                         Text("☰", fontSize = 30.sp, modifier = Modifier.clickable { menuOpen = true }.padding(end = 18.dp))
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                             DropdownMenuItem(
+                                text = { Text("Очистка приложения") },
+                                onClick = { menuOpen = false; tab = 8 }
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Выданные разрешения") },
                                 trailingIcon = {
                                     Text(
@@ -854,7 +859,7 @@ private fun App(
                         }
                     }
                     Text("?", fontSize = 22.sp, modifier = Modifier.padding(end = 18.dp))
-                    Text(when (tab) { 0 -> "Dashboard"; 1 -> "Обученные команды"; 2 -> "MQTT"; 3 -> "Log"; 4 -> "Сценарии"; 5 -> "Голос"; else -> "История и графики" }, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    Text(when (tab) { 0 -> "Dashboard"; 1 -> "Обученные команды"; 2 -> "MQTT"; 3 -> "Log"; 4 -> "Сценарии"; 5 -> "Голос"; 8 -> "Очистка приложения"; else -> "История и графики" }, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                     Text("ⓘ", fontSize = 22.sp, modifier = Modifier.padding(horizontal = 10.dp)); Text("☁", fontSize = 27.sp)
                 }
                 if (tab == 0) DashboardPageTabs(devices, selectedPage, onSelect = { selectedPage = it })
@@ -966,6 +971,10 @@ private fun App(
                 }
             )
             6 -> HistoryScreen(Modifier.padding(padding), devices, historyStore)
+            8 -> CleanupScreen(
+                modifier = Modifier.padding(padding),
+                historyStore = historyStore
+            )
             7 -> PermissionAuditScreen(
                 modifier = Modifier.padding(padding),
                 items = permissionItems,
@@ -1428,6 +1437,83 @@ private fun LogScreen(modifier: Modifier, log: List<String>, onClear: () -> Unit
             }
         }
     }
+}
+
+@Composable
+private fun CleanupScreen(
+    modifier: Modifier,
+    historyStore: HistoryStore
+) {
+    val context = LocalContext.current
+    var message by remember { mutableStateOf("Автоматическая уборка выполняется не чаще одного раза в сутки.") }
+    var running by remember { mutableStateOf(false) }
+
+    fun runCleanup(clearLogs: Boolean) {
+        if (running) return
+        running = true
+        val report = CleanupManager.cleanup(
+            context = context,
+            historyStore = historyStore,
+            clearCache = true,
+            clearLogs = clearLogs
+        )
+        message = buildString {
+            append("Удалено временных файлов: " + report.cacheFilesDeleted)
+            append("\nОсвобождено: " + formatBytesForCleanup(report.cacheBytesDeleted))
+            append("\nУдалено настроек несуществующих виджетов: " + report.staleWidgetKeysDeleted)
+            append("\nУдалено просроченных точек истории: " + report.historyPointsRemoved)
+            if (clearLogs) append("\nДиагностические журналы очищены.")
+        }
+        running = false
+    }
+
+    Column(
+        modifier = modifier.fillMaxSize().padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text("Очистка приложения", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+        Text(
+            "Безопасная уборка удаляет временный кэш, данные удалённых Android-виджетов и точки истории старше 7 дней. " +
+                "MQTT-настройки, сценарии и настройки существующих виджетов не удаляются.",
+            style = MaterialTheme.typography.bodyMedium
+        )
+
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Что очищается", fontWeight = FontWeight.SemiBold)
+                Text("• временные файлы и скачанные APK из cacheDir")
+                Text("• настройки уже удалённых виджетов")
+                Text("• история старше 7 дней")
+                Text("• журналы — только по отдельной кнопке")
+            }
+        }
+
+        Button(
+            onClick = { runCleanup(clearLogs = false) },
+            enabled = !running,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(if (running) "Очистка…" else "Очистить временные данные")
+        }
+
+        OutlinedButton(
+            onClick = { runCleanup(clearLogs = true) },
+            enabled = !running,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Очистить временные данные и журналы")
+        }
+
+        HorizontalDivider()
+        Text(message, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+private fun formatBytesForCleanup(bytes: Long): String {
+    if (bytes < 1024L) return "$bytes Б"
+    if (bytes < 1024L * 1024L) return String.format(Locale.US, "%.1f КБ", bytes / 1024.0)
+    if (bytes < 1024L * 1024L * 1024L) return String.format(Locale.US, "%.1f МБ", bytes / (1024.0 * 1024.0))
+    return String.format(Locale.US, "%.2f ГБ", bytes / (1024.0 * 1024.0 * 1024.0))
 }
 
 @Composable
