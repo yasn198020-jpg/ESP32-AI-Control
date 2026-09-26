@@ -26,20 +26,171 @@ import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.min
 
-@Composable fun HistoryScreen(modifier: Modifier, devices: List<Device>, store: HistoryStore) {
-    var points by remember { mutableStateOf(store.load()) }; var selectedKey by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(Unit) { while (true) { points=store.load(); kotlinx.coroutines.delay(5000) } }
-    val numeric=devices.flatMap { d -> d.widgets.filter { it.type==WidgetState.Type.VALUE || it.type==WidgetState.Type.STATUS }.map { d to it } }
-    val selected=selectedKey?.split("/", limit=2); val selectedPoints=if(selected!=null&&selected.size==2) points.filter { it.deviceId==selected[0]&&it.widgetId==selected[1] } else emptyList()
-    Column(modifier.fillMaxSize().padding(12.dp), verticalArrangement=Arrangement.spacedBy(8.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment=Alignment.CenterVertically) { Text("История",fontSize=24.sp,modifier=Modifier.weight(1f)); OutlinedButton(onClick={store.clear();points=emptyList()}){Text("Очистить")} }
-        Text("Последние 7 дней, максимум 5000 измерений.",style=MaterialTheme.typography.bodySmall)
-        if(numeric.isEmpty()){Text("Нет числовых виджетов. Подключитесь к MQTT и дождитесь CONFIG/STATE.")} else {
-            LazyColumn(verticalArrangement=Arrangement.spacedBy(6.dp),modifier=Modifier.weight(1f)){ items(numeric,key={"${it.first.id}/${it.second.id}"}){(device,widget)->
-                val key="${device.id}/${widget.id}"; val open=selectedKey==key
-                OutlinedButton(onClick={selectedKey=if(open)null else key},modifier=Modifier.fillMaxWidth()){Column(Modifier.fillMaxWidth(),horizontalAlignment=Alignment.Start){Text(widget.title,fontSize=17.sp);Text("${device.name.ifBlank{device.id}} • ${widget.value}${widget.unit}",style=MaterialTheme.typography.bodySmall)}}
-                if(open){HistoryChart(selectedPoints,widget.unit); Text(if(selectedPoints.isEmpty())"Пока нет сохранённых измерений." else "Измерений: ${selectedPoints.size}",style=MaterialTheme.typography.bodySmall)}
-            }}
+@Composable
+fun HistoryScreen(
+    modifier: Modifier,
+    devices: List<Device>,
+    store: HistoryStore
+) {
+    var points by remember { mutableStateOf(store.load()) }
+    var selectedKey by remember { mutableStateOf<String?>(null) }
+    var periodMenuOpen by remember { mutableStateOf(false) }
+    var samplePeriod by remember { mutableLongStateOf(store.samplePeriodMs()) }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            points = store.load()
+            kotlinx.coroutines.delay(5000)
+        }
+    }
+
+    val numeric = devices.flatMap { d ->
+        d.widgets
+            .filter {
+                it.type == WidgetState.Type.VALUE ||
+                    it.type == WidgetState.Type.STATUS
+            }
+            .map { d to it }
+    }
+
+    val selected = selectedKey?.split("/", limit = 2)
+    val selectedPoints =
+        if (selected != null && selected.size == 2) {
+            points.filter {
+                it.deviceId == selected[0] && it.widgetId == selected[1]
+            }
+        } else {
+            emptyList()
+        }
+
+    val samplePeriods = listOf(
+        1_000L to "1 сек",
+        5_000L to "5 сек",
+        10_000L to "10 сек",
+        30_000L to "30 сек",
+        60_000L to "1 мин",
+        300_000L to "5 мин",
+        600_000L to "10 мин",
+        1_800_000L to "30 мин",
+        3_600_000L to "1 час"
+    )
+
+    val samplePeriodLabel = samplePeriods.firstOrNull { it.first == samplePeriod }?.second
+        ?: (samplePeriod / 1000).toString() + " сек"
+
+    Column(
+        modifier
+            .fillMaxSize()
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "История",
+                fontSize = 24.sp,
+                modifier = Modifier.weight(1f)
+            )
+            OutlinedButton(
+                onClick = {
+                    store.clear()
+                    points = emptyList()
+                }
+            ) {
+                Text("Очистить")
+            }
+        }
+
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "Период измерения:",
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyMedium
+            )
+
+            Box {
+                OutlinedButton(onClick = { periodMenuOpen = true }) {
+                    Text(samplePeriodLabel)
+                }
+
+                DropdownMenu(
+                    expanded = periodMenuOpen,
+                    onDismissRequest = { periodMenuOpen = false }
+                ) {
+                    samplePeriods.forEach { (periodMs, label) ->
+                        DropdownMenuItem(
+                            text = { Text(label) },
+                            onClick = {
+                                store.setSamplePeriodMs(periodMs)
+                                samplePeriod = periodMs
+                                periodMenuOpen = false
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        Text(
+            "Точка графика записывается таймером, независимо от частоты MQTT. " +
+                "По умолчанию — каждые 10 секунд.",
+            style = MaterialTheme.typography.bodySmall
+        )
+        Text(
+            "Последние 7 дней, максимум 5000 измерений.",
+            style = MaterialTheme.typography.bodySmall
+        )
+
+        if (numeric.isEmpty()) {
+            Text("Нет числовых виджетов. Подключитесь к MQTT и дождитесь CONFIG/STATE.")
+        } else {
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                items(
+                    numeric,
+                    key = { it.first.id + "/" + it.second.id }
+                ) { (device, widget) ->
+                    val key = device.id + "/" + widget.id
+                    val open = selectedKey == key
+
+                    OutlinedButton(
+                        onClick = {
+                            selectedKey = if (open) null else key
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.Start
+                        ) {
+                            Text(widget.title, fontSize = 17.sp)
+                            Text(
+                                device.name.ifBlank { device.id } + " • " + widget.value + widget.unit,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+
+                    if (open) {
+                        HistoryChart(selectedPoints, widget.unit)
+                        Text(
+                            if (selectedPoints.isEmpty()) {
+                                "Пока нет сохранённых измерений."
+                            } else {
+                                "Измерений: " + selectedPoints.size
+                            },
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            }
         }
     }
 }
