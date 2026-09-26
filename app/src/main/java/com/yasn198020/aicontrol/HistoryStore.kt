@@ -44,8 +44,10 @@ class HistoryStore(
         private const val DAILY_FILE_SUFFIX = ".jsonl"
         private const val SAMPLE_PERIOD_KEY = "history_sample_period_ms"
         private const val DEFAULT_SAMPLE_PERIOD_MS = 10_000L
-        private const val AUTO_WORD_EXPORT_KEY = "history_auto_word_export"
-        private const val LAST_WORD_EXPORT_DAY_KEY = "history_last_word_export_day"
+        private const val AUTO_WORD_EXPORT_PERIOD_KEY = "history_auto_word_export_period"
+        private const val DEFAULT_AUTO_WORD_EXPORT_PERIOD = 0
+        private const val LAST_WORD_EXPORT_PERIOD_KEY = "history_last_word_export_period"
+        private const val LAST_WORD_EXPORT_TIME_KEY = "history_last_word_export_time"
         private val SUPPORTED_SAMPLE_PERIODS_MS = longArrayOf(
             1_000L,
             5_000L,
@@ -107,11 +109,12 @@ class HistoryStore(
         return normalizeRetentionDays(saved)
     }
 
-    fun wordAutoExportEnabled(): Boolean =
-        prefs.getBoolean(AUTO_WORD_EXPORT_KEY, true)
+    fun wordAutoExportPeriod(): Int =
+        prefs.getInt(AUTO_WORD_EXPORT_PERIOD_KEY, DEFAULT_AUTO_WORD_EXPORT_PERIOD)
+            .coerceIn(0, 3)
 
-    fun setWordAutoExportEnabled(enabled: Boolean) {
-        prefs.edit().putBoolean(AUTO_WORD_EXPORT_KEY, enabled).apply()
+    fun setWordAutoExportPeriod(period: Int) {
+        prefs.edit().putInt(AUTO_WORD_EXPORT_PERIOD_KEY, period.coerceIn(0, 3)).apply()
     }
 
     fun exportCurrentDayToWord(): WordExporter.ExportedFile? {
@@ -124,222 +127,64 @@ class HistoryStore(
         return WordExporter.exportJsonlDay(context, file, dayLabel)
     }
 
-    private fun maybeAutoExportYesterday(now: Long) {
-        if (!wordAutoExportEnabled()) return
+    private fun maybeAutoExport(now: Long) {
+        val period = wordAutoExportPeriod()
+        if (period == 0) return
 
-        val todayLabel = dateFormat.format(Date(now))
-        if (prefs.getString(LAST_WORD_EXPORT_DAY_KEY, "") == todayLabel) return
+        val calendar = java.util.Calendar.getInstance().apply { timeInMillis = now }
+        val currentDay = dateFormat.format(calendar.time)
 
-        val calendar = java.util.Calendar.getInstance().apply {
-            timeInMillis = now
-            add(java.util.Calendar.DAY_OF_YEAR, -1)
-        }
-        val yesterdayLabel = dateFormat.format(calendar.time)
-        val yesterdayFile = File(historyDir, yesterdayLabel + DAILY_FILE_SUFFIX)
+        val lastExport = prefs.getString(LAST_WORD_EXPORT_PERIOD_KEY, "") ?: ""
+        val lastExportAt = prefs.getLong(LAST_WORD_EXPORT_TIME_KEY, 0L)
 
-        if (!yesterdayFile.isFile || yesterdayFile.length() == 0L) {
-            prefs.edit().putString(LAST_WORD_EXPORT_DAY_KEY, todayLabel).apply()
-            return
-        }
-
-        val exported = WordExporter.exportJsonlDay(
-            context,
-            yesterdayFile,
-            yesterdayLabel
-        )
-        if (exported != null) {
-            prefs.edit().putString(LAST_WORD_EXPORT_DAY_KEY, todayLabel).apply()
-            DiagnosticTrace.system(
-                "HISTORY Word auto export day=" + yesterdayLabel +
-                    " points=" + exported.pointCount
-            )
-        }
-    }
-
-    fun setRetentionDays(days: Int) {
-        val normalized = normalizeRetentionDays(days)
-        prefs.edit().putInt(RETENTION_DAYS_KEY, normalized).apply()
-        synchronized(lock) {
-            if (loaded && normalized > 0) {
-                val cutoff = System.currentTimeMillis() -
-                    normalized * 24L * 60L * 60L * 1000L
-                cache = cache.filter { it.timestamp >= cutoff }.toMutableList()
-            }
-        }
-        pruneExpiredFiles()
-    }
-
-    fun displayPeriodMs(): Long {
-        val saved = prefs.getLong(DISPLAY_PERIOD_KEY, DEFAULT_DISPLAY_PERIOD_MS)
-        return normalizeDisplayPeriod(saved)
-    }
-
-    fun setDisplayPeriodMs(periodMs: Long) {
-        prefs.edit().putLong(
-            DISPLAY_PERIOD_KEY,
-            normalizeDisplayPeriod(periodMs)
-        ).apply()
-    }
-
-    fun displaySinceMillis(now: Long = System.currentTimeMillis()): Long? {
-        val period = displayPeriodMs()
-        return when {
-            period <= 0L -> null
-            period == 86_400_000L -> startOfToday(now)
-            else -> now - period
-        }
-    }
-
-    fun loadSince(
-        deviceId: String?,
-        widgetId: String?,
-        since: Long?,
-        maxPoints: Int = MAX_DISPLAY_POINTS
-    ): List<HistoryPoint> {
-        synchronized(lock) {
-            ensureLoadedLocked()
-            val points = cache.filter { point ->
-                (deviceId == null || point.deviceId == deviceId) &&
-                    (widgetId == null || point.widgetId == widgetId) &&
-                    (since == null || point.timestamp >= since)
-            }
-            if (points.size <= maxPoints) return points
-
-            val step = points.size.toDouble() / maxPoints.toDouble()
-            return buildList(maxPoints) {
-                var cursor = 0.0
-                repeat(maxPoints) {
-                    add(points[cursor.toInt().coerceIn(0, points.lastIndex)])
-                    cursor += step
+        val interval = when (period) {
+            1 -> 24L * 60L * 60L * 1000L
+            2 -> 7L * 24L * 60L * 60L * 1000L
+            else -> {
+                val previous = java.util.Calendar.getInstance().apply {
+                    timeInMillis = now
+                    add(java.util.Calendar.MONTH, -1)
+                }
+                if (lastExport.isNotEmpty() && lastExport != currentDay) {
+                    0L
+                } else {
+                    30L * 24L * 60L * 60L * 1000L
                 }
             }
         }
-    }
 
-    fun samplePeriodMs(): Long {
-        val saved = prefs.getLong(SAMPLE_PERIOD_KEY, DEFAULT_SAMPLE_PERIOD_MS)
-        return normalizeSamplePeriod(saved)
-    }
+        if (lastExportAt > 0L && now - lastExportAt < interval) return
 
-    fun setSamplePeriodMs(periodMs: Long) {
-        val normalized = normalizeSamplePeriod(periodMs)
-        prefs.edit().putLong(SAMPLE_PERIOD_KEY, normalized).apply()
-
-        synchronized(lock) {
-            sampleFuture?.cancel(false)
-            sampleFuture = scheduleSamplerLocked(normalized)
-        }
-    }
-
-    fun updateLatest(
-        deviceId: String,
-        widgetId: String,
-        rawValue: String,
-        timestamp: Long = System.currentTimeMillis()
-    ): HistoryWriteResult {
-        val value = rawValue.replace(',', '.').trim()
-            .toDoubleOrNull()
-            ?.takeIf { it.isFinite() }
-
-        if (value == null) {
-            val count = synchronized(lock) {
-                if (loaded) cache.size else -1
+        val targetTimestamp = when (period) {
+            1 -> now - 24L * 60L * 60L * 1000L
+            2 -> now - 7L * 24L * 60L * 60L * 1000L
+            else -> {
+                java.util.Calendar.getInstance().apply {
+                    timeInMillis = now
+                    add(java.util.Calendar.MONTH, -1)
+                }.timeInMillis
             }
-            return HistoryWriteResult(
-                accepted = false,
-                pointCount = count,
-                reason = "non_numeric_value raw=" + rawValue
+        }
+
+        val targetLabel = dateFormat.format(Date(targetTimestamp))
+        val targetFile = File(historyDir, targetLabel + DAILY_FILE_SUFFIX)
+        if (!targetFile.isFile || targetFile.length() == 0L) return
+
+        val exported = WordExporter.exportJsonlDay(context, targetFile, targetLabel)
+        if (exported != null) {
+            prefs.edit()
+                .putLong(LAST_WORD_EXPORT_TIME_KEY, now)
+                .putString(LAST_WORD_EXPORT_PERIOD_KEY, currentDay)
+                .apply()
+            DiagnosticTrace.system(
+                "HISTORY Word auto export period=" + period +
+                    " day=" + targetLabel + " points=" + exported.pointCount
             )
         }
-
-        val count: Int
-        synchronized(lock) {
-            latestCurrent[deviceId + "/" + widgetId] =
-                HistoryPoint(timestamp, deviceId, widgetId, value)
-            count = if (loaded) cache.size else -1
-        }
-
-        return HistoryWriteResult(
-            accepted = true,
-            pointCount = count,
-            reason = "current_updated"
-        )
-    }
-
-    fun add(
-        deviceId: String,
-        widgetId: String,
-        rawValue: String,
-        timestamp: Long = System.currentTimeMillis()
-    ): HistoryWriteResult {
-        val value = rawValue.replace(',', '.').trim()
-            .toDoubleOrNull()
-            ?.takeIf { it.isFinite() }
-
-        if (value == null) {
-            val count = synchronized(lock) {
-                ensureLoadedLocked()
-                cache.size
-            }
-            return HistoryWriteResult(
-                accepted = false,
-                pointCount = count,
-                reason = "non_numeric_value raw=" + rawValue
-            )
-        }
-
-        val count: Int
-        synchronized(lock) {
-            ensureLoadedLocked()
-            val point = HistoryPoint(
-                timestamp = timestamp,
-                deviceId = deviceId,
-                widgetId = widgetId,
-                value = value
-            )
-            appendPointLocked(point)
-            count = cache.size
-        }
-
-        appendDailyPoints(
-            listOf(
-                HistoryPoint(
-                    timestamp = timestamp,
-                    deviceId = deviceId,
-                    widgetId = widgetId,
-                    value = value
-                )
-            )
-        )
-
-        return HistoryWriteResult(
-            accepted = true,
-            pointCount = count
-        )
-    }
-
-    private fun startSampler() {
-        synchronized(lock) {
-            sampleFuture?.cancel(false)
-            sampleFuture = scheduleSamplerLocked(samplePeriodMs())
-        }
-    }
-
-    private fun scheduleSamplerLocked(periodMs: Long): ScheduledFuture<*> {
-        return persistExecutor.scheduleWithFixedDelay({
-            runCatching {
-                sampleLatest()
-            }.onFailure {
-                DiagnosticTrace.system(
-                    "HISTORY sampler failed: " +
-                        (it.message ?: it.javaClass.simpleName)
-                )
-            }
-        }, periodMs, periodMs, TimeUnit.MILLISECONDS)
     }
 
     private fun sampleLatest(now: Long = System.currentTimeMillis()): Int {
-        maybeAutoExportYesterday(now)
+        maybeAutoExport(now)
 
         val sampled: List<HistoryPoint>
         synchronized(lock) {
