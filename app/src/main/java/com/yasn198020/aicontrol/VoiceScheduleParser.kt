@@ -64,6 +64,11 @@ object VoiceScheduleParser {
         RegexOption.IGNORE_CASE
     )
 
+    private val simpleRelativePattern = Regex(
+        """\bчерез\s+(час|минуту|минут|секунду|секунды|день)\b""",
+        RegexOption.IGNORE_CASE
+    )
+
     fun parse(command: String, nowMillis: Long = System.currentTimeMillis()): VoiceSchedule? {
         val normalized = normalize(command)
         if (normalized.isBlank()) return null
@@ -84,6 +89,18 @@ object VoiceScheduleParser {
         val specialHalf = Regex("""\bчерез\s+полтора\s+часа\b""", RegexOption.IGNORE_CASE).find(text)
         if (specialHalf != null) {
             return buildRelative(text, specialHalf.range, 90L * 60L * 1000L, "через полтора часа", nowMillis)
+        }
+
+        val simple = simpleRelativePattern.find(text)
+        if (simple != null) {
+            val delay = when (simple.groupValues[1].lowercase()) {
+                "час" -> 60L * 60L * 1000L
+                "день" -> 24L * 60L * 60L * 1000L
+                "минуту", "минут" -> 60L * 1000L
+                "секунду", "секунды" -> 1000L
+                else -> return null
+            }
+            return buildRelative(text, simple.range, delay, "через " + simple.groupValues[1], nowMillis)
         }
 
         val match = relativePattern.find(text) ?: return null
@@ -134,12 +151,25 @@ object VoiceScheduleParser {
     }
 
     private fun parseClock(text: String, nowMillis: Long): VoiceSchedule? {
-        val match = todayPattern.find(text) ?: todayHourPattern.find(text) ?: return null
-        val minuteRaw = match.groupValues.getOrNull(2).orEmpty()
-        val periodRaw = match.groupValues.getOrNull(3).orEmpty()
+        val withMinutes = todayPattern.find(text)
+        val hourOnly = if (withMinutes == null) todayHourPattern.find(text) else null
+        val match = withMinutes ?: hourOnly ?: return null
+
+        val minuteRaw = if (withMinutes != null) {
+            match.groupValues.getOrNull(2).orEmpty()
+        } else {
+            ""
+        }
+
+        val periodRaw = if (withMinutes != null) {
+            match.groupValues.getOrNull(3).orEmpty()
+        } else {
+            match.groupValues.getOrNull(2).orEmpty()
+        }
+
         val time = parseClockValues(
             match.groupValues[1],
-            if (minuteRaw.matches(Regex("""\d{2}"""))) minuteRaw else "",
+            minuteRaw,
             periodRaw
         ) ?: return null
 
