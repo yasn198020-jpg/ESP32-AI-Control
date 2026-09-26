@@ -92,7 +92,7 @@ class VoiceCommandManager(
 
                     // Prefer the final recognition result. A partial result can
                     // contain only the first word of a longer phrase.
-                    val candidates = buildList {
+                    val candidates = mutableListOf<String>().apply {
                         addAll(finalCandidates)
                         if (lastPartialText.isNotBlank()) add(lastPartialText)
                     }
