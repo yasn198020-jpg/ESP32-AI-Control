@@ -193,9 +193,191 @@ class HistoryStore(
                 .apply()
             DiagnosticTrace.system(
                 "HISTORY Word auto export period=" + period +
-                    " day=" + targetLabel + " points=" + exported.pointCount
+                    " period=" + periodLabel + " points=" + exported.pointCount
             )
         }
+    }
+
+    fun setRetentionDays(days: Int) {
+        val normalized = normalizeRetentionDays(days)
+        prefs.edit().putInt(RETENTION_DAYS_KEY, normalized).apply()
+        synchronized(lock) {
+            if (loaded && normalized > 0) {
+                val cutoff = System.currentTimeMillis() -
+                    normalized * 24L * 60L * 60L * 1000L
+                cache = cache.filter { it.timestamp >= cutoff }.toMutableList()
+            }
+        }
+        pruneExpiredFiles()
+    }
+
+    fun displayPeriodMs(): Long {
+        val saved = prefs.getLong(DISPLAY_PERIOD_KEY, DEFAULT_DISPLAY_PERIOD_MS)
+        return normalizeDisplayPeriod(saved)
+    }
+
+    fun setDisplayPeriodMs(periodMs: Long) {
+        prefs.edit().putLong(
+            DISPLAY_PERIOD_KEY,
+            normalizeDisplayPeriod(periodMs)
+        ).apply()
+    }
+
+    fun displaySinceMillis(now: Long = System.currentTimeMillis()): Long? {
+        val period = displayPeriodMs()
+        return when {
+            period <= 0L -> null
+            period == 86_400_000L -> startOfToday(now)
+            else -> now - period
+        }
+    }
+
+    fun loadSince(
+        deviceId: String?,
+        widgetId: String?,
+        since: Long?,
+        maxPoints: Int = MAX_DISPLAY_POINTS
+    ): List<HistoryPoint> {
+        synchronized(lock) {
+            ensureLoadedLocked()
+            val points = cache.filter { point ->
+                (deviceId == null || point.deviceId == deviceId) &&
+                    (widgetId == null || point.widgetId == widgetId) &&
+                    (since == null || point.timestamp >= since)
+            }
+            if (points.size <= maxPoints) return points
+
+            val step = points.size.toDouble() / maxPoints.toDouble()
+            return buildList(maxPoints) {
+                var cursor = 0.0
+                repeat(maxPoints) {
+                    add(points[cursor.toInt().coerceIn(0, points.lastIndex)])
+                    cursor += step
+                }
+            }
+        }
+    }
+
+    fun samplePeriodMs(): Long {
+        val saved = prefs.getLong(SAMPLE_PERIOD_KEY, DEFAULT_SAMPLE_PERIOD_MS)
+        return normalizeSamplePeriod(saved)
+    }
+
+    fun setSamplePeriodMs(periodMs: Long) {
+        val normalized = normalizeSamplePeriod(periodMs)
+        prefs.edit().putLong(SAMPLE_PERIOD_KEY, normalized).apply()
+
+        synchronized(lock) {
+            sampleFuture?.cancel(false)
+            sampleFuture = scheduleSamplerLocked(normalized)
+        }
+    }
+
+    fun updateLatest(
+        deviceId: String,
+        widgetId: String,
+        rawValue: String,
+        timestamp: Long = System.currentTimeMillis()
+    ): HistoryWriteResult {
+        val value = rawValue.replace(',', '.').trim()
+            .toDoubleOrNull()
+            ?.takeIf { it.isFinite() }
+
+        if (value == null) {
+            val count = synchronized(lock) {
+                if (loaded) cache.size else -1
+            }
+            return HistoryWriteResult(
+                accepted = false,
+                pointCount = count,
+                reason = "non_numeric_value raw=" + rawValue
+            )
+        }
+
+        val count: Int
+        synchronized(lock) {
+            latestCurrent[deviceId + "/" + widgetId] =
+                HistoryPoint(timestamp, deviceId, widgetId, value)
+            count = if (loaded) cache.size else -1
+        }
+
+        return HistoryWriteResult(
+            accepted = true,
+            pointCount = count,
+            reason = "current_updated"
+        )
+    }
+
+    fun add(
+        deviceId: String,
+        widgetId: String,
+        rawValue: String,
+        timestamp: Long = System.currentTimeMillis()
+    ): HistoryWriteResult {
+        val value = rawValue.replace(',', '.').trim()
+            .toDoubleOrNull()
+            ?.takeIf { it.isFinite() }
+
+        if (value == null) {
+            val count = synchronized(lock) {
+                ensureLoadedLocked()
+                cache.size
+            }
+            return HistoryWriteResult(
+                accepted = false,
+                pointCount = count,
+                reason = "non_numeric_value raw=" + rawValue
+            )
+        }
+
+        val count: Int
+        synchronized(lock) {
+            ensureLoadedLocked()
+            val point = HistoryPoint(
+                timestamp = timestamp,
+                deviceId = deviceId,
+                widgetId = widgetId,
+                value = value
+            )
+            appendPointLocked(point)
+            count = cache.size
+        }
+
+        appendDailyPoints(
+            listOf(
+                HistoryPoint(
+                    timestamp = timestamp,
+                    deviceId = deviceId,
+                    widgetId = widgetId,
+                    value = value
+                )
+            )
+        )
+
+        return HistoryWriteResult(
+            accepted = true,
+            pointCount = count
+        )
+    }
+
+    private fun startSampler() {
+        synchronized(lock) {
+            sampleFuture?.cancel(false)
+            sampleFuture = scheduleSamplerLocked(samplePeriodMs())
+        }
+    }
+
+    private fun scheduleSamplerLocked(periodMs: Long): ScheduledFuture<*> {
+        return persistExecutor.scheduleWithFixedDelay({
+            runCatching {
+                sampleLatest()
+            }.onFailure {
+                DiagnosticTrace.system(
+                    "HISTORY sampler failed: " +
+                        (it.message ?: it.javaClass.simpleName)
+                )
+            }
+        }, periodMs, periodMs, TimeUnit.MILLISECONDS)
     }
 
     private fun sampleLatest(now: Long = System.currentTimeMillis()): Int {
