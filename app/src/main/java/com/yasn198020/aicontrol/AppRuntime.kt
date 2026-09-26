@@ -149,25 +149,27 @@ class AppRuntime private constructor(private val appContext: Context) {
                     )
                 }
 
-                // History must be recorded in both foreground and background.
-                // MQTT continues to arrive through MqttBackgroundService even when
-                // the Activity is not visible, so background samples must not be dropped.
-                val historyResult = historyStore.add(deviceId, widgetId, value)
+                // MQTT only updates the current numeric value.
+                // HistoryStore samples that value on its own measurement timer,
+                // so graph points are independent from MQTT message frequency.
+                val historyResult = historyStore.updateLatest(deviceId, widgetId, value)
                 if (historyResult.accepted) {
                     DiagnosticTrace.stepForEvent(
                         eventId,
                         "HISTORY",
-                        "QUEUED state=" + (if (DiagnosticTrace.isForeground()) "FOREGROUND" else "BACKGROUND") +
+                        "CURRENT_UPDATED state=" +
+                            (if (DiagnosticTrace.isForeground()) "FOREGROUND" else "BACKGROUND") +
                             " device=" + deviceId +
                             " widget=" + widgetId +
                             " value=" + value +
-                            " points=" + historyResult.pointCount
+                            " samplePeriodMs=" + historyStore.samplePeriodMs()
                     )
                 } else {
                     DiagnosticTrace.stepForEvent(
                         eventId,
                         "HISTORY",
-                        "SKIPPED state=" + (if (DiagnosticTrace.isForeground()) "FOREGROUND" else "BACKGROUND") +
+                        "CURRENT_SKIPPED state=" +
+                            (if (DiagnosticTrace.isForeground()) "FOREGROUND" else "BACKGROUND") +
                             " device=" + deviceId +
                             " widget=" + widgetId +
                             " value=" + value +
