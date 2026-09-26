@@ -45,7 +45,7 @@ object VoiceScheduleParser {
     )
 
     private val relativePattern = Regex(
-        """\bчерез\s+([0-9]+|[а-яё]+)\s+(секунд\w*|минут\w*|час\w*|дн\w*|день|дня|дней)\b""",
+        """\bчерез\s+([0-9]+|[а-яё]+(?:\s+[а-яё]+)?)\s+(секунд\w*|сек\w*|минут\w*|мин\w*|час\w*|ч\b|дн\w*|день|дня|дней)\b""",
         RegexOption.IGNORE_CASE
     )
 
@@ -109,9 +109,9 @@ object VoiceScheduleParser {
 
         val unit = match.groupValues[2]
         val multiplier = when {
-            unit.startsWith("секунд") -> 1000L
-            unit.startsWith("минут") -> 60L * 1000L
-            unit.startsWith("час") -> 60L * 60L * 1000L
+            unit.startsWith("сек") -> 1000L
+            unit.startsWith("мин") -> 60L * 1000L
+            unit.startsWith("час") || unit == "ч" -> 60L * 60L * 1000L
             unit.startsWith("дн") || unit == "день" || unit == "дня" || unit == "дней" ->
                 24L * 60L * 60L * 1000L
             else -> return null
@@ -255,13 +255,25 @@ object VoiceScheduleParser {
         )
     }
 
-    private fun parseNumber(value: String): Long? =
-        value.toLongOrNull() ?: numberWords[value.lowercase()]
+    private fun parseNumber(value: String): Long? {
+        val normalized = value.lowercase().trim()
+        normalized.toLongOrNull()?.let { return it }
+        numberWords[normalized]?.let { return it }
+        val parts = normalized.split(Regex("\\s+"))
+        if (parts.size == 2) {
+            val tens = numberWords[parts[0]]
+            val ones = numberWords[parts[1]]
+            if (tens != null && tens >= 20L && tens % 10L == 0L && ones != null && ones in 1L..9L) {
+                return tens + ones
+            }
+        }
+        return null
+    }
 
     private fun unitForSpeech(unit: String): String = when {
-        unit.startsWith("секунд") -> " секунд"
-        unit.startsWith("минут") -> " минут"
-        unit.startsWith("час") -> " часов"
+        unit.startsWith("сек") -> " секунд"
+        unit.startsWith("мин") -> " минут"
+        unit.startsWith("час") || unit == "ч" -> " часов"
         else -> " дней"
     }
 
