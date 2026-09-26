@@ -53,7 +53,11 @@ object CleanupManager {
 
         val cacheBytes = if (clearCache) directorySize(app.cacheDir) else 0L
         val cacheFiles = if (clearCache) {
-            app.cacheDir.listFiles()?.sumOf { if (deleteRecursively(it)) 1 else 0 } ?: 0
+            var deleted = 0
+            app.cacheDir.listFiles()?.forEach {
+                if (deleteRecursively(it)) deleted++
+            }
+            deleted
         } else 0
 
         val staleWidgetKeys = cleanupStaleWidgetPreferences(app)
@@ -79,7 +83,7 @@ object CleanupManager {
             .getAppWidgetIds(
                 ComponentName(context, LiveDataWidgetProvider::class.java)
             )
-            .mapTo(HashSet()) { it.toString() }
+            .mapTo(HashSet<String>()) { it.toString() }
 
         val editor = prefs.edit()
         var removed = 0
