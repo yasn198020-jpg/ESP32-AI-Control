@@ -143,6 +143,21 @@ class HistoryStore(private val prefs: SharedPreferences) {
         schedulePersist()
     }
 
+    /** Removes points older than the retention window without clearing newer history. */
+    fun pruneExpired(now: Long = System.currentTimeMillis()): Int {
+        val removed: Int
+        synchronized(lock) {
+            ensureLoadedLocked()
+            val cutoff = now - MAX_AGE_MS
+            val before = cache.size
+            cache = cache.filter { it.timestamp >= cutoff }.toMutableList()
+            removed = before - cache.size
+            if (removed > 0) persistRequested = true
+        }
+        if (removed > 0) schedulePersist()
+        return removed
+    }
+
     /**
      * Schedules persistence of the latest in-memory snapshot without blocking
      * MQTT or the Android main thread.
