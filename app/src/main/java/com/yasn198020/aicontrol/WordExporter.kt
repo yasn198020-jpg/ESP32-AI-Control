@@ -35,25 +35,30 @@ object WordExporter {
         if (files.isEmpty()) return null
 
         val points = mutableListOf<HistoryPoint>()
-        runCatching {
+
+        try {
             files.forEach { historyFile ->
                 historyFile.forEachLine { line ->
-                if (line.isBlank()) return@forEachLine
-                runCatching {
-                    val o = JSONObject(line)
-                    HistoryPoint(
-                        timestamp = o.optLong("t"),
-                        deviceId = o.optString("d"),
-                        widgetId = o.optString("w"),
-                        value = o.optDouble("v", Double.NaN)
-                    )
-                }.getOrNull()?.takeIf { it.timestamp > 0L && it.value.isFinite() }
-                    ?.let(points::add)
+                    if (line.isBlank()) return@forEachLine
+
+                    runCatching {
+                        val o = JSONObject(line)
+                        HistoryPoint(
+                            timestamp = o.optLong("t"),
+                            deviceId = o.optString("d"),
+                            widgetId = o.optString("w"),
+                            value = o.optDouble("v", Double.NaN)
+                        )
+                    }.getOrNull()
+                        ?.takeIf { it.timestamp > 0L && it.value.isFinite() }
+                        ?.let { points.add(it) }
                 }
             }
-            }
-        }.getOrElse {
-            DiagnosticTrace.system("HISTORY Word read failed: " + (it.message ?: it.javaClass.simpleName))
+        } catch (e: Exception) {
+            DiagnosticTrace.system(
+                "HISTORY Word read failed: " +
+                    (e.message ?: e.javaClass.simpleName)
+            )
             return null
         }
 
@@ -64,24 +69,36 @@ object WordExporter {
             DOCS_DIR
         )
         if (!docsDir.exists() && !docsDir.mkdirs()) {
-            DiagnosticTrace.system("HISTORY Word mkdir failed: " + docsDir.absolutePath)
+            DiagnosticTrace.system(
+                "HISTORY Word mkdir failed: " + docsDir.absolutePath
+            )
             return null
         }
 
-        val safeLabel = periodLabel.replace(Regex("[^0-9A-Za-zА-Яа-я._-]"), "_")
-        val outFile = File(docsDir, "history_${safeLabel}.docx")
+        val safeLabel =
+            periodLabel.replace(Regex("[^0-9A-Za-zА-Яа-я._-]"), "_")
+        val outFile = File(docsDir, "history_$safeLabel.docx")
+
         return runCatching {
             ZipOutputStream(FileOutputStream(outFile)).use { zip ->
                 writeTextEntry(zip, "[Content_Types].xml", contentTypesXml())
                 writeTextEntry(zip, "_rels/.rels", rootRelsXml())
-                writeTextEntry(zip, "word/document.xml", documentXml(points, periodLabel))
-                writeTextEntry(zip, "word/_rels/document.xml.rels", documentRelsXml())
+                writeTextEntry(
+                    zip,
+                    "word/document.xml",
+                    documentXml(points, periodLabel)
+                )
+                writeTextEntry(
+                    zip,
+                    "word/_rels/document.xml.rels",
+                    documentRelsXml()
+                )
             }
             ExportedFile(outFile, points.size)
-        }.onFailure {
+        }.onFailure { error ->
             DiagnosticTrace.system(
                 "HISTORY Word write failed: " +
-                    (it.message ?: it.javaClass.simpleName)
+                    (error.message ?: error.javaClass.simpleName)
             )
             outFile.delete()
         }.getOrNull()
