@@ -273,6 +273,13 @@ object PermissionAudit {
         lastSignature = null
     }
 
+    fun clearTrace(context: Context) {
+        runCatching {
+            java.io.File(context.applicationContext.filesDir, TRACE_FILE).writeText("")
+        }
+        lastSignature = null
+    }
+
     fun openSettings(context: Context, itemId: String) {
         val app = context.applicationContext
         val intent = when (itemId) {
