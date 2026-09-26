@@ -36,7 +36,10 @@ class HistoryStore(
         private const val MAX_POINTS = 5000
         private const val RETENTION_DAYS_KEY = "history_retention_days"
         private const val DEFAULT_RETENTION_DAYS = 30
+        private const val DISPLAY_PERIOD_KEY = "history_display_period_ms"
+        private const val DEFAULT_DISPLAY_PERIOD_MS = 86_400_000L
         private const val PERSIST_DELAY_MS = 1000L
+        private const val MAX_DISPLAY_POINTS = 5000
         private const val DAILY_HISTORY_DIR = "history"
         private const val DAILY_FILE_SUFFIX = ".jsonl"
         private const val SAMPLE_PERIOD_KEY = "history_sample_period_ms"
@@ -114,6 +117,53 @@ class HistoryStore(
             }
         }
         pruneExpiredFiles()
+    }
+
+    fun displayPeriodMs(): Long {
+        val saved = prefs.getLong(DISPLAY_PERIOD_KEY, DEFAULT_DISPLAY_PERIOD_MS)
+        return normalizeDisplayPeriod(saved)
+    }
+
+    fun setDisplayPeriodMs(periodMs: Long) {
+        prefs.edit().putLong(
+            DISPLAY_PERIOD_KEY,
+            normalizeDisplayPeriod(periodMs)
+        ).apply()
+    }
+
+    fun displaySinceMillis(now: Long = System.currentTimeMillis()): Long? {
+        val period = displayPeriodMs()
+        return when {
+            period <= 0L -> null
+            period == 86_400_000L -> startOfToday(now)
+            else -> now - period
+        }
+    }
+
+    fun loadSince(
+        deviceId: String?,
+        widgetId: String?,
+        since: Long?,
+        maxPoints: Int = MAX_DISPLAY_POINTS
+    ): List<HistoryPoint> {
+        synchronized(lock) {
+            ensureLoadedLocked()
+            val points = cache.filter { point ->
+                (deviceId == null || point.deviceId == deviceId) &&
+                    (widgetId == null || point.widgetId == widgetId) &&
+                    (since == null || point.timestamp >= since)
+            }
+            if (points.size <= maxPoints) return points
+
+            val step = points.size.toDouble() / maxPoints.toDouble()
+            return buildList(maxPoints) {
+                var cursor = 0.0
+                repeat(maxPoints) {
+                    add(points[cursor.toInt().coerceIn(0, points.lastIndex)])
+                    cursor += step
+                }
+            }
+        }
     }
 
     fun samplePeriodMs(): Long {
@@ -271,6 +321,19 @@ class HistoryStore(
 
         return sampled.size
     }
+
+    private fun normalizeDisplayPeriod(periodMs: Long): Long =
+        longArrayOf(
+            3_600_000L,
+            21_600_000L,
+            43_200_000L,
+            86_400_000L,
+            259_200_000L,
+            604_800_000L,
+            2_592_000_000L,
+            0L
+        ).minByOrNull { kotlin.math.abs(it - periodMs) }
+            ?: DEFAULT_DISPLAY_PERIOD_MS
 
     private fun normalizeRetentionDays(days: Int): Int =
         intArrayOf(1, 3, 7, 14, 30, 90, 180, 365, 0)
@@ -453,6 +516,17 @@ class HistoryStore(
         if (loaded) return
         cache = readFromPrefs().toMutableList()
         loaded = true
+    }
+
+    private fun startOfToday(now: Long): Long {
+        val calendar = java.util.Calendar.getInstance().apply {
+            timeInMillis = now
+            set(java.util.Calendar.HOUR_OF_DAY, 0)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }
+        return calendar.timeInMillis
     }
 
     private fun migrateLegacyHistory() {
