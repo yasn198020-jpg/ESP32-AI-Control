@@ -16,6 +16,7 @@ class MqttBootReceiver : BroadcastReceiver() {
             Intent.ACTION_MY_PACKAGE_REPLACED,
             ACTION_RESTART -> {
                 try {
+                    ScheduledCommandScheduler.restoreAll(context.applicationContext)
                     MqttBackgroundService.start(context.applicationContext)
                 } catch (e: Exception) {
                     android.util.Log.e("MQTT_BACKGROUND", "receiver failed", e)
