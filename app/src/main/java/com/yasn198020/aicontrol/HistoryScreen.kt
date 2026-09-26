@@ -32,14 +32,28 @@ fun HistoryScreen(
     devices: List<Device>,
     store: HistoryStore
 ) {
-    var points by remember { mutableStateOf(store.load()) }
+    var points by remember { mutableStateOf(emptyList<HistoryPoint>()) }
     var selectedKey by remember { mutableStateOf<String?>(null) }
     var periodMenuOpen by remember { mutableStateOf(false) }
+    var displayPeriodMenuOpen by remember { mutableStateOf(false) }
+    var retentionMenuOpen by remember { mutableStateOf(false) }
     var samplePeriod by remember { mutableLongStateOf(store.samplePeriodMs()) }
+    var displayPeriod by remember { mutableLongStateOf(store.displayPeriodMs()) }
+    var retentionDays by remember { mutableIntStateOf(store.retentionDays()) }
 
-    LaunchedEffect(Unit) {
+    val selected = selectedKey?.split("/", limit = 2)
+
+    LaunchedEffect(selectedKey, displayPeriod) {
         while (true) {
-            points = store.load()
+            points = if (selected != null && selected.size == 2) {
+                store.loadSince(
+                    selected[0],
+                    selected[1],
+                    store.displaySinceMillis()
+                )
+            } else {
+                emptyList()
+            }
             kotlinx.coroutines.delay(5000)
         }
     }
@@ -53,7 +67,6 @@ fun HistoryScreen(
             .map { d to it }
     }
 
-    val selected = selectedKey?.split("/", limit = 2)
     val selectedPoints =
         if (selected != null && selected.size == 2) {
             points.filter {
@@ -141,8 +154,118 @@ fun HistoryScreen(
                 "По умолчанию — каждые 10 секунд.",
             style = MaterialTheme.typography.bodySmall
         )
+
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "Показывать на графике:",
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyMedium
+            )
+
+            Box {
+                OutlinedButton(onClick = { displayPeriodMenuOpen = true }) {
+                    Text(
+                        when (displayPeriod) {
+                            3_600_000L -> "1 час"
+                            21_600_000L -> "6 часов"
+                            43_200_000L -> "12 часов"
+                            86_400_000L -> "Сегодня"
+                            259_200_000L -> "3 дня"
+                            604_800_000L -> "7 дней"
+                            2_592_000_000L -> "30 дней"
+                            else -> "Весь срок"
+                        }
+                    )
+                }
+
+                DropdownMenu(
+                    expanded = displayPeriodMenuOpen,
+                    onDismissRequest = { displayPeriodMenuOpen = false }
+                ) {
+                    listOf(
+                        3_600_000L to "1 час",
+                        21_600_000L to "6 часов",
+                        43_200_000L to "12 часов",
+                        86_400_000L to "Сегодня",
+                        259_200_000L to "3 дня",
+                        604_800_000L to "7 дней",
+                        2_592_000_000L to "30 дней",
+                        0L to "Весь срок"
+                    ).forEach { (periodMs, label) ->
+                        DropdownMenuItem(
+                            text = { Text(label) },
+                            onClick = {
+                                store.setDisplayPeriodMs(periodMs)
+                                displayPeriod = periodMs
+                                displayPeriodMenuOpen = false
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "Хранить историю:",
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyMedium
+            )
+
+            Box {
+                OutlinedButton(onClick = { retentionMenuOpen = true }) {
+                    Text(
+                        when (retentionDays) {
+                            0 -> "Всегда"
+                            1 -> "1 день"
+                            3 -> "3 дня"
+                            7 -> "7 дней"
+                            14 -> "14 дней"
+                            30 -> "30 дней"
+                            90 -> "90 дней"
+                            180 -> "180 дней"
+                            else -> "365 дней"
+                        }
+                    )
+                }
+
+                DropdownMenu(
+                    expanded = retentionMenuOpen,
+                    onDismissRequest = { retentionMenuOpen = false }
+                ) {
+                    listOf(
+                        1 to "1 день",
+                        3 to "3 дня",
+                        7 to "7 дней",
+                        14 to "14 дней",
+                        30 to "30 дней",
+                        90 to "90 дней",
+                        180 to "180 дней",
+                        365 to "365 дней",
+                        0 to "Всегда"
+                    ).forEach { (days, label) ->
+                        DropdownMenuItem(
+                            text = { Text(label) },
+                            onClick = {
+                                store.setRetentionDays(days)
+                                retentionDays = days
+                                retentionMenuOpen = false
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
         Text(
-            "Последние 7 дней, максимум 5000 измерений.",
+            "История записывается в отдельный файл на каждый календарный день. " +
+                "По умолчанию хранение — 30 дней.",
             style = MaterialTheme.typography.bodySmall
         )
 
