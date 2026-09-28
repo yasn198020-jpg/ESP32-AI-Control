@@ -90,7 +90,7 @@ jobs:
           TAG="v$VERSION_NAME"
           gh release create "$TAG"             --repo "$GITHUB_REPOSITORY"             --target "$GITHUB_SHA"             --title "ESP32-AI-Control $VERSION_NAME"             --notes "Signed APK build $VERSION_NAME. Install over the previous version using the same signing key."
 
-          gh release upload "$TAG"             "dist/ESP32-AI-Control-$VERSION_CODE.apk"             --repo "$GITHUB_REPOSITORY"             --clobber
+          gh release upload "$TAG"             "dist/ESP32-AI-Control-$VERSION_CODE.apk"             "dist/ESP32-AI-Control-latest.apk"             --repo "$GITHUB_REPOSITORY"             --clobber
 
   cleanup-releases:
     if: ${{ contains(github.event.head_commit.message, '[cleanup-releases]') }}
