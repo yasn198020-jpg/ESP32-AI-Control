@@ -45,7 +45,12 @@ private fun ControlPanel(appWidgetId: Int, onClose: () -> Unit) {
         device.widgets.filter { it.type == WidgetState.Type.TOGGLE || it.type == WidgetState.Type.BUTTON || it.type == WidgetState.Type.INPUT }
             .map { widget -> device to widget }
     }.filterNot { (device, widget) -> controls.any { it.deviceId == device.id && it.widgetId == widget.id } }
-        .sortedWith(compareBy({ it.first.name }, { it.second.order }, { it.second.title }))
+        .sortedWith(
+            compareBy<Pair<Device, WidgetState>> { it.second.page.ifBlank { "Основная" } }
+                .thenBy { it.second.order }
+                .thenBy { it.second.title }
+                .thenBy { it.first.id }
+        )
     fun send(device: Device, widget: WidgetState, value: String) {
         val published = when (widget.type) {
             WidgetState.Type.TOGGLE, WidgetState.Type.BUTTON -> runtime.mqtt.publishControl(device.id, widget.id, value)
