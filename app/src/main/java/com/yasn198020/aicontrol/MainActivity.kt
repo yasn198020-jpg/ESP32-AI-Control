@@ -849,7 +849,15 @@ private fun App(
                                     latestApkUrl = null
                                     updateDownloading = false
                                     updateDialogOpen = true
-                                    UpdateManager.checkLatest(BuildConfig.VERSION_NAME) { result ->
+                                    val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+                                    val installedVersionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                                        packageInfo.longVersionCode
+                                    } else {
+                                        @Suppress("DEPRECATION")
+                                        packageInfo.versionCode.toLong()
+                                    }
+                                    val installedVersionName = packageInfo.versionName ?: BuildConfig.VERSION_NAME
+                                    UpdateManager.checkLatest(installedVersionCode, installedVersionName) { result ->
                                         updateStatus = result.message
                                         latestReleaseUrl = result.url
                                         latestApkUrl = result.apkUrl
