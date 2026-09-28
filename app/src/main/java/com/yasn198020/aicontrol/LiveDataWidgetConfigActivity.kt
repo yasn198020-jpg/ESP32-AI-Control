@@ -9,6 +9,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -16,7 +17,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -33,6 +33,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.shape.RoundedCornerShape
 import com.yasn198020.aicontrol.core.Device
 import com.yasn198020.aicontrol.core.WidgetState
 import kotlinx.coroutines.delay
@@ -101,8 +104,7 @@ private fun WidgetConfiguration(
     var selectedWidgetId by rememberSaveable {
         mutableStateOf(storedSelection?.widgetId)
     }
-    var deviceMenuOpen by remember { mutableStateOf(false) }
-    var widgetMenuOpen by remember { mutableStateOf(false) }
+    var widgetSelectionOpen by remember { mutableStateOf(false) }
 
     var belowColor by rememberSaveable {
         mutableStateOf(storedSelection?.belowColor ?: 0xFF1976D2.toInt())
@@ -131,17 +133,33 @@ private fun WidgetConfiguration(
         }
     }
 
-    val selectedDevice = devices.firstOrNull { it.id == selectedDeviceId }
-    val availableWidgets = selectedDevice?.widgets
-        ?.filter { it.type != WidgetState.Type.BUTTON }
-        ?.sortedWith(compareBy<WidgetState> { it.order }.thenBy { it.title })
-        ?: emptyList()
-
-    if (selectedWidgetId != null && availableWidgets.none { it.id == selectedWidgetId }) {
-        selectedWidgetId = availableWidgets.firstOrNull()?.id
+    val availableWidgets = remember(devices) {
+        devices
+            .flatMap { device ->
+                device.widgets
+                    .filter { it.type != WidgetState.Type.BUTTON }
+                    .map { device to it }
+            }
+            .sortedWith(
+                compareBy<Pair<Device, WidgetState>> { it.second.page.ifBlank { "Основная" } }
+                    .thenBy { it.second.order }
+                    .thenBy { it.second.title }
+                    .thenBy { it.first.id }
+            )
     }
 
-    val selectedWidget = availableWidgets.firstOrNull { it.id == selectedWidgetId }
+    val selectedPair = availableWidgets.firstOrNull {
+        it.first.id == selectedDeviceId && it.second.id == selectedWidgetId
+    }
+    if (selectedPair == null && availableWidgets.isNotEmpty()) {
+        val fallback = availableWidgets.first()
+        selectedDeviceId = fallback.first.id
+        selectedWidgetId = fallback.second.id
+    }
+
+    val selectedDevice = devices.firstOrNull { it.id == selectedDeviceId }
+    val selectedWidget = selectedPair?.second
+        ?: availableWidgets.firstOrNull { it.first.id == selectedDeviceId && it.second.id == selectedWidgetId }?.second
 
     Column(
         modifier = Modifier
@@ -156,61 +174,101 @@ private fun WidgetConfiguration(
             style = MaterialTheme.typography.bodyMedium
         )
 
-        OutlinedButton(
-            onClick = { deviceMenuOpen = true },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = devices.isNotEmpty()
-        ) {
+        if (availableWidgets.isEmpty()) {
+            OutlinedButton(
+                onClick = { runtime.ensureConnected() },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Ожидание ESP32…") }
+        } else {
             Text(
-                selectedDevice?.let { deviceLabel(it) }
-                    ?: if (devices.isEmpty()) "Ожидание ESP32…" else "Выберите ESP32"
+                "Выбор виджета",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
             )
-        }
 
-        DropdownMenu(
-            expanded = deviceMenuOpen,
-            onDismissRequest = { deviceMenuOpen = false }
-        ) {
-            devices.forEach { device ->
-                androidx.compose.material3.DropdownMenuItem(
-                    text = { Text(deviceLabel(device)) },
-                    onClick = {
-                        selectedDeviceId = device.id
-                        selectedWidgetId = null
-                        deviceMenuOpen = false
+            val pages = availableWidgets
+                .map { it.second.page.ifBlank { "Основная" } }
+                .distinct()
+
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                pages.forEach { page ->
+                    val pageWidgets = availableWidgets.filter {
+                        it.second.page.ifBlank { "Основная" } == page
                     }
-                )
+                    val visiblePageWidgets = pageWidgets.filter { item ->
+                        widgetSelectionOpen ||
+                            (item.first.id == selectedDeviceId && item.second.id == selectedWidgetId)
+                    }
+
+                    if (visiblePageWidgets.isNotEmpty()) {
+                        Text(page, fontWeight = FontWeight.Medium)
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            visiblePageWidgets.forEach { item ->
+                                val selected =
+                                    item.first.id == selectedDeviceId && item.second.id == selectedWidgetId
+                                val icon = when (item.second.type) {
+                                    WidgetState.Type.VALUE,
+                                    WidgetState.Type.STATUS -> "🌡"
+                                    WidgetState.Type.TOGGLE -> "◉"
+                                    else -> "⌨"
+                                }
+
+                                Card(
+                                    onClick = {
+                                        if (selected) {
+                                            widgetSelectionOpen = !widgetSelectionOpen
+                                        } else {
+                                            selectedDeviceId = item.first.id
+                                            selectedWidgetId = item.second.id
+                                            widgetSelectionOpen = false
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(14.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (selected)
+                                            MaterialTheme.colorScheme.primaryContainer
+                                        else
+                                            MaterialTheme.colorScheme.surfaceVariant
+                                    )
+                                ) {
+                                    Row(
+                                        Modifier.fillMaxWidth().padding(
+                                            horizontal = 14.dp,
+                                            vertical = 10.dp
+                                        ),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(icon, fontSize = 22.sp, modifier = Modifier.width(38.dp))
+                                        Column(Modifier.weight(1f)) {
+                                            Text(
+                                                item.second.title.ifBlank { item.second.id },
+                                                fontSize = 17.sp,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                            Text(
+                                                item.second.id +
+                                                    "  •  " + item.first.name.ifBlank { "ESP32" } +
+                                                    if (item.second.value.isNotBlank())
+                                                        "  •  " + item.second.value + item.second.unit
+                                                    else "",
+                                                style = MaterialTheme.typography.bodySmall
+                                            )
+                                        }
+                                        if (selected) Text("✓", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
-        }
 
-        OutlinedButton(
-            onClick = { widgetMenuOpen = true },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = availableWidgets.isNotEmpty()
-        ) {
-            Text(
-                selectedWidget?.let { widgetLabel(it) }
-                    ?: if (selectedDevice == null) "Сначала выберите ESP32" else "Выберите параметр"
-            )
-        }
-
-        DropdownMenu(
-            expanded = widgetMenuOpen,
-            onDismissRequest = { widgetMenuOpen = false }
-        ) {
-            availableWidgets.forEach { widget ->
-                androidx.compose.material3.DropdownMenuItem(
-                    text = {
-                        Text(
-                            text = widgetLabel(widget) +
-                                if (widget.unit.isNotBlank()) "  [" + widget.unit + "]" else ""
-                        )
-                    },
-                    onClick = {
-                        selectedWidgetId = widget.id
-                        widgetMenuOpen = false
-                    }
-                )
+            if (!widgetSelectionOpen) {
+                OutlinedButton(
+                    onClick = { widgetSelectionOpen = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("+ Выбрать другой элемент") }
             }
         }
 
