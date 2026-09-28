@@ -17,19 +17,23 @@ data class UpdateResult(
 object UpdateManager {
     private const val RELEASES_API = "https://api.github.com/repos/yasn198020-jpg/ESP32-AI-Control/releases/latest"
 
-    fun checkLatest(currentVersion: String, callback: (UpdateResult) -> Unit) {
+    fun checkLatest(currentVersionCode: Long, currentVersionName: String, callback: (UpdateResult) -> Unit) {
         Thread {
             val result = try {
-                val connection = (URL(RELEASES_API).openConnection() as HttpURLConnection).apply {
+                val apiUrl = RELEASES_API + "?t=" + System.currentTimeMillis()
+                val connection = (URL(apiUrl).openConnection() as HttpURLConnection).apply {
                     requestMethod = "GET"
-                    connectTimeout = 8000
-                    readTimeout = 8000
+                    connectTimeout = 10000
+                    readTimeout = 10000
+                    useCaches = false
                     setRequestProperty("Accept", "application/vnd.github+json")
-                    setRequestProperty("User-Agent", "ESP32-AI-Control")
+                    setRequestProperty("Cache-Control", "no-cache")
+                    setRequestProperty("Pragma", "no-cache")
+                    setRequestProperty("User-Agent", "ESP32-AI-Control-Updater")
                 }
                 try {
                     if (connection.responseCode !in 200..299) {
-                        UpdateResult("Не удалось проверить обновление. Код GitHub: ${connection.responseCode}")
+                        UpdateResult("Не удалось проверить обновление. Код GitHub: " + connection.responseCode)
                     } else {
                         val body = connection.inputStream.bufferedReader().use { it.readText() }
                         val json = JSONObject(body)
@@ -48,25 +52,32 @@ object UpdateManager {
                                 }
                             }
                         }
-                        if (tag.isBlank()) {
-                            UpdateResult("GitHub не сообщил номер последней версии.")
-                        } else {
-                            val remote = parseVersion(tag)
-                            val local = parseVersion(currentVersion)
-                            when {
-                                remote == null -> UpdateResult("GitHub сообщил некорректную версию: $tag")
-                                local == null -> UpdateResult("Не удалось определить текущую версию: $currentVersion")
-                                compareVersions(remote, local) <= 0 -> UpdateResult("У вас установлена актуальная версия: $currentVersion")
-                                apkUrl == null -> UpdateResult("Доступна новая версия: $tag, но APK-файл пока не найден.", htmlUrl.ifBlank { null })
-                                else -> UpdateResult("Доступна новая версия: $tag\nТекущая версия: $currentVersion", htmlUrl.ifBlank { null }, apkUrl)
-                            }
+                        val remoteVersionCode = parseVersionCode(tag)
+                        when {
+                            tag.isBlank() -> UpdateResult("GitHub не сообщил номер последней версии.")
+                            remoteVersionCode == null -> UpdateResult("GitHub сообщил некорректную версию: " + tag)
+                            remoteVersionCode <= currentVersionCode -> UpdateResult(
+                                "Установлена актуальная версия.\n" +
+                                    "Установлено: " + currentVersionName + " (code " + currentVersionCode + ")\n" +
+                                    "GitHub: " + tag + " (code " + remoteVersionCode + ")"
+                            )
+                            apkUrl == null -> UpdateResult(
+                                "Доступна новая версия: " + tag + ", но APK-файл пока не найден.",
+                                htmlUrl.ifBlank { null }
+                            )
+                            else -> UpdateResult(
+                                "Доступна новая версия: " + tag + "\n" +
+                                    "Установлено: " + currentVersionName + " (code " + currentVersionCode + ")",
+                                htmlUrl.ifBlank { null },
+                                apkUrl
+                            )
                         }
                     }
                 } finally {
                     connection.disconnect()
                 }
             } catch (e: Exception) {
-                UpdateResult("Не удалось проверить обновление: ${e.message ?: "ошибка сети"}")
+                UpdateResult("Не удалось проверить обновление: " + (e.message ?: "ошибка сети"))
             }
             android.os.Handler(android.os.Looper.getMainLooper()).post { callback(result) }
         }.start()
@@ -82,13 +93,13 @@ object UpdateManager {
                     connectTimeout = 15000
                     readTimeout = 30000
                     instanceFollowRedirects = true
-                    setRequestProperty("User-Agent", "ESP32-AI-Control")
+                    setRequestProperty("Cache-Control", "no-cache")
+                    setRequestProperty("Pragma", "no-cache")
+                    setRequestProperty("User-Agent", "ESP32-AI-Control-Updater")
                 }
                 try {
-                    if (connection.responseCode !in 200..299) throw IllegalStateException("HTTP ${connection.responseCode}")
-                    connection.inputStream.use { input ->
-                        file.outputStream().use { output -> input.copyTo(output, 32 * 1024) }
-                    }
+                    if (connection.responseCode !in 200..299) throw IllegalStateException("HTTP " + connection.responseCode)
+                    connection.inputStream.use { input -> file.outputStream().use { output -> input.copyTo(output, 32 * 1024) } }
                 } finally { connection.disconnect() }
                 val uri = FileProvider.getUriForFile(context, context.packageName + ".fileprovider", file)
                 val installIntent = Intent(Intent.ACTION_VIEW).apply {
@@ -99,26 +110,14 @@ object UpdateManager {
                 context.startActivity(installIntent)
                 "APK скачан. Открываю установку…"
             } catch (e: Exception) {
-                "Не удалось установить обновление: ${e.message ?: "ошибка"}"
+                "Не удалось установить обновление: " + (e.message ?: "ошибка")
             }
             android.os.Handler(android.os.Looper.getMainLooper()).post { callback(message) }
         }.start()
     }
 
-    private fun compareVersions(a: List<Int>, b: List<Int>): Int {
-        val size = maxOf(a.size, b.size)
-        for (i in 0 until size) {
-            val av = a.getOrElse(i) { 0 }
-            val bv = b.getOrElse(i) { 0 }
-            if (av != bv) return av.compareTo(bv)
-        }
-        return 0
-    }
-
-    private fun parseVersion(value: String): List<Int>? {
-        val cleaned = value.trim().removePrefix("v")
-        val parts = cleaned.split(".")
-        if (parts.size < 2 || parts.any { it.toIntOrNull() == null }) return null
-        return parts.map { it.toInt() }
+    private fun parseVersionCode(tag: String): Long? {
+        val cleaned = tag.trim().removePrefix("v")
+        return cleaned.substringAfterLast('.', "").toLongOrNull()
     }
 }
