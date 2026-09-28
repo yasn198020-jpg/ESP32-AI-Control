@@ -13,6 +13,9 @@ import android.os.IBinder
 import android.speech.tts.TextToSpeech
 import androidx.core.app.NotificationCompat
 import java.util.Locale
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.TimeUnit
 
 class MarfaVoiceService : Service() {
 
@@ -29,6 +32,8 @@ class MarfaVoiceService : Service() {
     private var runtimeListener: AppRuntime.UiListener? = null
     private var tts: TextToSpeech? = null
     private lateinit var prefs: android.content.SharedPreferences
+    private val commandScheduler: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor()
+
 
     override fun onCreate() {
         super.onCreate()
@@ -170,8 +175,12 @@ class MarfaVoiceService : Service() {
         val result = LocalCommandManager().interpret(command, synchronizedCopyDevices())
         when (result.action) {
             LocalCommandAction.CONTROL -> {
-                val ok = mqtt?.publishControl(result.deviceId, result.widgetId, result.value) == true
-                speak(if (ok) result.reply else "Не удалось отправить команду")
+                if (result.delayMs > 0L) {
+                    scheduleControl(result.deviceId, result.widgetId, result.value, result.delayMs, result.reply)
+                } else {
+                    val ok = mqtt?.publishControl(result.deviceId, result.widgetId, result.value) == true
+                    speak(if (ok) result.reply else "Не удалось отправить команду")
+                }
             }
             LocalCommandAction.READ_VALUE -> {
                 speak(result.reply)
@@ -198,6 +207,34 @@ class MarfaVoiceService : Service() {
 
     private fun synchronizedCopyDevices(): List<Device> =
         runtime?.deviceRepository?.snapshot() ?: emptyList()
+
+    private fun scheduleControl(
+        deviceId: String,
+        widgetId: String,
+        value: String,
+        delayMs: Long,
+        confirmation: String
+    ) {
+        speak("Запланировано: $confirmation")
+        android.util.Log.d(
+            "MARFA_SCHEDULER",
+            "scheduled device=$deviceId widget=$widgetId value=$value delayMs=$delayMs"
+        )
+
+        commandScheduler.schedule({
+            val ok = mqtt?.publishControl(deviceId, widgetId, value) == true
+            val resultText = if (ok) {
+                "Выполнено: $confirmation"
+            } else {
+                "Не удалось выполнить запланированную команду: MQTT не подключён"
+            }
+            android.util.Log.d(
+                "MARFA_SCHEDULER",
+                "execute device=$deviceId widget=$widgetId value=$value ok=$ok"
+            )
+            speak(resultText)
+        }, delayMs, TimeUnit.MILLISECONDS)
+    }
 
     private fun formatTemperatureForSpeech(raw: String, unit: String = ""): String {
         val normalized = raw.trim().replace(',', '.')
@@ -234,6 +271,7 @@ class MarfaVoiceService : Service() {
         runtimeListener = null
         mqtt = null
         runtime = null
+        commandScheduler.shutdownNow()
         tts?.stop()
         tts?.shutdown()
         tts = null
