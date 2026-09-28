@@ -6,6 +6,9 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -33,7 +36,7 @@ private fun ControlPanel(appWidgetId: Int, onClose: () -> Unit) {
     val runtime = remember { AppRuntime.get(context) }
     var devices by remember { mutableStateOf(runtime.deviceRepository.snapshot()) }
     var controls by remember { mutableStateOf(LiveDataWidgetStore.getControls(context, appWidgetId)) }
-    var addMenuOpen by remember { mutableStateOf(false) }
+    var addSelectionOpen by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("") }
     LaunchedEffect(Unit) { while (true) { devices = runtime.deviceRepository.snapshot(); delay(700) } }
     fun findWidget(c: LiveDataWidgetStore.Control): Pair<Device, WidgetState>? {
@@ -83,14 +86,61 @@ private fun ControlPanel(appWidgetId: Int, onClose: () -> Unit) {
                 ControlRow(device, widget, { value -> send(device, widget, value) }, { controls = controls.filterNot { it == control }; LiveDataWidgetStore.saveControls(context, appWidgetId, controls) })
             }
         }
-        Box {
-            OutlinedButton(onClick = { addMenuOpen = true }, modifier = Modifier.fillMaxWidth(), enabled = available.isNotEmpty()) { Text("+ Добавить элемент управления") }
-            DropdownMenu(expanded = addMenuOpen, onDismissRequest = { addMenuOpen = false }) {
-                available.forEach { (device, widget) ->
-                    DropdownMenuItem(
-                        text = { Text(device.name.ifBlank { "ESP32" } + " — " + widget.title.ifBlank { widget.id }) },
-                        onClick = { controls = controls + LiveDataWidgetStore.Control(device.id, widget.id); LiveDataWidgetStore.saveControls(context, appWidgetId, controls); addMenuOpen = false }
-                    )
+        OutlinedButton(
+            onClick = { addSelectionOpen = !addSelectionOpen },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = available.isNotEmpty()
+        ) { Text(if (addSelectionOpen) "Закрыть выбор" else "+ Добавить элемент управления") }
+
+        if (addSelectionOpen && available.isNotEmpty()) {
+            Text("Выбор элемента", style = MaterialTheme.typography.titleMedium)
+            val pages = available.map { it.second.page.ifBlank { "Основная" } }.distinct()
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                pages.forEach { page ->
+                    val pageWidgets = available.filter { it.second.page.ifBlank { "Основная" } == page }
+                    Text(page, fontWeight = FontWeight.Medium)
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        pageWidgets.forEach { (device, widget) ->
+                            val icon = when (widget.type) {
+                                WidgetState.Type.TOGGLE, WidgetState.Type.BUTTON -> "◉"
+                                WidgetState.Type.INPUT -> "⌨"
+                                else -> ""
+                            }
+                            Card(
+                                onClick = {
+                                    val newControl = LiveDataWidgetStore.Control(device.id, widget.id)
+                                    if (!controls.contains(newControl)) {
+                                        controls = controls + newControl
+                                        LiveDataWidgetStore.saveControls(context, appWidgetId, controls)
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                                )
+                            ) {
+                                Row(
+                                    Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(icon, fontSize = 22.sp, modifier = Modifier.width(38.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            widget.title.ifBlank { widget.id },
+                                            fontSize = 17.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        Text(
+                                            widget.id + "  •  " + device.name.ifBlank { "ESP32" },
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                    }
+                                    Text("+", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
