@@ -9,7 +9,8 @@ data class LocalCommandResult(
     val deviceId: String = "",
     val widgetId: String = "",
     val value: String = "",
-    val reply: String
+    val reply: String,
+    val delayMs: Long = 0L
 )
 
 fun formatTemperatureForSpeech(raw: String, unit: String = "°C"): String {
@@ -103,13 +104,61 @@ class LocalCommandManager {
 
         val candidate = best.first
         val actionWord = if (value == "1") "Открываю" else "Закрываю"
+        val delayMs = detectDelayMs(text)
+        val reply = if (delayMs > 0L) {
+            "$actionWord через ${formatDelay(delayMs)}: ${candidate.widget.title}"
+        } else {
+            "$actionWord: ${candidate.widget.title}"
+        }
         return LocalCommandResult(
             LocalCommandAction.CONTROL,
             candidate.device.id,
             candidate.widget.id,
             value,
-            "$actionWord: ${candidate.widget.title}"
+            reply,
+            delayMs
         )
+    }
+
+    private fun detectDelayMs(text: String): Long {
+        val match = Regex("""(?:через|спустя)\s+(.+?)(?=$|\s+(?:у|в|на|для)\s+)""").find(text) ?: return 0L
+        val duration = match.groupValues.getOrNull(1)?.trim().orEmpty()
+        if (duration.isBlank()) return 0L
+
+        val words = mapOf(
+            "один" to 1L, "одна" to 1L, "два" to 2L, "две" to 2L,
+            "три" to 3L, "четыре" to 4L, "пять" to 5L, "шесть" to 6L,
+            "семь" to 7L, "восемь" to 8L, "девять" to 9L, "десять" to 10L,
+            "одиннадцать" to 11L, "двенадцать" to 12L, "тринадцать" to 13L,
+            "четырнадцать" to 14L, "пятнадцать" to 15L, "двадцать" to 20L
+        )
+
+        var totalMinutes = 0L
+        Regex("""(\d+)\s*(?:час(?:а|ов)?|ч)""").find(duration)?.let {
+            totalMinutes += (it.groupValues[1].toLongOrNull() ?: 0L) * 60L
+        }
+        Regex("""(\d+)\s*(?:минут(?:а|ы)?|мин)""").find(duration)?.let {
+            totalMinutes += it.groupValues[1].toLongOrNull() ?: 0L
+        }
+        Regex("""\b([а-я]+)\s+(?:час(?:а|ов)?|ч)\b""").find(duration)?.let {
+            totalMinutes += (words[it.groupValues[1]] ?: 0L) * 60L
+        }
+        Regex("""\b([а-я]+)\s+(?:минут(?:а|ы)?|мин)\b""").find(duration)?.let {
+            totalMinutes += words[it.groupValues[1]] ?: 0L
+        }
+
+        return totalMinutes.coerceAtMost(7L * 24L * 60L) * 60_000L
+    }
+
+    private fun formatDelay(delayMs: Long): String {
+        val minutes = delayMs / 60_000L
+        val hours = minutes / 60L
+        val rest = minutes % 60L
+        return when {
+            hours > 0L && rest > 0L -> "$hours ч $rest мин"
+            hours > 0L -> "$hours ч"
+            else -> "$minutes мин"
+        }
     }
 
     private data class Candidate(val device: Device, val widget: WidgetState)
