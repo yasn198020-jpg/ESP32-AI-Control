@@ -60,6 +60,10 @@
             android:name=".LiveDataWidgetConfigActivity"
             android:exported="true"
             android:theme="@style/Theme.App.NoActionBar" />
+        <activity
+            android:name=".LiveDataWidgetControlActivity"
+            android:exported="false"
+            android:theme="@style/Theme.App.NoActionBar" />
 
         <service
             android:name=".MarfaVoiceService"
