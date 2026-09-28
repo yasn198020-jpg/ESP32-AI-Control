@@ -8,11 +8,9 @@ object LiveDataWidgetStore {
     private const val KEY_WIDGET = "widget_"
     private const val KEY_THRESHOLDS = "thresholds_"
     private const val KEY_BELOW_COLOR = "below_color_"
+    private const val KEY_CONTROLS = "controls_"
 
-    data class Threshold(
-        val value: Float,
-        val color: Int
-    )
+    data class Threshold(val value: Float, val color: Int)
 
     data class Selection(
         val deviceId: String,
@@ -29,6 +27,8 @@ object LiveDataWidgetStore {
             return color
         }
     }
+
+    data class Control(val deviceId: String, val widgetId: String)
 
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -59,7 +59,6 @@ object LiveDataWidgetStore {
             )
         }
 
-        // Backward compatibility with the previous two-threshold format.
         val low = p.getString("low_" + appWidgetId, "0")?.toFloatOrNull() ?: 0f
         val high = p.getString("high_" + appWidgetId, "20")?.toFloatOrNull() ?: 20f
         val lowColor = p.getInt("color_low_" + appWidgetId, 0xFF1976D2.toInt())
@@ -85,8 +84,7 @@ object LiveDataWidgetStore {
         thresholds: List<Threshold>,
         belowColor: Int
     ) {
-        val serialized = thresholds
-            .sortedBy { it.value }
+        val serialized = thresholds.sortedBy { it.value }
             .joinToString(";") { "${it.value}|${it.color}" }
 
         prefs(context).edit()
@@ -97,12 +95,42 @@ object LiveDataWidgetStore {
             .apply()
     }
 
+    fun getControls(context: Context, appWidgetId: Int): List<Control> {
+        val raw = prefs(context).getString(KEY_CONTROLS + appWidgetId, null) ?: return emptyList()
+        return runCatching {
+            val array = org.json.JSONArray(raw)
+            buildList {
+                for (i in 0 until array.length()) {
+                    val item = array.optJSONObject(i) ?: continue
+                    val deviceId = item.optString("deviceId").trim()
+                    val widgetId = item.optString("widgetId").trim()
+                    if (deviceId.isNotBlank() && widgetId.isNotBlank()) {
+                        add(Control(deviceId, widgetId))
+                    }
+                }
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    fun saveControls(context: Context, appWidgetId: Int, controls: List<Control>) {
+        val array = org.json.JSONArray()
+        controls.distinctBy { it.deviceId + "/" + it.widgetId }.forEach {
+            array.put(
+                org.json.JSONObject()
+                    .put("deviceId", it.deviceId)
+                    .put("widgetId", it.widgetId)
+            )
+        }
+        prefs(context).edit().putString(KEY_CONTROLS + appWidgetId, array.toString()).apply()
+    }
+
     fun clear(context: Context, appWidgetId: Int) {
         prefs(context).edit()
             .remove(KEY_DEVICE + appWidgetId)
             .remove(KEY_WIDGET + appWidgetId)
             .remove(KEY_THRESHOLDS + appWidgetId)
             .remove(KEY_BELOW_COLOR + appWidgetId)
+            .remove(KEY_CONTROLS + appWidgetId)
             .remove("low_" + appWidgetId)
             .remove("high_" + appWidgetId)
             .remove("color_low_" + appWidgetId)
