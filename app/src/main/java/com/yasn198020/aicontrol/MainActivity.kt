@@ -564,6 +564,47 @@ private fun App(
                             voiceStatus = result.reply
                             speech.speak(result.reply, TextToSpeech.QUEUE_FLUSH, null, "temperature")
                         }
+                        LocalCommandAction.SMART_RULE -> {
+                            val scenarioStore = runtime.scenarioStore
+                            if (result.conditionDeviceId.isBlank() ||
+                                result.conditionWidgetId.isBlank() ||
+                                result.actionDeviceId.isBlank() ||
+                                result.actionWidgetId.isBlank()) {
+                                voiceStatus = "Не удалось определить все элементы правила."
+                            } else {
+                                val scenario = Scenario(
+                                    title = "Марфа: " + result.reply.removePrefix("Поняла правило: "),
+                                    deviceId = result.conditionDeviceId,
+                                    widgetId = result.conditionWidgetId,
+                                    operator = result.conditionOperator,
+                                    threshold = result.conditionThreshold,
+                                    message = result.reply,
+                                    actionType = "MQTT_CONTROL",
+                                    actionDeviceId = result.actionDeviceId,
+                                    actionWidgetId = result.actionWidgetId,
+                                    actionValue = result.actionValue,
+                                    actions = listOf(
+                                        ScenarioAction(
+                                            deviceId = result.actionDeviceId,
+                                            widgetId = result.actionWidgetId,
+                                            value = result.actionValue
+                                        )
+                                    ),
+                                    notificationEnabled = true,
+                                    conditions = listOf(
+                                        ScenarioCondition(
+                                            deviceId = result.conditionDeviceId,
+                                            widgetId = result.conditionWidgetId,
+                                            operator = result.conditionOperator,
+                                            threshold = result.conditionThreshold
+                                        )
+                                    )
+                                )
+                                scenarioStore.add(scenario)
+                                voiceStatus = result.reply + ". Правило сохранено."
+                                speech.speak(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "smart-rule")
+                            }
+                        }
                         LocalCommandAction.CLARIFY -> voiceStatus = result.reply
                         LocalCommandAction.NOT_FOUND -> voiceStatus = result.reply
                     }
