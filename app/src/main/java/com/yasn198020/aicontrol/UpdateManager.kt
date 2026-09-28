@@ -42,7 +42,7 @@ object UpdateManager {
                                 val asset = assets.optJSONObject(i) ?: continue
                                 val name = asset.optString("name").trim()
                                 val downloadUrl = asset.optString("browser_download_url").trim()
-                                if (name.endsWith(".apk", ignoreCase = true) && downloadUrl.isNotBlank()) {
+                                if (name == "ESP32-AI-Control-latest.apk" && downloadUrl.isNotBlank()) {
                                     apkUrl = downloadUrl
                                     break
                                 }
