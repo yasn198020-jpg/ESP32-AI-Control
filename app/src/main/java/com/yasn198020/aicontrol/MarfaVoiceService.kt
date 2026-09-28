@@ -174,6 +174,9 @@ class MarfaVoiceService : Service() {
 
         val result = LocalCommandManager().interpret(command, synchronizedCopyDevices())
         when (result.action) {
+            LocalCommandAction.SMART_RULE -> {
+                saveSmartRule(result)
+            }
             LocalCommandAction.CONTROL -> {
                 if (result.delayMs > 0L) {
                     scheduleControl(result.deviceId, result.widgetId, result.value, result.delayMs, result.reply)
@@ -205,6 +208,33 @@ class MarfaVoiceService : Service() {
         }
     }
 
+    private fun saveSmartRule(result: LocalCommandResult) {
+        if (result.conditionWidgetId.isBlank() || result.actionWidgetId.isBlank()) {
+            speak("Не удалось определить условие или действие")
+            return
+        }
+
+        val scenario = Scenario(
+            title = "Марфа: " + result.reply.removePrefix("Поняла правило: "),
+            deviceId = result.conditionDeviceId,
+            widgetId = result.conditionWidgetId,
+            operator = result.conditionOperator,
+            threshold = result.conditionThreshold,
+            message = result.reply,
+            enabled = true,
+            armed = true,
+            actionType = "MQTT_CONTROL",
+            actionDeviceId = result.actionDeviceId,
+            actionWidgetId = result.actionWidgetId,
+            actionValue = result.actionValue,
+            actions = listOf(ScenarioAction(result.actionDeviceId, result.actionWidgetId, result.actionValue)),
+            notificationEnabled = true,
+            conditions = listOf(ScenarioCondition(result.conditionDeviceId, result.conditionWidgetId, result.conditionOperator, result.conditionThreshold))
+        )
+        runtime?.scenarioStore?.add(scenario)
+        speak(result.reply + ". Правило сохранено.")
+        android.util.Log.d("MARFA_AUTOMATION", "saved scenario=" + scenario.id + " condition=" + scenario.widgetId + " " + scenario.operator + " " + scenario.threshold + " action=" + scenario.actionWidgetId + "=" + scenario.actionValue)
+    }
     private fun synchronizedCopyDevices(): List<Device> =
         runtime?.deviceRepository?.snapshot() ?: emptyList()
 
