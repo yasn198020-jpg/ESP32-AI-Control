@@ -157,7 +157,12 @@ class LiveDataWidgetProvider : AppWidgetProvider() {
             }
             views.setInt(R.id.live_data_widget_root, "setBackgroundColor", background)
 
-            val openIntent = Intent(context, MainActivity::class.java).apply {
+            val openIntent = if (selection == null) {
+                Intent(context, LiveDataWidgetConfigActivity::class.java)
+            } else {
+                Intent(context, LiveDataWidgetControlActivity::class.java)
+            }.apply {
+                putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             }
             val pendingIntent = PendingIntent.getActivity(
