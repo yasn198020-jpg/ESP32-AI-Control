@@ -165,6 +165,7 @@ private fun App(
     var devices by remember { mutableStateOf(emptyList<Device>()) }
     var voiceText by remember { mutableStateOf("") }
     var voiceStatus by remember { mutableStateOf("Нажмите 🎤 и скажите команду") }
+    var pendingSmartRule by remember { mutableStateOf<LocalCommandResult?>(null) }
     val localCommandManager = remember { LocalCommandManager() }
     val speech = remember { TextToSpeech(context, null) }
     val trainedStore = remember { TrainedCommandStore(prefs) }
@@ -510,6 +511,46 @@ private fun App(
                 saveTraining(command)
             } else {
                 voiceStatus = "Анализ команды…"
+
+                pendingSmartRule?.let { pending ->
+                    val normalized = command.lowercase(Locale("ru", "RU")).trim().replace("ё", "е")
+                    when {
+                        normalized in setOf("да", "сохрани", "сохранить", "подтверждаю", "верно", "правильно", "согласен", "согласна") -> {
+                            pendingSmartRule = null
+                            val scenario = Scenario(
+                                title = "Марфа: " + pending.reply.removePrefix("Поняла правило: "),
+                                deviceId = pending.conditionDeviceId,
+                                widgetId = pending.conditionWidgetId,
+                                operator = pending.conditionOperator,
+                                threshold = pending.conditionThreshold,
+                                message = pending.reply,
+                                actionType = "MQTT_CONTROL",
+                                actionDeviceId = pending.actionDeviceId,
+                                actionWidgetId = pending.actionWidgetId,
+                                actionValue = pending.actionValue,
+                                actions = listOf(ScenarioAction(pending.actionDeviceId, pending.actionWidgetId, pending.actionValue)),
+                                notificationEnabled = true,
+                                conditions = listOf(ScenarioCondition(pending.conditionDeviceId, pending.conditionWidgetId, pending.conditionOperator, pending.conditionThreshold))
+                            )
+                            runtime.scenarioStore.add(scenario)
+                            voiceStatus = pending.reply + ". Правило сохранено."
+                            speech.speak(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "smart-rule-confirmed")
+                            return@LaunchedEffect
+                        }
+                        normalized in setOf("нет", "отмена", "отменить", "не сохраняй", "не сохранять", "не надо") -> {
+                            pendingSmartRule = null
+                            voiceStatus = "Правило не сохранено"
+                            speech.speak(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "smart-rule-cancelled")
+                            return@LaunchedEffect
+                        }
+                        else -> {
+                            voiceStatus = "Сохранить предыдущее правило? Скажите да или нет"
+                            speech.speak(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "smart-rule-ask-again")
+                            return@LaunchedEffect
+                        }
+                    }
+                }
+
                 val trainedActions = trainedMatcher.matchAll(command)
                 if (trainedActions.isNotEmpty()) {
                     var sent = 0
@@ -565,44 +606,15 @@ private fun App(
                             speech.speak(result.reply, TextToSpeech.QUEUE_FLUSH, null, "temperature")
                         }
                         LocalCommandAction.SMART_RULE -> {
-                            val scenarioStore = runtime.scenarioStore
                             if (result.conditionDeviceId.isBlank() ||
                                 result.conditionWidgetId.isBlank() ||
                                 result.actionDeviceId.isBlank() ||
                                 result.actionWidgetId.isBlank()) {
                                 voiceStatus = "Не удалось определить все элементы правила."
                             } else {
-                                val scenario = Scenario(
-                                    title = "Марфа: " + result.reply.removePrefix("Поняла правило: "),
-                                    deviceId = result.conditionDeviceId,
-                                    widgetId = result.conditionWidgetId,
-                                    operator = result.conditionOperator,
-                                    threshold = result.conditionThreshold,
-                                    message = result.reply,
-                                    actionType = "MQTT_CONTROL",
-                                    actionDeviceId = result.actionDeviceId,
-                                    actionWidgetId = result.actionWidgetId,
-                                    actionValue = result.actionValue,
-                                    actions = listOf(
-                                        ScenarioAction(
-                                            deviceId = result.actionDeviceId,
-                                            widgetId = result.actionWidgetId,
-                                            value = result.actionValue
-                                        )
-                                    ),
-                                    notificationEnabled = true,
-                                    conditions = listOf(
-                                        ScenarioCondition(
-                                            deviceId = result.conditionDeviceId,
-                                            widgetId = result.conditionWidgetId,
-                                            operator = result.conditionOperator,
-                                            threshold = result.conditionThreshold
-                                        )
-                                    )
-                                )
-                                scenarioStore.add(scenario)
-                                voiceStatus = result.reply + ". Правило сохранено."
-                                speech.speak(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "smart-rule")
+                                pendingSmartRule = result
+                                voiceStatus = result.reply + ". Сохранить это правило? Скажите да или нет"
+                                speech.speak(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "smart-rule-ask")
                             }
                         }
                         LocalCommandAction.CLARIFY -> voiceStatus = result.reply
