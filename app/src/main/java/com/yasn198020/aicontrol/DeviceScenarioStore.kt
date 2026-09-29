@@ -9,9 +9,9 @@ import java.util.concurrent.ConcurrentHashMap
 
 data class StoredDeviceScenario(
     val id: String = UUID.randomUUID().toString(),
-    val deviceId: String,
     val title: String,
     val source: String,
+    val sensorIds: List<String> = emptyList(),
     val enabled: Boolean = true
 )
 
@@ -45,15 +45,22 @@ class DeviceScenarioStore(private val prefs: SharedPreferences) {
             buildList {
                 for (i in 0 until array.length()) {
                     val o = array.optJSONObject(i) ?: continue
-                    val deviceId = o.optString("deviceId").trim()
                     val source = o.optString("source")
-                    if (deviceId.isBlank() || source.isBlank()) continue
+                    val sensorIds = buildList {
+                        val ids = o.optJSONArray("sensorIds")
+                        if (ids != null) {
+                            for (j in 0 until ids.length()) {
+                                ids.optString(j).trim().takeIf { it.isNotBlank() }?.let(::add)
+                            }
+                        }
+                    }
+                    if (source.isBlank()) continue
                     add(
                         StoredDeviceScenario(
                             id = o.optString("id").ifBlank { UUID.randomUUID().toString() },
-                            deviceId = deviceId,
                             title = o.optString("title").ifBlank { "Сценарий устройства" },
                             source = source,
+                            sensorIds = sensorIds,
                             enabled = o.optBoolean("enabled", true)
                         )
                     )
@@ -88,9 +95,9 @@ class DeviceScenarioStore(private val prefs: SharedPreferences) {
         items.forEach { item ->
             array.put(JSONObject().apply {
                 put("id", item.id)
-                put("deviceId", item.deviceId)
                 put("title", item.title)
                 put("source", item.source)
+                put("sensorIds", JSONArray(item.sensorIds))
                 put("enabled", item.enabled)
             })
         }
@@ -131,18 +138,18 @@ class DeviceScenarioManager(
     }
 
     fun saveScenario(
-        deviceId: String,
         title: String,
         source: String,
+        sensorIds: List<String>,
         enabled: Boolean = true
     ): Pair<StoredDeviceScenario?, DeviceScenarioModel> {
         val model = parseSource(source)
         if (!model.valid) return null to model
 
         val item = StoredDeviceScenario(
-            deviceId = deviceId,
             title = title.ifBlank { "Сценарий устройства" },
             source = source.trim(),
+            sensorIds = sensorIds.distinct(),
             enabled = enabled
         )
         store.save(item)
@@ -186,8 +193,13 @@ class DeviceScenarioManager(
             val model = refreshModel(stored) ?: return@forEach
             if (model.parserErrors.isNotEmpty()) return@forEach
 
-            val device = devices.firstOrNull { it.id == stored.deviceId } ?: return@forEach
-            val variables = device.widgets.associate { it.id to it.value }
+            val matches = stored.sensorIds.mapNotNull { sensorId ->
+                val found = devices.flatMap { device -> device.widgets.map { device.id to it } }
+                    .filter { it.second.id == sensorId }
+                if (found.size == 1) found.first() else null
+            }.toMap()
+            if (matches.isEmpty()) return@forEach
+            val variables = matches.mapValues { it.value.value }
             val context = IoTScenarioEvaluationContext(variables)
 
             model.rules.forEach { rule ->
@@ -195,7 +207,11 @@ class DeviceScenarioManager(
                 if (!condition.isTruthy()) return@forEach
 
                 rule.actions.forEach { action ->
-                    val target = device.widgets.firstOrNull { it.id == action.targetId } ?: return@forEach
+                    val targetEntry = devices.flatMap { device -> device.widgets.map { device.id to it } }
+                        .filter { it.second.id == action.targetId }
+                        .singleOrNull() ?: return@forEach
+                    val targetDeviceId = targetEntry.first
+                    val target = targetEntry.second
                     val expected = IoTScenarioEvaluator.evaluate(action.expression, context)
                     val expectedText = expected.asComparableText() ?: return@forEach
                     val actualText = target.value.trim()
@@ -208,7 +224,7 @@ class DeviceScenarioManager(
                     val deviation = DeviceScenarioDeviation(
                         scenarioId = stored.id,
                         scenarioTitle = stored.title,
-                        deviceId = stored.deviceId,
+                        deviceId = targetDeviceId,
                         ruleIndex = rule.index,
                         widgetId = target.id,
                         expected = expectedText,
@@ -263,7 +279,7 @@ class DeviceScenarioManager(
             devices = devices,
             models = store.all()
                 .filter { it.enabled }
-                .mapNotNull { item -> refreshModel(item)?.let { item.deviceId to it } }
+                .mapNotNull { item -> refreshModel(item)?.let { item to it } }
         )
     }
 
