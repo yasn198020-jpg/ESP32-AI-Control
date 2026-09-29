@@ -762,6 +762,6 @@ object DeviceScenarioModelFormatter {
             )
         }
 
-        return lines.joinToString("\\n")
+        return lines.joinToString("\n")
     }
 }
