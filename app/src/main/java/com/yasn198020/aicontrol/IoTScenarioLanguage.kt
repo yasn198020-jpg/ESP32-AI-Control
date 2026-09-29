@@ -716,8 +716,8 @@ object DeviceScenarioModelFormatter {
 
     fun tree(model: DeviceScenarioModel): String {
         if (model.parserErrors.isNotEmpty()) {
-            return "Дерево недоступно: сначала исправьте ошибки разбора.\\n" +
-                model.parserErrors.take(5).joinToString("\\n")
+            return "Дерево недоступно: сначала исправьте ошибки разбора.\n" +
+                model.parserErrors.take(5).joinToString("\n")
         }
         if (model.statements.isEmpty()) return "Дерево пустое."
 
