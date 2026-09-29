@@ -125,4 +125,47 @@ class IoTScenarioLanguageTest {
         assertEquals("DOOR", plan.actions.single().widgetId)
         assertEquals(0, plan.prerequisites.size)
     }
+    @Test
+    fun parsesRealIoTManagerScenarioShape() {
+        val source = """
+            scenario=>if onStart then {
+                timer3 = 2
+                timer33 = 2
+                btn32 = 0
+                btn33 = 0
+                btn42 = 0
+                btn43 = 0
+            }
+
+            if vbtn90 == 0 then {
+                value27 := 0;
+                value37 := 0;
+                if dstmp31 > t31 & vbtn68 == 0 then { btn33 = 1; vbtn68 = 1; }
+                if dstmp31 < t32 & vbtn68 == 1 then { value83 = 0; btn32 = 1; vbtn68 = 0; }
+                if dstmp31 > value22 & vbtn78 == 0 then { btn43 = 1; vbtn78 = 1; }
+            }
+
+            if vbtn90 == 1 then { value27 := 1; value37 := 1; timer53 = 7200; }
+            if btn59 == 1 & btn32 == 1 then { btn32 = 0; value83 = 1; }
+            if btn32 == 1 | btn33 == 1 then timer3 = 6;
+        """.trimIndent()
+
+        val model = IoTScenarioSemanticAnalyzer.analyze(IoTScenarioParser.parse(source))
+
+        assertTrue(model.parserErrors.isEmpty())
+        assertTrue(model.rules.size >= 10)
+        assertTrue(model.identifiers.containsAll(setOf("vbtn90", "dstmp31", "vbtn68", "vbtn78", "btn59", "timer3")))
+        assertTrue(model.rules.any { it.actions.any { action -> action.targetId == "vbtn78" && action.rendered.contains("= 1") } })
+        assertTrue(model.rules.any { it.actions.any { action -> action.targetId == "timer3" && action.rendered.contains("= 6") } })
+    }
+
+    @Test
+    fun silentAssignmentWorksWithoutWhitespace() {
+        val parsed = IoTScenarioParser.parse("if MODE==1 then VALUE:=2;")
+        assertTrue(parsed.errors.isEmpty())
+        val model = IoTScenarioSemanticAnalyzer.analyze(parsed)
+        assertEquals("VALUE", model.rules.single().actions.single().targetId)
+        assertEquals(":=", model.rules.single().actions.single().operator)
+    }
+
 }
