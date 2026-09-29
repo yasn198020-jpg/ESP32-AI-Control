@@ -46,7 +46,7 @@ class DeviceScenarioStore(private val prefs: SharedPreferences) {
                 for (i in 0 until array.length()) {
                     val o = array.optJSONObject(i) ?: continue
                     val source = o.optString("source")
-                    val sensorIds = buildList {
+                    var sensorIds = buildList {
                         val ids = o.optJSONArray("sensorIds")
                         if (ids != null) {
                             for (j in 0 until ids.length()) {
@@ -55,6 +55,14 @@ class DeviceScenarioStore(private val prefs: SharedPreferences) {
                         }
                     }
                     if (source.isBlank()) continue
+                    if (sensorIds.isEmpty()) {
+                        sensorIds = runCatching {
+                            IoTScenarioSemanticAnalyzer
+                                .analyze(IoTScenarioParser.parse(source))
+                                .identifiers
+                                .toList()
+                        }.getOrDefault(emptyList())
+                    }
                     add(
                         StoredDeviceScenario(
                             id = o.optString("id").ifBlank { UUID.randomUUID().toString() },
