@@ -575,23 +575,29 @@ object IoTScenarioCommandPlanner {
         models: List<Pair<String, DeviceScenarioModel>>
     ): ScenarioCommandPlan {
         val base = baseActions.ifEmpty { listOf(LocalCommandActionItem(targetDeviceId, targetWidgetId, desiredValue)) }
-        val context = IoTScenarioEvaluationContext(devices.flatMap { it.widgets }.associate { it.id to it.value })
-
-        val candidates = models.flatMap { (scenarioDeviceId, model) ->
-            model.rules.filter { rule ->
-                rule.actions.any { action ->
-                    action.targetId == targetWidgetId && valueMatchesDesired(action.expression, desiredValue, context)
-                }
-            }.map { scenarioDeviceId to it }
-        }
+        val candidates = models
+            .filter { (scenarioDeviceId, _) -> scenarioDeviceId == targetDeviceId }
+            .flatMap { (scenarioDeviceId, model) ->
+                val device = devices.firstOrNull { it.id == scenarioDeviceId }
+                    ?: return@flatMap emptyList()
+                val context = IoTScenarioEvaluationContext(
+                    device.widgets.associate { it.id to it.value }
+                )
+                model.rules
+                    .filter { rule ->
+                        rule.actions.any { action ->
+                            action.targetId == targetWidgetId &&
+                                valueMatchesDesired(action.expression, desiredValue, context)
+                        }
+                    }
+                    .map { scenarioDeviceId to it }
+            }
         if (candidates.isEmpty()) return ScenarioCommandPlan(base)
 
         val satisfiable = candidates.map { pair ->
             val prerequisites = extractEqualityPrerequisites(pair.second.condition.expression).mapNotNull { (name, value) ->
-                val ownerWidget = devices.flatMap { it.widgets.map { w -> it to w } }.firstOrNull { it.second.id == name }
-                    ?: return@mapNotNull null
-                val device = ownerWidget.first
-                val widget = ownerWidget.second
+                val device = devices.firstOrNull { it.id == pair.first } ?: return@mapNotNull null
+                val widget = device.widgets.firstOrNull { it.id == name } ?: return@mapNotNull null
                 val controllable = widget.type == com.yasn198020.aicontrol.core.WidgetState.Type.TOGGLE ||
                     widget.type == com.yasn198020.aicontrol.core.WidgetState.Type.BUTTON ||
                     widget.type == com.yasn198020.aicontrol.core.WidgetState.Type.INPUT
