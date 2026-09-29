@@ -727,13 +727,17 @@ object DeviceScenarioModelFormatter {
         val lines = mutableListOf<String>()
         lines += "Найдено правил: " + model.rules.size
         model.rules.take(12).forEach { rule ->
-            lines += "ЕСЛИ " + rule.condition.rendered + " → " + rule.actions.joinToString("; ") { it.rendered }
+            lines += "ЕСЛИ " + rule.condition.rendered + " → " +
+                rule.actions.joinToString("; ") { it.rendered }
         }
         if (model.rules.size > 12) lines += "… ещё " + (model.rules.size - 12)
         return lines.joinToString("\n")
     }
 
-    fun tree(model: DeviceScenarioModel): String {
+    fun tree(
+        model: DeviceScenarioModel,
+        labels: Map<String, String> = emptyMap()
+    ): String {
         if (model.parserErrors.isNotEmpty()) {
             return "Дерево недоступно: сначала исправьте ошибки разбора.\n" +
                 model.parserErrors.take(5).joinToString("\n")
@@ -742,30 +746,81 @@ object DeviceScenarioModelFormatter {
 
         val lines = mutableListOf<String>()
 
+        fun labelFor(id: String): String =
+            labels[id]?.trim()?.takeIf { it.isNotBlank() } ?: id
+
+        fun valueText(expression: IoTExpr): String? = when (expression) {
+            is IoTExpr.NumberLiteral ->
+                java.math.BigDecimal.valueOf(expression.value).stripTrailingZeros().toPlainString()
+            is IoTExpr.StringLiteral -> expression.value
+            else -> null
+        }
+
+        fun semanticActionName(label: String, expression: IoTExpr): String? {
+            val l = label.lowercase()
+            val value = valueText(expression) ?: return null
+            if (l.contains("форточ") && (l.contains("закрыта") || l.contains("открыта"))) {
+                return if (value == "1") "Открыть форточку" else if (value == "0") "Закрыть форточку" else null
+            }
+            if (l.contains("двер") && (l.contains("закрыта") || l.contains("открыта"))) {
+                return if (value == "1") "Открыть дверь" else if (value == "0") "Закрыть дверь" else null
+            }
+            return null
+        }
+
+        fun actionText(statement: IoTStatement.Assignment): String {
+            val label = labelFor(statement.target)
+            val value = valueText(statement.expression)
+            val semanticName = semanticActionName(label, statement.expression)
+
+            if (value == "1") {
+                if (semanticName != null) {
+                    return "ДЕЙСТВИЕ: $semanticName → включить «$label»"
+                }
+                return "ДЕЙСТВИЕ: включить «$label»"
+            }
+            if (value == "0") {
+                if (semanticName != null) {
+                    return "ДЕЙСТВИЕ: $semanticName → выключить «$label»"
+                }
+                return "ДЕЙСТВИЕ: выключить «$label»"
+            }
+
+            return "ДЕЙСТВИЕ: установить «$label» = " + statement.expression.render()
+        }
+
         fun appendStatement(statement: IoTStatement, prefix: String, branch: String) {
             val linePrefix = if (branch.isEmpty()) "" else prefix + branch
             when (statement) {
                 is IoTStatement.If -> {
-                    lines += linePrefix + "ЕСЛИ " + statement.condition.render()
-                    appendStatement(statement.thenBranch, prefix + if (branch.isEmpty()) "    " else "│   ", "├─ ")
+                    lines += linePrefix + "ЕСЛИ " + statement.condition.render(labels)
+                    appendStatement(
+                        statement.thenBranch,
+                        prefix + if (branch.isEmpty()) "    " else "│   ",
+                        "├─ "
+                    )
                     statement.elseBranch?.let {
                         lines += prefix + if (branch.isEmpty()) "" else "│   " + "ИНАЧЕ"
-                        appendStatement(it, prefix + if (branch.isEmpty()) "    " else "    ", "└─ ")
+                        appendStatement(
+                            it,
+                            prefix + if (branch.isEmpty()) "    " else "    ",
+                            "└─ "
+                        )
                     }
                 }
                 is IoTStatement.Assignment -> {
-                    lines += linePrefix + "ДЕЙСТВИЕ: " +
-                        statement.target + " " + statement.operator + " " + statement.expression.render()
+                    lines += linePrefix + actionText(statement)
                 }
                 is IoTStatement.ExpressionStatement -> {
-                    lines += linePrefix + "ВЫЗОВ: " + statement.expression.render()
+                    lines += linePrefix + "ВЫЗОВ: " + statement.expression.render(labels)
                 }
                 is IoTStatement.Block -> {
                     if (statement.statements.isEmpty()) {
                         lines += linePrefix + "БЛОК: пусто"
                     } else {
                         statement.statements.forEachIndexed { index, child ->
-                            val childBranch = if (index == statement.statements.lastIndex) "└─ " else "├─ "
+                            val childBranch =
+                                if (index == statement.statements.lastIndex) "└─ " else "├─ "
                             appendStatement(child, prefix, childBranch)
                         }
                     }
@@ -777,10 +832,78 @@ object DeviceScenarioModelFormatter {
             appendStatement(
                 statement,
                 "",
-                if (model.statements.size == 1) "" else if (index == model.statements.lastIndex) "└─ " else "├─ "
+                if (model.statements.size == 1) ""
+                else if (index == model.statements.lastIndex) "└─ "
+                else "├─ "
             )
         }
 
         return lines.joinToString("\n")
+    }
+
+    fun actionOverview(
+        model: DeviceScenarioModel,
+        labels: Map<String, String> = emptyMap()
+    ): String {
+        if (model.parserErrors.isNotEmpty()) return ""
+        val grouped = linkedMapOf<String, LinkedHashSet<String>>()
+
+        fun labelFor(id: String): String =
+            labels[id]?.trim()?.takeIf { it.isNotBlank() } ?: id
+
+        fun valueText(expression: IoTExpr): String? = when (expression) {
+            is IoTExpr.NumberLiteral ->
+                java.math.BigDecimal.valueOf(expression.value).stripTrailingZeros().toPlainString()
+            is IoTExpr.StringLiteral -> expression.value
+            else -> null
+        }
+
+        fun collect(statement: IoTStatement) {
+            when (statement) {
+                is IoTStatement.If -> {
+                    collect(statement.thenBranch)
+                    statement.elseBranch?.let(::collect)
+                }
+                is IoTStatement.Block -> statement.statements.forEach(::collect)
+                is IoTStatement.Assignment -> {
+                    val label = labelFor(statement.target)
+                    val value = valueText(statement.expression)
+                    val lower = label.lowercase()
+                    val group =
+                        when {
+                            lower.contains("форточ") && (lower.contains("закрыта") || lower.contains("открыта")) ->
+                                if (value == "1") "Открыть форточку" else if (value == "0") "Закрыть форточку" else null
+                            lower.contains("двер") && (lower.contains("закрыта") || lower.contains("открыта")) ->
+                                if (value == "1") "Открыть дверь" else if (value == "0") "Закрыть дверь" else null
+                            value == "1" && lower.contains("открыть") -> "Открыть: $label"
+                            value == "1" && lower.contains("закрыть") -> "Закрыть: $label"
+                            else -> null
+                        }
+                    if (group != null) {
+                        val detail = when (value) {
+                            "1" -> "включить «$label»"
+                            "0" -> "выключить «$label»"
+                            else -> "установить «$label» = $value"
+                        }
+                        grouped.getOrPut(group) { linkedSetOf() }.add(detail)
+                    }
+                }
+                is IoTStatement.ExpressionStatement -> Unit
+            }
+        }
+
+        model.statements.forEach(::collect)
+        if (grouped.isEmpty()) return ""
+
+        return buildString {
+            grouped.forEach { (action, details) ->
+                append(action)
+                details.forEach { detail ->
+                    append("\n  → ")
+                    append(detail)
+                }
+                append("\n")
+            }
+        }.trim()
     }
 }
