@@ -36,7 +36,7 @@ class AppRuntime private constructor(private val appContext: Context) {
 
     private val uiListeners = CopyOnWriteArraySet<UiListener>()
     private val mainHandler = Handler(Looper.getMainLooper())
-    val historyStore: HistoryStore = HistoryStore(prefs)
+    val historyStore: HistoryStore = HistoryStore(appContext, prefs)
     val deviceRepository: DeviceRepository = DeviceRepository()
     val scenarioStore: ScenarioStore = ScenarioStore(prefs)
     val scenarioActionExecutor: ScenarioActionExecutor = ScenarioActionExecutor()
@@ -152,16 +152,16 @@ class AppRuntime private constructor(private val appContext: Context) {
                 // History must be recorded in both foreground and background.
                 // MQTT continues to arrive through MqttBackgroundService even when
                 // the Activity is not visible, so background samples must not be dropped.
-                val historyResult = historyStore.add(deviceId, widgetId, value)
+                val historyResult = historyStore.updateLatest(deviceId, widgetId, value)
                 if (historyResult.accepted) {
                     DiagnosticTrace.stepForEvent(
                         eventId,
                         "HISTORY",
-                        "QUEUED state=" + (if (DiagnosticTrace.isForeground()) "FOREGROUND" else "BACKGROUND") +
+                        "CURRENT_UPDATED state=" + (if (DiagnosticTrace.isForeground()) "FOREGROUND" else "BACKGROUND") +
                             " device=" + deviceId +
                             " widget=" + widgetId +
                             " value=" + value +
-                            " points=" + historyResult.pointCount
+                            " samplePeriodMs=" + historyStore.samplePeriodMs()
                     )
                 } else {
                     DiagnosticTrace.stepForEvent(
