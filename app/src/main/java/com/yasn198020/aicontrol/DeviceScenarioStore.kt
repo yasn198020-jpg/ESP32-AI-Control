@@ -179,14 +179,6 @@ class DeviceScenarioManager(
     fun onDevicesUpdated(devices: List<com.yasn198020.aicontrol.core.Device>) {
         refreshModels()
 
-        val variables = devices
-            .flatMap { it.widgets }
-            .associate { it.id to it.value }
-
-        val widgetMap = devices
-            .flatMap { device -> device.widgets.map { widget -> (device.id + "/" + widget.id) to widget } }
-            .toMap()
-
         val now = System.currentTimeMillis()
         val seen = mutableSetOf<String>()
 
@@ -194,13 +186,16 @@ class DeviceScenarioManager(
             val model = refreshModel(stored) ?: return@forEach
             if (model.parserErrors.isNotEmpty()) return@forEach
 
+            val device = devices.firstOrNull { it.id == stored.deviceId } ?: return@forEach
+            val variables = device.widgets.associate { it.id to it.value }
+            val context = IoTScenarioEvaluationContext(variables)
+
             model.rules.forEach { rule ->
-                val context = IoTScenarioEvaluationContext(variables)
                 val condition = IoTScenarioEvaluator.evaluate(rule.condition.expression, context)
                 if (!condition.isTruthy()) return@forEach
 
                 rule.actions.forEach { action ->
-                    val target = widgetMap.values.firstOrNull { it.id == action.targetId } ?: return@forEach
+                    val target = device.widgets.firstOrNull { it.id == action.targetId } ?: return@forEach
                     val expected = IoTScenarioEvaluator.evaluate(action.expression, context)
                     val expectedText = expected.asComparableText() ?: return@forEach
                     val actualText = target.value.trim()
