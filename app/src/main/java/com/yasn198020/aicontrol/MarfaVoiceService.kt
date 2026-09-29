@@ -39,6 +39,7 @@ class MarfaVoiceService : Service() {
     override fun onCreate() {
         super.onCreate()
         prefs = getSharedPreferences("settings", Context.MODE_PRIVATE)
+        pendingSmartRule = restorePendingSmartRule()
 
         createNotificationChannel()
         startAsForeground()
@@ -178,12 +179,12 @@ class MarfaVoiceService : Service() {
         pendingSmartRule?.let { pending ->
             when {
                 isSmartRuleConfirmation(command) -> {
-                    pendingSmartRule = null
+                    clearPendingSmartRule()
                     saveSmartRule(pending)
                     return
                 }
                 isSmartRuleRejection(command) -> {
-                    pendingSmartRule = null
+                    clearPendingSmartRule()
                     speak("Правило не сохранено")
                     return
                 }
@@ -236,6 +237,7 @@ class MarfaVoiceService : Service() {
             return
         }
         pendingSmartRule = result
+        persistPendingSmartRule(result)
         speak(result.reply + ". Сохранить это правило? Скажите да или нет")
         android.util.Log.d(
             "MARFA_AUTOMATION",
@@ -259,6 +261,51 @@ class MarfaVoiceService : Service() {
             "нет", "отмена", "отменить", "не сохраняй",
             "не сохранять", "не надо"
         )
+    }
+
+    private fun persistPendingSmartRule(result: LocalCommandResult) {
+        prefs.edit()
+            .putBoolean("marfa_pending_rule", true)
+            .putString("marfa_rule_condition_device", result.conditionDeviceId)
+            .putString("marfa_rule_condition_widget", result.conditionWidgetId)
+            .putString("marfa_rule_operator", result.conditionOperator)
+            .putString("marfa_rule_threshold", result.conditionThreshold.toString())
+            .putString("marfa_rule_action_device", result.actionDeviceId)
+            .putString("marfa_rule_action_widget", result.actionWidgetId)
+            .putString("marfa_rule_action_value", result.actionValue)
+            .putString("marfa_rule_reply", result.reply)
+            .apply()
+    }
+
+    private fun restorePendingSmartRule(): LocalCommandResult? {
+        if (!prefs.getBoolean("marfa_pending_rule", false)) return null
+        val threshold = prefs.getString("marfa_rule_threshold", null)?.toDoubleOrNull() ?: return null
+        return LocalCommandResult(
+            action = LocalCommandAction.SMART_RULE,
+            reply = prefs.getString("marfa_rule_reply", "Поняла правило") ?: "Поняла правило",
+            conditionDeviceId = prefs.getString("marfa_rule_condition_device", "") ?: "",
+            conditionWidgetId = prefs.getString("marfa_rule_condition_widget", "") ?: "",
+            conditionOperator = prefs.getString("marfa_rule_operator", ">") ?: ">",
+            conditionThreshold = threshold,
+            actionDeviceId = prefs.getString("marfa_rule_action_device", "") ?: "",
+            actionWidgetId = prefs.getString("marfa_rule_action_widget", "") ?: "",
+            actionValue = prefs.getString("marfa_rule_action_value", "1") ?: "1"
+        )
+    }
+
+    private fun clearPendingSmartRule() {
+        pendingSmartRule = null
+        prefs.edit()
+            .remove("marfa_pending_rule")
+            .remove("marfa_rule_condition_device")
+            .remove("marfa_rule_condition_widget")
+            .remove("marfa_rule_operator")
+            .remove("marfa_rule_threshold")
+            .remove("marfa_rule_action_device")
+            .remove("marfa_rule_action_widget")
+            .remove("marfa_rule_action_value")
+            .remove("marfa_rule_reply")
+            .apply()
     }
 
     private fun saveSmartRule(result: LocalCommandResult) {
