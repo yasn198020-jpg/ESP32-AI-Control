@@ -14,6 +14,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.yasn198020.aicontrol.core.Device
 
 @Composable
@@ -71,6 +73,7 @@ private fun DeviceScenariosScreen(
     var saved by remember { mutableStateOf(manager.scenarios()) }
     var deviations by remember { mutableStateOf(manager.deviationSnapshot()) }
     var showSavedSource by remember { mutableStateOf<String?>(null) }
+    var showSavedScenarios by remember { mutableStateOf(false) }
 
     fun refresh() {
         saved = manager.scenarios()
@@ -229,53 +232,114 @@ private fun DeviceScenariosScreen(
             Spacer(Modifier.height(10.dp))
         }
 
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "Сохранённые сценарии",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(Modifier.weight(1f))
+            Button(onClick = { showSavedScenarios = true }) {
+                Text("Открыть список")
+            }
+        }
+
         Text(
-            "Сохранённые сценарии",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold
+            if (saved.isEmpty()) "Пока нет сохранённых сценариев."
+            else "Сохранено: " + saved.size,
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(top = 4.dp)
         )
 
-        if (saved.isEmpty()) {
-            Text(
-                "Пока нет сценариев. Вставьте содержимое scenario.txt выше.",
-                modifier = Modifier.padding(vertical = 8.dp)
+    if (showSavedScenarios) {
+        Dialog(
+            onDismissRequest = { showSavedScenarios = false },
+            properties = DialogProperties(
+                usePlatformDefaultWidth = false,
+                dismissOnBackPress = true,
+                dismissOnClickOutside = false
             )
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxWidth().weight(1f),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                items(saved, key = { it.id }) { item ->
-                    Card(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(10.dp)) {
-                            Text(item.title, fontWeight = FontWeight.SemiBold)
-                            Text(
-                                "Устройство: " + item.deviceId,
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                            Row(
-                                Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(if (item.enabled) "Контроль включён" else "Контроль выключен")
-                                Spacer(Modifier.weight(1f))
-                                Switch(
-                                    checked = item.enabled,
-                                    onCheckedChange = {
-                                        manager.setEnabled(item.id, it)
-                                        refresh()
+        ) {
+            Surface(Modifier.fillMaxSize()) {
+                Column(Modifier.fillMaxSize().padding(16.dp)) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "Сохранённые сценарии",
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(Modifier.weight(1f))
+                        TextButton(onClick = { showSavedScenarios = false }) {
+                            Text("Закрыть")
+                        }
+                    }
+                    Text(
+                        "Все сохранённые scenario.txt для устройств.",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(vertical = 6.dp)
+                    )
+                    if (saved.isEmpty()) {
+                        Box(
+                            Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("Сохранённых сценариев пока нет.")
+                        }
+                    } else {
+                        LazyColumn(
+                            Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            contentPadding = PaddingValues(vertical = 8.dp)
+                        ) {
+                            items(saved, key = { it.id }) { item ->
+                                Card(Modifier.fillMaxWidth()) {
+                                    Column(Modifier.padding(14.dp)) {
+                                        Text(
+                                            item.title,
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        Text(
+                                            "Устройство: " + item.deviceId,
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                        Row(
+                                            Modifier.fillMaxWidth().padding(top = 8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                if (item.enabled) "Контроль включён"
+                                                else "Контроль выключен"
+                                            )
+                                            Spacer(Modifier.weight(1f))
+                                            Switch(
+                                                checked = item.enabled,
+                                                onCheckedChange = {
+                                                    manager.setEnabled(item.id, it)
+                                                    refresh()
+                                                }
+                                            )
+                                            OutlinedButton(
+                                                onClick = { showSavedSource = item.id }
+                                            ) {
+                                                Text("Открыть")
+                                            }
+                                            TextButton(
+                                                onClick = {
+                                                    manager.remove(item.id)
+                                                    refresh()
+                                                }
+                                            ) {
+                                                Text("Удалить")
+                                            }
+                                        }
                                     }
-                                )
-                                OutlinedButton(onClick = { showSavedSource = item.id }) {
-                                    Text("Открыть")
-                                }
-                                TextButton(
-                                    onClick = {
-                                        manager.remove(item.id)
-                                        refresh()
-                                    }
-                                ) {
-                                    Text("Удалить")
                                 }
                             }
                         }
