@@ -253,6 +253,7 @@ private fun DeviceScenariosScreen(
             style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.padding(top = 4.dp)
         )
+    }
 
     if (showSavedScenarios) {
         Dialog(
