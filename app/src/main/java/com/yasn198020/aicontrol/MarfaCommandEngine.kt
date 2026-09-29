@@ -74,7 +74,8 @@ class MarfaCommandEngine {
                 value = first.value,
                 reply = controlReply(action, chosen.widget.title, delay, actions.size),
                 delayMs = delay,
-                actionItems = actions
+                actionItems = actions,
+                needsConfirmation = true
             ))
         }
 
@@ -99,7 +100,8 @@ class MarfaCommandEngine {
                 lastActionValue,
                 "Запланировала повтор: ${lastTargetTitle.ifBlank { t.widgetId }} через ${formatDelay(time.delayMs)}",
                 time.delayMs,
-                actionItems = listOf(t)
+                actionItems = listOf(t),
+                needsConfirmation = true
             )
         }
 
@@ -115,7 +117,8 @@ class MarfaCommandEngine {
                 action.value,
                 controlReply(action, target.widget.title, delay, 1),
                 delay,
-                actionItems = listOf(item)
+                actionItems = listOf(item),
+                needsConfirmation = true
             )
         }
 
