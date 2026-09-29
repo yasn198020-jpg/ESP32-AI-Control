@@ -114,7 +114,7 @@ private object IoTScenarioLexer {
                     val start = i++
                     while (i < source.length) {
                         val ch = source[i]
-                        if (ch.isLetterOrDigit() || ch == '_' || ch == ':' || ch == '.') i++ else break
+                        if (ch.isLetterOrDigit() || ch == '_' || ch == '.') i++ else break
                     }
                     val word = source.substring(start, i)
                     add(
@@ -159,7 +159,11 @@ private object IoTScenarioLexer {
 
 object IoTScenarioParser {
     fun parse(source: String): IoTScenarioParseResult {
-        val lexed = IoTScenarioLexer.tokenize(source)
+        val normalized = source.trim().let {
+            val marker = Regex("(?m)^\\s*scenario=>")
+            if (marker.containsMatchIn(it)) it.substring(marker.find(it)!!.range.last + 1) else it
+        }
+        val lexed = IoTScenarioLexer.tokenize(normalized)
         return Parser(lexed.first, lexed.second.toMutableList()).run()
     }
 
