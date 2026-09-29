@@ -31,6 +31,7 @@ class MarfaVoiceService : Service() {
     private var runtime: AppRuntime? = null
     private var runtimeListener: AppRuntime.UiListener? = null
     private var tts: TextToSpeech? = null
+    private var pendingSmartRule: LocalCommandResult? = null
     private lateinit var prefs: android.content.SharedPreferences
     private val commandScheduler: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor()
 
@@ -172,8 +173,7 @@ class MarfaVoiceService : Service() {
             }
         }
 
-        val result = LocalCommandManager().interpret(command, synchronizedCopyDevices())
-        when (result.action) {
+        // A smart-rule confirmation is intentionally handled before parsing a new command.\n        // This makes the next short answer ("да" / "нет") apply to the pending rule.\n        pendingSmartRule?.let { pending ->\n            when {\n                isSmartRuleConfirmation(command) -> {\n                    pendingSmartRule = null\n                    saveSmartRule(pending)\n                    return\n                }\n                isSmartRuleRejection(command) -> {\n                    pendingSmartRule = null\n                    speak("Правило не сохранено")\n                    return\n                }\n                else -> {\n                    speak("Сохранить предыдущее правило? Скажите да или нет")\n                    return\n                }\n            }\n        }\n\n        val result = LocalCommandManager().interpret(command, synchronizedCopyDevices())\n        when (result.action) {
             LocalCommandAction.SMART_RULE -> {
                 saveSmartRule(result)
             }
@@ -208,7 +208,7 @@ class MarfaVoiceService : Service() {
         }
     }
 
-    private fun saveSmartRule(result: LocalCommandResult) {
+    private fun askSmartRuleConfirmation(result: LocalCommandResult) {\n        if (result.conditionWidgetId.isBlank() || result.actionWidgetId.isBlank()) {\n            speak("Не удалось определить условие или действие")\n            return\n        }\n        pendingSmartRule = result\n        speak(result.reply + ". Сохранить это правило? Скажите да или нет")\n        android.util.Log.d("MARFA_AUTOMATION", "pending smart rule condition=" + result.conditionWidgetId + " " + result.conditionOperator + " " + result.conditionThreshold + " action=" + result.actionWidgetId + "=" + result.actionValue)\n    }\n\n    private fun isSmartRuleConfirmation(text: String): Boolean {\n        val normalized = text.lowercase(Locale("ru", "RU")).trim().replace("ё", "е")\n        return normalized in setOf("да", "сохрани", "сохранить", "подтверждаю", "верно", "правильно", "согласен", "согласна")\n    }\n\n    private fun isSmartRuleRejection(text: String): Boolean {\n        val normalized = text.lowercase(Locale("ru", "RU")).trim().replace("ё", "е")\n        return normalized in setOf("нет", "отмена", "отменить", "не сохраняй", "не сохранять", "не надо")\n    }\n\n    private fun saveSmartRule(result: LocalCommandResult) {
         if (result.conditionWidgetId.isBlank() || result.actionWidgetId.isBlank()) {
             speak("Не удалось определить условие или действие")
             return
