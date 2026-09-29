@@ -138,32 +138,24 @@ class MarfaVoiceService : Service() {
                 }
             }
 
-            // Exactly one parser pass. Trained phrases are only a fallback.
+            // Parse once to reserve smart-rule phrases for the natural engine.
+            // Existing trained phrases keep priority for ordinary commands.
             val result = commandEngine.interpret(command, synchronizedCopyDevices())
             android.util.Log.d(
                 "MARFA_ENGINE",
                 "command=${command} action=${result.action} delayMs=${result.delayMs} actions=${result.actionItems.size}"
             )
 
-            when (result.action) {
-                LocalCommandAction.SMART_RULE -> askSmartRuleConfirmation(result)
+            if (result.action == LocalCommandAction.SMART_RULE) {
+                askSmartRuleConfirmation(result)
+            } else {
+                val trained = TrainedCommandMatcher(TrainedCommandStore(prefs)).matchAll(command)
+                android.util.Log.d(
+                    "MARFA_TRAINED",
+                    "priority command=${command} matches=${trained.size}"
+                )
 
-                LocalCommandAction.CONTROL -> {
-                    commandExecutor.execute(result, runtime ?: return) { reply ->
-                        mainHandler.post { speak(reply) }
-                    }
-                }
-
-                LocalCommandAction.READ_VALUE,
-                LocalCommandAction.CLARIFY -> speak(result.reply)
-
-                LocalCommandAction.NOT_FOUND -> {
-                    val trained = TrainedCommandMatcher(TrainedCommandStore(prefs)).matchAll(command)
-                    android.util.Log.d(
-                        "MARFA_TRAINED",
-                        "fallback command=${command} matches=${trained.size}"
-                    )
-
+                if (trained.isNotEmpty()) {
                     val readActions = trained.filter { it.value == TRAINED_READ_VALUE }
                     if (readActions.isNotEmpty()) {
                         var answered = false
@@ -187,11 +179,27 @@ class MarfaVoiceService : Service() {
                         if (!answered) {
                             speak("Сохранённая команда найдена, но значение датчика пока не получено")
                         }
-                    } else if (trained.isNotEmpty()) {
+                    } else {
                         var sent = 0
                         trained.forEach { action ->
-                            if (mqtt?.publishControl(action.deviceId, action.widgetId, action.value) == true) sent++
+                            val widget = synchronizedCopyDevices()
+                                .firstOrNull { it.id == action.deviceId }
+                                ?.widgets
+                                ?.firstOrNull { it.id == action.widgetId }
+                            val ok = when (widget?.type) {
+                                com.yasn198020.aicontrol.core.WidgetState.Type.TOGGLE,
+                                com.yasn198020.aicontrol.core.WidgetState.Type.BUTTON ->
+                                    mqtt?.publishControl(action.deviceId, action.widgetId, action.value) == true
+                                com.yasn198020.aicontrol.core.WidgetState.Type.INPUT ->
+                                    widget.topic.isNotBlank() && mqtt?.publishWidget(widget.topic, action.value) == true
+                                else -> false
+                            }
+                            if (ok) {
+                                runtime?.deviceRepository?.setLocalValue(action.deviceId, action.widgetId, action.value)
+                                sent++
+                            }
                         }
+
                         if (sent > 0) {
                             speak(if (sent == 1) "Готово" else "Выполнено")
                         } else {
@@ -202,8 +210,18 @@ class MarfaVoiceService : Service() {
                                     "MQTT ещё не подключён"
                             )
                         }
-                    } else {
-                        speak(result.reply)
+                    }
+                } else {
+                    when (result.action) {
+                        LocalCommandAction.CONTROL -> {
+                            commandExecutor.execute(result, runtime ?: return) { reply ->
+                                mainHandler.post { speak(reply) }
+                            }
+                        }
+                        LocalCommandAction.READ_VALUE,
+                        LocalCommandAction.CLARIFY,
+                        LocalCommandAction.NOT_FOUND -> speak(result.reply)
+                        LocalCommandAction.SMART_RULE -> Unit
                     }
                 }
             }
