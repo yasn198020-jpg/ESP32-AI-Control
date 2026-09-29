@@ -311,12 +311,13 @@ private fun DeviceScenariosScreen(
                                             style = MaterialTheme.typography.bodySmall
                                         )
                                         Row(
-                                            Modifier.fillMaxWidth().padding(top = 8.dp),
+                                            Modifier.fillMaxWidth().padding(top = 10.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Text(
                                                 if (item.enabled) "Контроль включён"
-                                                else "Контроль выключен"
+                                                else "Контроль выключен",
+                                                style = MaterialTheme.typography.bodySmall
                                             )
                                             Spacer(Modifier.weight(1f))
                                             Switch(
@@ -326,18 +327,28 @@ private fun DeviceScenariosScreen(
                                                     refresh()
                                                 }
                                             )
-                                            OutlinedButton(
-                                                onClick = { showSavedSource = item.id }
+                                        }
+                                        Row(
+                                            Modifier.fillMaxWidth().padding(top = 8.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Button(
+                                                onClick = { showSavedSource = item.id },
+                                                modifier = Modifier.weight(1f)
                                             ) {
-                                                Text("Открыть")
+                                                Text("Открыть сценарий")
                                             }
-                                            TextButton(
+                                            OutlinedButton(
                                                 onClick = {
                                                     manager.remove(item.id)
                                                     refresh()
-                                                }
+                                                    if (showSavedSource == item.id) {
+                                                        showSavedSource = null
+                                                    }
+                                                },
+                                                modifier = Modifier.weight(1f)
                                             ) {
-                                                Text("Удалить")
+                                                Text("Удалить сценарий")
                                             }
                                         }
                                     }
@@ -353,23 +364,109 @@ private fun DeviceScenariosScreen(
     showSavedSource?.let { id ->
         val item = saved.firstOrNull { it.id == id }
         if (item != null) {
-            AlertDialog(
+            val model = remember(item.id, item.source) { manager.parseSource(item.source) }
+            Dialog(
                 onDismissRequest = { showSavedSource = null },
-                title = { Text(item.title) },
-                text = {
-                    SelectionContainer {
-                        Text(
-                            item.source,
-                            modifier = Modifier.verticalScroll(rememberScrollState())
-                        )
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = { showSavedSource = null }) {
-                        Text("Готово")
+                properties = DialogProperties(
+                    usePlatformDefaultWidth = false,
+                    dismissOnBackPress = true,
+                    dismissOnClickOutside = false
+                )
+            ) {
+                Surface(Modifier.fillMaxSize()) {
+                    Column(Modifier.fillMaxSize().padding(16.dp)) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    item.title,
+                                    style = MaterialTheme.typography.headlineSmall,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    "Устройство: " + item.deviceId,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                            TextButton(onClick = { showSavedSource = null }) {
+                                Text("Закрыть")
+                            }
+                        }
+
+                        LazyColumn(
+                            Modifier.fillMaxSize().padding(top = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            contentPadding = PaddingValues(bottom = 16.dp)
+                        ) {
+                            item {
+                                Text(
+                                    "Дерево логики устройства",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    "Дерево построено из сохранённого scenario.txt и показывает ветвления и действия.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.padding(top = 2.dp)
+                                )
+                            }
+
+                            item {
+                                Card(Modifier.fillMaxWidth()) {
+                                    SelectionContainer {
+                                        Text(
+                                            DeviceScenarioModelFormatter.tree(model),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .horizontalScroll(rememberScrollState())
+                                                .padding(12.dp),
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                    }
+                                }
+                            }
+
+                            item {
+                                Text(
+                                    "Исходный scenario.txt",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            item {
+                                Card(Modifier.fillMaxWidth()) {
+                                    SelectionContainer {
+                                        Text(
+                                            item.source,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .horizontalScroll(rememberScrollState())
+                                                .padding(12.dp),
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                    }
+                                }
+                            }
+
+                            item {
+                                Button(
+                                    onClick = {
+                                        manager.remove(item.id)
+                                        refresh()
+                                        showSavedSource = null
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("Удалить сценарий")
+                                }
+                            }
+                        }
                     }
                 }
-            )
+            }
         }
     }
 }
