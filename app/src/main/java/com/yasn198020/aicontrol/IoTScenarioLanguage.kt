@@ -436,7 +436,10 @@ object IoTScenarioEvaluator {
             when (expression.operator) {
                 "-" -> value.asNumber()?.let { IoTValue.Number(-it) } ?: IoTValue.Unknown
                 "+" -> value.asNumber()?.let { IoTValue.Number(it) } ?: IoTValue.Unknown
-                "!" -> IoTValue.BooleanValue(!value.asBoolean())
+                "!" -> when (value) {
+                    IoTValue.Unknown -> IoTValue.Unknown
+                    else -> IoTValue.BooleanValue(!value.asBoolean())
+                }
                 else -> IoTValue.Unknown
             }
         }
@@ -472,7 +475,7 @@ object IoTScenarioEvaluator {
                 )
             }
             "==", "!=", "<", "<=", ">", ">=" -> {
-                val cmp = compare(left, right)
+                val cmp = compare(left, right) ?: return IoTValue.Unknown
                 IoTValue.BooleanValue(
                     when (e.operator) {
                         "==" -> cmp == 0
@@ -513,13 +516,14 @@ object IoTScenarioEvaluator {
         }
     }
 
-    private fun compare(left: IoTValue, right: IoTValue): Int {
+    private fun compare(left: IoTValue, right: IoTValue): Int? {
+        if (left == IoTValue.Unknown || right == IoTValue.Unknown) return null
         val a = left.asNumber()
         val b = right.asNumber()
         if (a != null && b != null) return a.compareTo(b)
         val asText = left.asText()
         val bsText = right.asText()
-        return if (asText != null && bsText != null) asText.compareTo(bsText) else 1
+        return if (asText != null && bsText != null) asText.compareTo(bsText) else null
     }
 
     private fun IoTValue.asNumber(): Double? = (this as? IoTValue.Number)?.value
@@ -535,6 +539,13 @@ object IoTScenarioEvaluator {
         is IoTValue.Text -> value.isNotBlank() && value != "0" && !value.equals("false", true)
         IoTValue.Unknown -> false
     }
+
+fun IoTValue.isTruthy(): Boolean = when (this) {
+    is IoTValue.BooleanValue -> value
+    is IoTValue.Number -> kotlin.math.abs(value) > 0.000001
+    is IoTValue.Text -> value.isNotBlank() && value != "0" && !value.equals("false", true)
+    IoTValue.Unknown -> false
+}
 }
 
 data class ScenarioPrerequisite(
@@ -592,8 +603,21 @@ object IoTScenarioCommandPlanner {
             }
             pair.second to prerequisites
         }
-        val best = satisfiable.minByOrNull { it.second.size } ?: return ScenarioCommandPlan(base)
-        val prerequisites = best.second.distinctBy { it.deviceId + "/" + it.widgetId + "/" + it.value }
+        if (satisfiable.isEmpty()) return ScenarioCommandPlan(base)
+
+        val minCount = satisfiable.minOf { it.second.size }
+        val bestPlans = satisfiable.filter { it.second.size == minCount }
+            .map { it.second.distinctBy { p -> p.deviceId + "/" + p.widgetId + "/" + p.value } }
+            .distinctBy { plan -> plan.joinToString("|") { p -> p.deviceId + "/" + p.widgetId + "=" + p.value } }
+
+        if (bestPlans.size > 1) {
+            return ScenarioCommandPlan(
+                actions = base,
+                blockedReason = "В сценариях устройства есть несколько одинаково подходящих вариантов для этой команды. Я не буду менять режим наугад."
+            )
+        }
+
+        val prerequisites = bestPlans.firstOrNull().orEmpty()
         val actions = (prerequisites.map { LocalCommandActionItem(it.deviceId, it.widgetId, it.value) } + base)
             .distinctBy { it.deviceId + "/" + it.widgetId + "/" + it.value }
         return ScenarioCommandPlan(actions, prerequisites)
