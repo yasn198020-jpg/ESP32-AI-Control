@@ -551,6 +551,17 @@ private fun App(
                     }
                 }
 
+                // Smart rules must be checked before trained commands.
+                // A trained phrase such as "открой форточку" must not swallow
+                // a new natural-language rule containing that same action.
+                val smartRuleFirst = localCommandManager.interpret(command, devices)
+                if (smartRuleFirst.action == LocalCommandAction.SMART_RULE) {
+                    pendingSmartRule = smartRuleFirst
+                    voiceStatus = smartRuleFirst.reply + ". Сохранить это правило? Скажите да или нет"
+                    speech.speak(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "smart-rule-ask")
+                    return@LaunchedEffect
+                }
+
                 val trainedActions = trainedMatcher.matchAll(command)
                 if (trainedActions.isNotEmpty()) {
                     var sent = 0
