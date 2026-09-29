@@ -566,6 +566,8 @@ private fun App(
             }
         }
 
+        // Parse once only to detect smart rules. Existing trained phrases keep
+        // priority for all ordinary commands, as they did in the stable build.
         val result = localCommandManager.interpret(command, devices)
         android.util.Log.d(
             "MARFA_ENGINE",
@@ -575,95 +577,101 @@ private fun App(
                 " actions=" + result.actionItems.size
         )
 
-        when (result.action) {
-            LocalCommandAction.SMART_RULE -> {
-                pendingSmartRule = result
-                voiceStatus = result.reply + ". Сохранить это правило? Скажите да или нет"
-                speech.speak(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "smart-rule-ask")
-            }
+        if (result.action == LocalCommandAction.SMART_RULE) {
+            pendingSmartRule = result
+            voiceStatus = result.reply + ". Сохранить это правило? Скажите да или нет"
+            speech.speak(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "smart-rule-ask")
+        } else {
+            val trainedActions = trainedMatcher.matchAll(command)
+            android.util.Log.d(
+                "MARFA_TRAINED",
+                "priority command=" + command + " matches=" + trainedActions.size
+            )
 
-            LocalCommandAction.CONTROL -> {
-                MarfaCommandExecutor.get().execute(result, runtime) { reply ->
-                    android.os.Handler(android.os.Looper.getMainLooper()).post {
-                        voiceStatus = reply
-                        speech.speak(
-                            reply,
-                            TextToSpeech.QUEUE_FLUSH,
-                            null,
-                            "marfa-command-" + System.nanoTime()
-                        )
-                    }
-                }
-            }
+            if (trainedActions.isNotEmpty()) {
+                var sent = 0
+                var skipped = 0
 
-            LocalCommandAction.READ_VALUE -> {
-                voiceStatus = result.reply
-                speech.speak(result.reply, TextToSpeech.QUEUE_FLUSH, null, "marfa-value")
-            }
+                trainedActions.forEach { trained ->
+                    val widget = devices.firstOrNull { it.id == trained.deviceId }
+                        ?.widgets?.firstOrNull { it.id == trained.widgetId }
 
-            LocalCommandAction.CLARIFY,
-            LocalCommandAction.NOT_FOUND -> {
-                if (result.action == LocalCommandAction.CLARIFY) {
-                    voiceStatus = result.reply
-                    speech.speak(result.reply, TextToSpeech.QUEUE_FLUSH, null, "marfa-clarify")
-                } else {
-                    val trainedActions = trainedMatcher.matchAll(command)
-                    if (trainedActions.isNotEmpty()) {
-                        var sent = 0
-                        var skipped = 0
-
-                        trainedActions.forEach { trained ->
-                            val widget = devices.firstOrNull { it.id == trained.deviceId }
-                                ?.widgets?.firstOrNull { it.id == trained.widgetId }
-
-                            if (widget == null) {
-                                skipped++
-                            } else if (trained.value == TRAINED_READ_VALUE) {
-                                if (widget.type == WidgetState.Type.VALUE ||
-                                    widget.type == WidgetState.Type.STATUS
-                                ) {
-                                    val raw = widget.value.trim()
-                                    val spoken = if (raw.isBlank() || raw == "—") {
-                                        widget.title + ": значение пока неизвестно"
-                                    } else {
-                                        widget.title + ": " +
-                                            formatTemperatureForSpeech(raw, widget.unit)
-                                    }
-                                    voiceStatus = spoken
-                                    speech.speak(
-                                        spoken,
-                                        if (sent == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD,
-                                        null,
-                                        "trained-value-" + sent
-                                    )
-                                    sent++
-                                } else {
-                                    skipped++
-                                }
-                            } else if (
-                                widget.type == WidgetState.Type.TOGGLE ||
-                                widget.type == WidgetState.Type.BUTTON ||
-                                widget.type == WidgetState.Type.INPUT
-                            ) {
-                                if (sendWidget(trained.deviceId, trained.widgetId, trained.value)) {
-                                    sent++
-                                } else {
-                                    skipped++
-                                }
+                    if (widget == null) {
+                        skipped++
+                    } else if (trained.value == TRAINED_READ_VALUE) {
+                        if (widget.type == WidgetState.Type.VALUE ||
+                            widget.type == WidgetState.Type.STATUS
+                        ) {
+                            val raw = widget.value.trim()
+                            val spoken = if (raw.isBlank() || raw == "—") {
+                                widget.title + ": значение пока неизвестно"
                             } else {
-                                skipped++
+                                widget.title + ": " +
+                                    formatTemperatureForSpeech(raw, widget.unit)
                             }
-                        }
-
-                        voiceStatus = if (skipped == 0) {
-                            "Выполнено действий: " + sent
+                            voiceStatus = spoken
+                            speech.speak(
+                                spoken,
+                                if (sent == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD,
+                                null,
+                                "trained-value-" + sent
+                            )
+                            sent++
                         } else {
-                            "Выполнено действий: " + sent + ", пропущено: " + skipped
+                            skipped++
+                        }
+                    } else if (
+                        widget.type == WidgetState.Type.TOGGLE ||
+                        widget.type == WidgetState.Type.BUTTON ||
+                        widget.type == WidgetState.Type.INPUT
+                    ) {
+                        if (sendWidget(trained.deviceId, trained.widgetId, trained.value)) {
+                            sent++
+                        } else {
+                            skipped++
                         }
                     } else {
+                        skipped++
+                    }
+                }
+
+                voiceStatus = if (skipped == 0) {
+                    "Выполнено действий: " + sent
+                } else {
+                    "Выполнено действий: " + sent + ", пропущено: " + skipped
+                }
+            } else {
+                when (result.action) {
+                    LocalCommandAction.CONTROL -> {
+                        MarfaCommandExecutor.get().execute(result, runtime) { reply ->
+                            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                voiceStatus = reply
+                                speech.speak(
+                                    reply,
+                                    TextToSpeech.QUEUE_FLUSH,
+                                    null,
+                                    "marfa-command-" + System.nanoTime()
+                                )
+                            }
+                        }
+                    }
+
+                    LocalCommandAction.READ_VALUE -> {
+                        voiceStatus = result.reply
+                        speech.speak(result.reply, TextToSpeech.QUEUE_FLUSH, null, "marfa-value")
+                    }
+
+                    LocalCommandAction.CLARIFY -> {
+                        voiceStatus = result.reply
+                        speech.speak(result.reply, TextToSpeech.QUEUE_FLUSH, null, "marfa-clarify")
+                    }
+
+                    LocalCommandAction.NOT_FOUND -> {
                         voiceStatus = result.reply
                         speech.speak(result.reply, TextToSpeech.QUEUE_FLUSH, null, "marfa-not-found")
                     }
+
+                    LocalCommandAction.SMART_RULE -> Unit
                 }
             }
         }
