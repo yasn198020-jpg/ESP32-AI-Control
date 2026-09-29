@@ -424,6 +424,18 @@ fun IoTExpr.render(): String = when (this) {
     is IoTExpr.Call -> name + "(" + args.joinToString(", ") { it.render() } + ")"
 }
 
+fun IoTExpr.render(labels: Map<String, String>): String = when (this) {
+    is IoTExpr.NumberLiteral -> value.toString().removeSuffix(".0")
+    is IoTExpr.StringLiteral -> "\"" + value.replace("\"", "\\\"") + "\""
+    is IoTExpr.Variable -> {
+        val label = labels[name]?.trim()
+        if (label.isNullOrBlank() || label == name) name else "$label [$name]"
+    }
+    is IoTExpr.Unary -> operator + expression.render(labels)
+    is IoTExpr.Binary -> "(" + left.render(labels) + " " + operator + " " + right.render(labels) + ")"
+    is IoTExpr.Call -> name + "(" + args.joinToString(", ") { it.render(labels) } + ")"
+}
+
 sealed interface IoTValue {
     data class Number(val value: Double) : IoTValue
     data class Text(val value: String) : IoTValue
