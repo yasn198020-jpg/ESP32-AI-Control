@@ -99,7 +99,7 @@ private fun DeviceScenariosScreen(
             fontWeight = FontWeight.Bold
         )
         Text(
-            "Марфа получает scenario.txt от пользователя, строит модель логики и сравнивает ожидаемое поведение с реальными MQTT-состояниями. Локальный сценарий ESP32 не изменяется.",
+            "Передайте Марфе scenario.txt. ESP32 продолжает выполнять свой локальный сценарий.",
             style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.padding(top = 4.dp)
         )
@@ -143,20 +143,23 @@ private fun DeviceScenariosScreen(
             label = { Text("Текст scenario.txt") },
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 180.dp, max = 330.dp)
+                .height(120.dp)
                 .padding(top = 8.dp),
             textStyle = LocalTextStyle.current.copy(fontSize = 14.sp)
         )
 
         Row(
-            Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp, bottom = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Button(
-                enabled = selectedDeviceId.isNotBlank() && source.isNotBlank(),
+            OutlinedButton(
+                enabled = source.isNotBlank(),
                 onClick = {
                     parseMessage = DeviceScenarioModelFormatter.summary(manager.parseSource(source))
-                }
+                },
+                modifier = Modifier.weight(1f)
             ) {
                 Text("Проверить")
             }
@@ -169,15 +172,16 @@ private fun DeviceScenariosScreen(
                     if (item == null) {
                         parseMessage = DeviceScenarioModelFormatter.summary(result.second)
                     } else {
-                        parseMessage = "Сохранено. Найдено правил: " + result.second.rules.size +
-                            ". Марфа начала контроль ожидаемого поведения."
+                        parseMessage = "Сценарий сохранён. Правил: " + result.second.rules.size +
+                            ". Контроль исполнения включён."
                         title = ""
                         source = ""
                         refresh()
                     }
-                }
+                },
+                modifier = Modifier.weight(1.35f)
             ) {
-                Text("Сохранить")
+                Text("Сохранить сценарий")
             }
 
             OutlinedButton(
@@ -185,7 +189,8 @@ private fun DeviceScenariosScreen(
                     title = ""
                     source = ""
                     parseMessage = ""
-                }
+                },
+                modifier = Modifier.weight(0.85f)
             ) {
                 Text("Очистить")
             }
