@@ -1159,9 +1159,11 @@ private fun App(
 private fun PendingMarfaCommandsScreen(modifier: Modifier) {
     val executor = remember { MarfaCommandExecutor.get() }
     var commands by remember { mutableStateOf(executor.pendingCommands()) }
+    var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
     LaunchedEffect(executor) {
         while (true) {
+            nowMs = System.currentTimeMillis()
             commands = executor.pendingCommands()
             delay(500)
         }
@@ -1196,7 +1198,7 @@ private fun PendingMarfaCommandsScreen(modifier: Modifier) {
             }
         } else {
             items(commands, key = { it.id }) { command ->
-                val remainingMs = (command.executeAtMs - System.currentTimeMillis()).coerceAtLeast(0L)
+                val remainingMs = (command.executeAtMs - nowMs).coerceAtLeast(0L)
                 val totalSeconds = remainingMs / 1000L
                 val hours = totalSeconds / 3600L
                 val minutes = (totalSeconds % 3600L) / 60L
