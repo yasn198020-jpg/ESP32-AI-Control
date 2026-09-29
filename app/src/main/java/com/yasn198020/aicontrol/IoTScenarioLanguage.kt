@@ -613,7 +613,7 @@ object IoTScenarioCommandPlanner {
                                 ScenarioPrerequisite(
                                     device.id,
                                     widget.id,
-                                    value.toPlainString(),
+                                    value.stripTrailingZeros().toPlainString(),
                                     name + " должно быть " + value.toPlainString()
                                 )
                             }
