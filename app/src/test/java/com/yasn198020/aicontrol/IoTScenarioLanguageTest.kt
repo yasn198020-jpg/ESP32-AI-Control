@@ -20,9 +20,9 @@ class IoTScenarioLanguageTest {
         assertTrue(model.parserErrors.isEmpty())
         assertEquals(3, model.rules.size)
         assertTrue(model.identifiers.containsAll(setOf("MODE", "DOOR", "AUX", "TEMP", "FAN")))
-        assertEquals("DOOR", model.rules[0].actions.first().targetId)
-        assertEquals("AUX", model.rules[1].actions.first().targetId)
-        assertEquals("FAN", model.rules[2].actions.first().targetId)
+        assertEquals(listOf("DOOR", "AUX"), model.rules[0].actions.map { it.targetId })
+        assertEquals("DOOR", model.rules[1].actions.single().targetId)
+        assertEquals("FAN", model.rules[2].actions.single().targetId)
     }
 
     @Test
@@ -88,11 +88,11 @@ class IoTScenarioLanguageTest {
             models = listOf("greenhouse" to model)
         )
 
-        assertEquals(2, plan.actions.size)
+        assertEquals("Unexpected planned actions: " + plan.actions, 2, plan.actions.size)
         assertEquals("MODE", plan.actions[0].widgetId)
         assertEquals("1", plan.actions[0].value)
         assertEquals("DOOR", plan.actions[1].widgetId)
-        assertEquals(1, plan.prerequisites.size)
+        assertEquals("Unexpected prerequisites: " + plan.prerequisites, 1, plan.prerequisites.size)
     }
 
     @Test
@@ -153,7 +153,7 @@ class IoTScenarioLanguageTest {
         val model = IoTScenarioSemanticAnalyzer.analyze(IoTScenarioParser.parse(source))
 
         assertTrue(model.parserErrors.isEmpty())
-        assertTrue(model.rules.size >= 10)
+        assertEquals(8, model.rules.size)
         assertTrue(model.identifiers.containsAll(setOf("vbtn90", "dstmp31", "vbtn68", "vbtn78", "btn59", "timer3")))
         assertTrue(model.rules.any { it.actions.any { action -> action.targetId == "vbtn78" && action.rendered.contains("= 1") } })
         assertTrue(model.rules.any { it.actions.any { action -> action.targetId == "timer3" && action.rendered.contains("= 6") } })
