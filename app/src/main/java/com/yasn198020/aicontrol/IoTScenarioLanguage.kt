@@ -543,13 +543,13 @@ object IoTScenarioEvaluator {
         is IoTValue.Text -> value.isNotBlank() && value != "0" && !value.equals("false", true)
         IoTValue.Unknown -> false
     }
+}
 
 fun IoTValue.isTruthy(): Boolean = when (this) {
     is IoTValue.BooleanValue -> value
     is IoTValue.Number -> kotlin.math.abs(value) > 0.000001
     is IoTValue.Text -> value.isNotBlank() && value != "0" && !value.equals("false", true)
     IoTValue.Unknown -> false
-}
 }
 
 data class ScenarioPrerequisite(
