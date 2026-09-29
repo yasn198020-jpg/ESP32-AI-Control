@@ -580,38 +580,61 @@ object IoTScenarioCommandPlanner {
             .flatMap { (scenarioDeviceId, model) ->
                 val device = devices.firstOrNull { it.id == scenarioDeviceId }
                     ?: return@flatMap emptyList()
-                val context = IoTScenarioEvaluationContext(
-                    device.widgets.associate { it.id to it.value }
-                )
-                model.rules
-                    .filter { rule ->
-                        rule.actions.any { action ->
-                            action.targetId == targetWidgetId &&
-                                valueMatchesDesired(action.expression, desiredValue, context)
-                        }
+                val variables = device.widgets.associate { it.id to it.value }
+                val context = IoTScenarioEvaluationContext(variables)
+
+                model.rules.mapNotNull { rule ->
+                    val hasDesiredAction = rule.actions.any { action ->
+                        action.targetId == targetWidgetId &&
+                            valueMatchesDesired(action.expression, desiredValue, context)
                     }
-                    .map { scenarioDeviceId to it }
+                    if (!hasDesiredAction) return@mapNotNull null
+
+                    val conditionNow = IoTScenarioEvaluator.evaluate(rule.condition.expression, context)
+                    if (conditionNow.isTruthy()) {
+                        return@mapNotNull scenarioDeviceId to (rule to emptyList())
+                    }
+
+                    val prerequisites = extractEqualityPrerequisites(rule.condition.expression)
+                        .mapNotNull { (name, value) ->
+                            val widget = device.widgets.firstOrNull { it.id == name }
+                                ?: return@mapNotNull null
+                            val controllable =
+                                widget.type == com.yasn198020.aicontrol.core.WidgetState.Type.TOGGLE ||
+                                    widget.type == com.yasn198020.aicontrol.core.WidgetState.Type.BUTTON ||
+                                    widget.type == com.yasn198020.aicontrol.core.WidgetState.Type.INPUT
+                            if (!controllable) return@mapNotNull null
+
+                            val current = widget.value.replace(',', '.').toDoubleOrNull()
+                            if (current != null && kotlin.math.abs(current - value.toDouble()) < 0.000001) {
+                                null
+                            } else {
+                                ScenarioPrerequisite(
+                                    device.id,
+                                    widget.id,
+                                    value.toPlainString(),
+                                    name + " должно быть " + value.toPlainString()
+                                )
+                            }
+                        }
+
+                    if (prerequisites.isEmpty()) return@mapNotNull null
+
+                    val simulated = variables.toMutableMap()
+                    prerequisites.forEach { simulated[it.widgetId] = it.value }
+                    val after = IoTScenarioEvaluator.evaluate(
+                        rule.condition.expression,
+                        IoTScenarioEvaluationContext(simulated)
+                    )
+                    if (!after.isTruthy()) return@mapNotNull null
+
+                    scenarioDeviceId to (rule to prerequisites)
+                }
             }
         if (candidates.isEmpty()) return ScenarioCommandPlan(base)
 
         val satisfiable = candidates.map { pair ->
-            val prerequisites = extractEqualityPrerequisites(pair.second.condition.expression).mapNotNull { (name, value) ->
-                val device = devices.firstOrNull { it.id == pair.first } ?: return@mapNotNull null
-                val widget = device.widgets.firstOrNull { it.id == name } ?: return@mapNotNull null
-                val controllable = widget.type == com.yasn198020.aicontrol.core.WidgetState.Type.TOGGLE ||
-                    widget.type == com.yasn198020.aicontrol.core.WidgetState.Type.BUTTON ||
-                    widget.type == com.yasn198020.aicontrol.core.WidgetState.Type.INPUT
-                if (!controllable) return@mapNotNull null
-                val current = widget.value.replace(',', '.').toDoubleOrNull()
-                if (current != null && kotlin.math.abs(current - value.toDouble()) < 0.000001) return@mapNotNull null
-                ScenarioPrerequisite(
-                    device.id,
-                    widget.id,
-                    value.toPlainString(),
-                    name + " должно быть " + value.toPlainString()
-                )
-            }
-            pair.second to prerequisites
+            pair.second
         }
         if (satisfiable.isEmpty()) return ScenarioCommandPlan(base)
 
