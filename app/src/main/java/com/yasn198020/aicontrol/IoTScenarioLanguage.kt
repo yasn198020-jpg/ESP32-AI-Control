@@ -575,11 +575,11 @@ object IoTScenarioCommandPlanner {
         models: List<Pair<String, DeviceScenarioModel>>
     ): ScenarioCommandPlan {
         val base = baseActions.ifEmpty { listOf(LocalCommandActionItem(targetDeviceId, targetWidgetId, desiredValue)) }
-        val candidates = models
+        val candidates: List<Pair<String, Pair<DeviceScenarioRule, List<ScenarioPrerequisite>>>> = models
             .filter { (scenarioDeviceId, _) -> scenarioDeviceId == targetDeviceId }
             .flatMap { (scenarioDeviceId, model) ->
                 val device = devices.firstOrNull { it.id == scenarioDeviceId }
-                    ?: return@flatMap emptyList()
+                    ?: return@flatMap emptyList<Pair<String, Pair<DeviceScenarioRule, List<ScenarioPrerequisite>>>>()
                 val variables = device.widgets.associate { it.id to it.value }
                 val context = IoTScenarioEvaluationContext(variables)
 
@@ -592,7 +592,8 @@ object IoTScenarioCommandPlanner {
 
                     val conditionNow = IoTScenarioEvaluator.evaluate(rule.condition.expression, context)
                     if (conditionNow.isTruthy()) {
-                        return@mapNotNull scenarioDeviceId to (rule to emptyList())
+                        return@mapNotNull scenarioDeviceId to
+                            (rule to emptyList<ScenarioPrerequisite>())
                     }
 
                     val prerequisites = extractEqualityPrerequisites(rule.condition.expression)
@@ -621,7 +622,9 @@ object IoTScenarioCommandPlanner {
                     if (prerequisites.isEmpty()) return@mapNotNull null
 
                     val simulated = variables.toMutableMap()
-                    prerequisites.forEach { simulated[it.widgetId] = it.value }
+                    prerequisites.forEach { prerequisite ->
+                        simulated[prerequisite.widgetId] = prerequisite.value
+                    }
                     val after = IoTScenarioEvaluator.evaluate(
                         rule.condition.expression,
                         IoTScenarioEvaluationContext(simulated)
@@ -631,17 +634,18 @@ object IoTScenarioCommandPlanner {
                     scenarioDeviceId to (rule to prerequisites)
                 }
             }
+
         if (candidates.isEmpty()) return ScenarioCommandPlan(base)
 
-        val satisfiable = candidates.map { pair ->
-            pair.second
-        }
-        if (satisfiable.isEmpty()) return ScenarioCommandPlan(base)
-
-        val minCount = satisfiable.minOf { it.second.size }
-        val bestPlans = satisfiable.filter { it.second.size == minCount }
-            .map { it.second.distinctBy { p -> p.deviceId + "/" + p.widgetId + "/" + p.value } }
-            .distinctBy { plan -> plan.joinToString("|") { p -> p.deviceId + "/" + p.widgetId + "=" + p.value } }
+        val minCount = candidates.minOf { it.second.second.size }
+        val bestPlans = candidates
+            .filter { it.second.second.size == minCount }
+            .map { it.second.second.distinctBy { p -> p.deviceId + "/" + p.widgetId + "/" + p.value } }
+            .distinctBy { plan ->
+                plan.joinToString("|") { prerequisite ->
+                    prerequisite.deviceId + "/" + prerequisite.widgetId + "=" + prerequisite.value
+                }
+            }
 
         if (bestPlans.size > 1) {
             return ScenarioCommandPlan(
