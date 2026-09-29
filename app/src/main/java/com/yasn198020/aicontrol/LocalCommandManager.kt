@@ -215,7 +215,7 @@ class LocalCommandManager {
         // simply continues after the threshold: "если температура выше 28, открой форточку".
         val explicitAction = when {
             text.contains("тогда") -> text.substringAfter("тогда")
-            Regex("""\bто\b""").containsMatchIn(text) -> text.substringAfter(Regex("""\bто\b"""))
+            Regex("""\bто\b""").find(text) != null -> Regex("""\bто\b""").find(text)?.let { text.substring(it.range.last + 1) } ?: ""
             else -> text.substring(thresholdMatch.range.last + 1)
         }
         val actionText = explicitAction.trim().trim(',', '.', ':', ';')
