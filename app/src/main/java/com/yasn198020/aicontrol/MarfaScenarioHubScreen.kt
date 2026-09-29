@@ -442,18 +442,18 @@ private fun DeviceScenariosScreen(
                             }
                         }
 
+                        val labels = devices
+                            .flatMap { device -> device.widgets }
+                            .associate { widget -> widget.id to widget.title }
+                            .filterKeys { item.sensorIds.contains(it) }
+                        val overview = DeviceScenarioModelFormatter.actionOverview(model, labels)
+
                         LazyColumn(
                             Modifier.fillMaxSize().padding(top = 8.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                             contentPadding = PaddingValues(bottom = 16.dp)
                         ) {
                             item {
-                                val labels = devices
-                                    .flatMap { device -> device.widgets }
-                                    .associate { widget -> widget.id to widget.title }
-                                    .filterKeys { item.sensorIds.contains(it) }
-                                val overview = DeviceScenarioModelFormatter.actionOverview(model, labels)
-
                                 Text(
                                     "Действия устройства",
                                     style = MaterialTheme.typography.titleLarge,
