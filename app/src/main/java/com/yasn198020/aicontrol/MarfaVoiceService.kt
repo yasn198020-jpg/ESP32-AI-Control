@@ -31,6 +31,7 @@ class MarfaVoiceService : Service() {
     private var runtimeListener: AppRuntime.UiListener? = null
     private var tts: TextToSpeech? = null
     private var pendingSmartRule: LocalCommandResult? = null
+    private var pendingControl: LocalCommandResult? = null
     private var keepListeningForSmartRuleConfirmation = false
     private lateinit var prefs: android.content.SharedPreferences
     private val commandExecutor = MarfaCommandExecutor.get()
@@ -117,6 +118,27 @@ class MarfaVoiceService : Service() {
         if (command.isBlank()) return
 
         try {
+            pendingControl?.let { pending ->
+                when {
+                    isCommandConfirmation(command) -> {
+                        pendingControl = null
+                        commandExecutor.execute(pending, runtime ?: return) { reply ->
+                            mainHandler.post { speak(reply) }
+                        }
+                        return
+                    }
+                    isCommandRejection(command) -> {
+                        pendingControl = null
+                        speak("Хорошо, не выполняю")
+                        return
+                    }
+                    else -> {
+                        speak("Выполнить это? Скажите да или нет")
+                        return
+                    }
+                }
+            }
+
             pendingSmartRule?.let { pending ->
                 when {
                     isSmartRuleConfirmation(command) -> {
@@ -148,6 +170,9 @@ class MarfaVoiceService : Service() {
 
             if (result.action == LocalCommandAction.SMART_RULE) {
                 askSmartRuleConfirmation(result)
+            } else if (result.action == LocalCommandAction.CONTROL && result.needsConfirmation) {
+                pendingControl = result
+                speak("Поняла. " + result.reply + ". Выполнить? Скажите да или нет")
             } else {
                 val trained = TrainedCommandMatcher(TrainedCommandStore(prefs)).matchAll(command)
                 android.util.Log.d(
@@ -238,6 +263,18 @@ class MarfaVoiceService : Service() {
                 MarfaShortcutInstaller.setActive(this, false)
             }
         }
+    }
+
+    private fun isCommandConfirmation(command: String): Boolean {
+        val value = command.lowercase(Locale("ru", "RU")).trim().replace("ё", "е")
+        return value in setOf("да", "давай", "выполняй", "выполни", "подтверждаю", "верно", "точно", "сделай") ||
+            value.contains("давай")
+    }
+
+    private fun isCommandRejection(command: String): Boolean {
+        val value = command.lowercase(Locale("ru", "RU")).trim().replace("ё", "е")
+        return value in setOf("нет", "отмена", "отменить", "не надо", "не делай", "не выполняй", "стоп") ||
+            value.contains("отмен") || value.contains("не выполняй")
     }
 
     private fun askSmartRuleConfirmation(result: LocalCommandResult) {
