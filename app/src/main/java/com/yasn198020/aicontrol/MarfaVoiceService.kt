@@ -32,6 +32,7 @@ class MarfaVoiceService : Service() {
     private var runtimeListener: AppRuntime.UiListener? = null
     private var tts: TextToSpeech? = null
     private var pendingSmartRule: LocalCommandResult? = null
+    private var keepListeningForSmartRuleConfirmation = false
     private lateinit var prefs: android.content.SharedPreferences
     private val commandScheduler: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor()
 
@@ -193,11 +194,13 @@ class MarfaVoiceService : Service() {
             when {
                 isSmartRuleConfirmation(command) -> {
                     clearPendingSmartRule()
+                    keepListeningForSmartRuleConfirmation = false
                     saveSmartRule(pending)
                     return
                 }
                 isSmartRuleRejection(command) -> {
                     clearPendingSmartRule()
+                    keepListeningForSmartRuleConfirmation = false
                     speak("Правило не сохранено")
                     return
                 }
@@ -236,11 +239,13 @@ class MarfaVoiceService : Service() {
                     .putExtra(EXTRA_TEXT, command)
             )
         } finally {
-            // The shortcut is a one-command trigger: after executing the
-            // command, stop listening and return the shortcut to OFF state.
-            voiceManager?.stop()
-            prefs.edit().putBoolean("marfa_voice_active", false).apply()
-            MarfaShortcutInstaller.setActive(this, false)
+            // A smart-rule command has a second voice turn: "да" or "нет".
+            // Keep the microphone alive only while that confirmation is pending.
+            if (!keepListeningForSmartRuleConfirmation) {
+                voiceManager?.stop()
+                prefs.edit().putBoolean("marfa_voice_active", false).apply()
+                MarfaShortcutInstaller.setActive(this, false)
+            }
         }
     }
 
@@ -250,6 +255,7 @@ class MarfaVoiceService : Service() {
             return
         }
         pendingSmartRule = result
+        keepListeningForSmartRuleConfirmation = true
         persistPendingSmartRule(result)
         speak(result.reply + ". Сохранить это правило? Скажите да или нет")
         android.util.Log.d(
