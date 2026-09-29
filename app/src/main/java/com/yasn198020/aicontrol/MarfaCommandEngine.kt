@@ -219,8 +219,13 @@ class MarfaCommandEngine {
     }
 
     private fun resolveReference(text: String, devices: List<Device>): Candidate? {
-        val all = rankControllable("", devices)
-            .sortedWith(compareBy<Candidate> { it.widget.order }.thenBy { it.widget.title })
+        val all = devices.flatMap { d ->
+            d.widgets.filter {
+                it.type == WidgetState.Type.TOGGLE ||
+                    it.type == WidgetState.Type.BUTTON ||
+                    it.type == WidgetState.Type.INPUT
+            }.map { w -> Candidate(d, w, 1) }
+        }.sortedWith(compareBy<Candidate> { it.widget.order }.thenBy { it.widget.title })
 
         when {
             containsAny(text, "первую", "первая", "первый", "первое", "номер один") -> return all.getOrNull(0)
