@@ -211,7 +211,14 @@ class LocalCommandManager {
         val values = devices.flatMap { device -> device.widgets.filter { it.type == WidgetState.Type.VALUE || it.type == WidgetState.Type.STATUS }.map { Candidate(device, it) } }
         val condition = values.map { it to temperatureScore(text, it) }.maxByOrNull { it.second } ?: return null
         if (condition.second <= 1) return null
-        val actionText = text.substringAfter("тогда", text.substringAfter("то", ""))
+        // The action may be introduced by "тогда/то", but natural speech often
+        // simply continues after the threshold: "если температура выше 28, открой форточку".
+        val explicitAction = when {
+            text.contains("тогда") -> text.substringAfter("тогда")
+            Regex("""\bто\b""").containsMatchIn(text) -> text.substringAfter(Regex("""\bто\b"""))
+            else -> text.substring(thresholdMatch.range.last + 1)
+        }
+        val actionText = explicitAction.trim().trim(',', '.', ':', ';')
         val actionValue = detectValue(actionText) ?: return null
         val actions = devices.flatMap { device -> device.widgets.filter { it.type == WidgetState.Type.TOGGLE || it.type == WidgetState.Type.BUTTON }.map { Candidate(device, it) } }
         val action = actions.map { it to score(actionText, it) }.filter { it.second > 0 }.maxByOrNull { it.second } ?: return null
