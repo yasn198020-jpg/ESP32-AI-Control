@@ -40,6 +40,11 @@ class AppRuntime private constructor(private val appContext: Context) {
     val deviceRepository: DeviceRepository = DeviceRepository()
     val scenarioStore: ScenarioStore = ScenarioStore(prefs)
     val scenarioActionExecutor: ScenarioActionExecutor = ScenarioActionExecutor()
+    val deviceScenarioStore: DeviceScenarioStore = DeviceScenarioStore(prefs)
+    val deviceScenarioManager: DeviceScenarioManager = DeviceScenarioManager(
+        appContext,
+        deviceScenarioStore
+    )
 
     val scenarioEngine: ScenarioEngine = ScenarioEngine(
         scenarioStore,
@@ -126,6 +131,7 @@ class AppRuntime private constructor(private val appContext: Context) {
 
             try {
                 deviceRepository.onStatus(deviceId, widgetId, value)
+                deviceScenarioManager.onDevicesUpdated(deviceRepository.snapshot())
 
                 DiagnosticTrace.stepForEvent(
                     eventId,

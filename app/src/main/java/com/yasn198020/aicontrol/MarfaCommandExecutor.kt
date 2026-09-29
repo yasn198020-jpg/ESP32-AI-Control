@@ -20,13 +20,27 @@ class MarfaCommandExecutor private constructor() {
         runtime: AppRuntime,
         onReply: (String) -> Unit
     ) {
-        val actions = result.actionItems.ifEmpty {
-            if (result.deviceId.isNotBlank() && result.widgetId.isNotBlank()) {
-                listOf(LocalCommandActionItem(result.deviceId, result.widgetId, result.value))
-            } else emptyList()
+        val initialPlan = runtime.deviceScenarioManager.planCommand(result, runtime.deviceRepository.snapshot())
+        initialPlan.blockedReason?.let {
+            onReply(it)
+            return
         }
-        if (actions.isEmpty()) {
+
+        val initialActions = initialPlan.actions
+        if (initialActions.isEmpty()) {
             onReply("Не удалось определить действие")
+            return
+        }
+
+        val snapshot = runtime.deviceRepository.snapshot()
+        val target = snapshot
+            .flatMap { device -> device.widgets.map { widget -> device to widget } }
+            .firstOrNull { it.first.id == result.deviceId && it.second.id == result.widgetId }
+        if (target?.second?.type != com.yasn198020.aicontrol.core.WidgetState.Type.BUTTON &&
+            target?.second?.value == result.value &&
+            initialPlan.prerequisites.isEmpty()
+        ) {
+            onReply("Уже установлено: " + result.reply.lowercase())
             return
         }
 
@@ -34,14 +48,25 @@ class MarfaCommandExecutor private constructor() {
             onReply("Запланировано: " + result.reply)
             scheduler.schedule(
                 {
-                    val outcome = perform(actions, runtime)
+                    val plan = runtime.deviceScenarioManager.planCommand(
+                        result,
+                        runtime.deviceRepository.snapshot()
+                    )
+                    if (plan.blockedReason != null) {
+                        onReply(plan.blockedReason)
+                        return@schedule
+                    }
+                    val outcome = perform(plan.actions, runtime)
                     onReply(
-                        if (outcome.sent > 0 && outcome.failed == 0) {
-                            "Выполнено: " + result.reply
-                        } else if (outcome.sent > 0) {
-                            "Часть команд выполнена: " + outcome.sent
-                        } else {
-                            "Не удалось выполнить запланированную команду"
+                        when {
+                            outcome.sent == plan.actions.size && outcome.sent == 1 -> result.reply
+                            outcome.sent == plan.actions.size && plan.prerequisites.isNotEmpty() ->
+                                "Выполнено: сначала подготовила условия, затем " + result.reply.lowercase()
+                            outcome.sent == plan.actions.size ->
+                                "Выполнено: " + result.reply
+                            outcome.sent > 0 ->
+                                "Часть команд выполнена: " + outcome.sent
+                            else -> "Не удалось выполнить запланированную команду"
                         }
                     )
                 },
@@ -51,12 +76,14 @@ class MarfaCommandExecutor private constructor() {
             return
         }
 
-        val outcome = perform(actions, runtime)
+        val outcome = perform(initialActions, runtime)
         onReply(
             when {
-                outcome.sent == actions.size && outcome.sent == 1 -> result.reply
-                outcome.sent == actions.size -> "Готово: выполнено " + outcome.sent + " действия"
-                outcome.sent > 0 -> "Выполнено " + outcome.sent + " из " + actions.size
+                outcome.sent == initialActions.size && initialActions.size == 1 -> result.reply
+                outcome.sent == initialActions.size && initialPlan.prerequisites.isNotEmpty() ->
+                    "Выполнено: сначала подготовила условия, затем " + result.reply.lowercase()
+                outcome.sent == initialActions.size -> "Готово: выполнено " + outcome.sent + " действия"
+                outcome.sent > 0 -> "Выполнено " + outcome.sent + " из " + initialActions.size
                 else -> "Команда распознана, но MQTT публикация не выполнена"
             }
         )
@@ -72,16 +99,20 @@ class MarfaCommandExecutor private constructor() {
         actions: List<LocalCommandActionItem>,
         runtime: AppRuntime
     ): Outcome {
+        if (!runtime.mqtt.isConnected()) {
+            DiagnosticTrace.system("MARFA command blocked: MQTT is not connected")
+            return Outcome(0, actions.size)
+        }
+
         var sent = 0
         var failed = 0
 
         actions.forEach { action ->
-            val widget = runtime.deviceRepository.snapshot()
+            val device = runtime.deviceRepository.snapshot()
                 .firstOrNull { it.id == action.deviceId }
-                ?.widgets
-                ?.firstOrNull { it.id == action.widgetId }
+            val widget = device?.widgets?.firstOrNull { it.id == action.widgetId }
 
-            if (widget == null) {
+            if (device == null || widget == null || !device.online) {
                 failed++
                 return@forEach
             }

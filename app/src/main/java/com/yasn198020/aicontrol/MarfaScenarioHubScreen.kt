@@ -1,0 +1,304 @@
+package com.yasn198020.aicontrol
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.yasn198020.aicontrol.core.Device
+
+@Composable
+fun MarfaScenarioHubScreen(
+    modifier: Modifier,
+    devices: List<Device>,
+    deviceScenarioManager: DeviceScenarioManager,
+    localScenarioStore: ScenarioStore,
+    localScenarioEngine: ScenarioEngine,
+    onRequestNotifications: (() -> Unit) -> Unit
+) {
+    var mode by remember { mutableIntStateOf(0) }
+
+    Column(modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilterChip(
+                selected = mode == 0,
+                onClick = { mode = 0 },
+                label = { Text("Логика устройств") }
+            )
+            FilterChip(
+                selected = mode == 1,
+                onClick = { mode = 1 },
+                label = { Text("Мои правила") }
+            )
+        }
+
+        if (mode == 0) {
+            DeviceScenariosScreen(modifier, devices, deviceScenarioManager)
+        } else {
+            ScenariosScreen(
+                modifier,
+                devices,
+                localScenarioStore,
+                localScenarioEngine,
+                onRequestNotifications
+            )
+        }
+    }
+}
+
+@Composable
+private fun DeviceScenariosScreen(
+    modifier: Modifier,
+    devices: List<Device>,
+    manager: DeviceScenarioManager
+) {
+    var selectedDeviceId by remember { mutableStateOf(devices.firstOrNull()?.id.orEmpty()) }
+    var title by remember { mutableStateOf("") }
+    var source by remember { mutableStateOf("") }
+    var parseMessage by remember { mutableStateOf("") }
+    var saved by remember { mutableStateOf(manager.scenarios()) }
+    var deviations by remember { mutableStateOf(manager.deviationSnapshot()) }
+    var showSavedSource by remember { mutableStateOf<String?>(null) }
+
+    fun refresh() {
+        saved = manager.scenarios()
+        deviations = manager.deviationSnapshot()
+    }
+
+    LaunchedEffect(manager) {
+        while (true) {
+            refresh()
+            kotlinx.coroutines.delay(1000)
+        }
+    }
+
+    LaunchedEffect(devices) {
+        if (selectedDeviceId.isBlank() && devices.isNotEmpty()) {
+            selectedDeviceId = devices.first().id
+        }
+    }
+
+    Column(
+        modifier = modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 4.dp)
+    ) {
+        Text(
+            "Сценарии ESP32 / IoTManager",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold
+        )
+        Text(
+            "Марфа получает scenario.txt от пользователя, строит модель логики и сравнивает ожидаемое поведение с реальными MQTT-состояниями. Локальный сценарий ESP32 не изменяется.",
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+
+        if (devices.isNotEmpty()) {
+            Text(
+                "Устройство",
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                devices.forEach { device ->
+                    FilterChip(
+                        selected = selectedDeviceId == device.id,
+                        onClick = { selectedDeviceId = device.id },
+                        label = { Text(device.name.ifBlank { device.id }) }
+                    )
+                }
+            }
+        } else {
+            Text(
+                "Подключите MQTT и дождитесь конфигурации устройств.",
+                modifier = Modifier.padding(vertical = 8.dp)
+            )
+        }
+
+        OutlinedTextField(
+            value = title,
+            onValueChange = { title = it },
+            label = { Text("Название") },
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            singleLine = true
+        )
+
+        OutlinedTextField(
+            value = source,
+            onValueChange = { source = it },
+            label = { Text("Текст scenario.txt") },
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 180.dp, max = 330.dp)
+                .padding(top = 8.dp),
+            textStyle = LocalTextStyle.current.copy(fontSize = 14.sp)
+        )
+
+        Row(
+            Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Button(
+                enabled = selectedDeviceId.isNotBlank() && source.isNotBlank(),
+                onClick = {
+                    parseMessage = DeviceScenarioModelFormatter.summary(manager.parseSource(source))
+                }
+            ) {
+                Text("Проверить")
+            }
+
+            Button(
+                enabled = selectedDeviceId.isNotBlank() && source.isNotBlank(),
+                onClick = {
+                    val result = manager.saveScenario(selectedDeviceId, title, source)
+                    val item = result.first
+                    if (item == null) {
+                        parseMessage = DeviceScenarioModelFormatter.summary(result.second)
+                    } else {
+                        parseMessage = "Сохранено. Найдено правил: " + result.second.rules.size +
+                            ". Марфа начала контроль ожидаемого поведения."
+                        title = ""
+                        source = ""
+                        refresh()
+                    }
+                }
+            ) {
+                Text("Сохранить")
+            }
+
+            OutlinedButton(
+                onClick = {
+                    title = ""
+                    source = ""
+                    parseMessage = ""
+                }
+            ) {
+                Text("Очистить")
+            }
+        }
+
+        if (parseMessage.isNotBlank()) {
+            Card(Modifier.fillMaxWidth()) {
+                SelectionContainer {
+                    Text(
+                        parseMessage,
+                        modifier = Modifier.padding(12.dp),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+
+        if (deviations.isNotEmpty()) {
+            Text(
+                "Текущие отклонения",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            deviations.forEach { deviation ->
+                Card(
+                    Modifier.fillMaxWidth().padding(top = 6.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+                ) {
+                    Column(Modifier.padding(10.dp)) {
+                        Text(deviation.message, fontWeight = FontWeight.SemiBold)
+                        Text("Условие: " + deviation.condition, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+        }
+
+        Text(
+            "Сохранённые сценарии",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold
+        )
+
+        if (saved.isEmpty()) {
+            Text(
+                "Пока нет сценариев. Вставьте содержимое scenario.txt выше.",
+                modifier = Modifier.padding(vertical = 8.dp)
+            )
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                items(saved, key = { it.id }) { item ->
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(10.dp)) {
+                            Text(item.title, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "Устройство: " + item.deviceId,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(if (item.enabled) "Контроль включён" else "Контроль выключен")
+                                Spacer(Modifier.weight(1f))
+                                Switch(
+                                    checked = item.enabled,
+                                    onCheckedChange = {
+                                        manager.setEnabled(item.id, it)
+                                        refresh()
+                                    }
+                                )
+                                OutlinedButton(onClick = { showSavedSource = item.id }) {
+                                    Text("Открыть")
+                                }
+                                TextButton(
+                                    onClick = {
+                                        manager.remove(item.id)
+                                        refresh()
+                                    }
+                                ) {
+                                    Text("Удалить")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    showSavedSource?.let { id ->
+        val item = saved.firstOrNull { it.id == id }
+        if (item != null) {
+            AlertDialog(
+                onDismissRequest = { showSavedSource = null },
+                title = { Text(item.title) },
+                text = {
+                    SelectionContainer {
+                        Text(
+                            item.source,
+                            modifier = Modifier.verticalScroll(rememberScrollState())
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showSavedSource = null }) {
+                        Text("Готово")
+                    }
+                }
+            )
+        }
+    }
+}

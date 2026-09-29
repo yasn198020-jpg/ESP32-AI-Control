@@ -1098,9 +1098,10 @@ private fun App(
                 { mqtt.publishHello() }
             )
             3 -> LogScreen(Modifier.padding(padding), log) { log = emptyList() }
-            4 -> ScenariosScreen(
+            4 -> MarfaScenarioHubScreen(
                 Modifier.padding(padding),
                 devices,
+                runtime.deviceScenarioManager,
                 scenarioStore,
                 scenarioEngine,
                 onRequestNotifications = { action ->
