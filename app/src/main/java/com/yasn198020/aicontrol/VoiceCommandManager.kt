@@ -21,6 +21,9 @@ class VoiceCommandManager(
     private var finishing = false
     private var restarting = false
     private var lastPartialText = ""
+    // SpeechRecognizer can occasionally deliver the final callback more than once.
+    // One recognition session must produce at most one command.
+    private var commandDelivered = false
     private val handler = Handler(Looper.getMainLooper())
 
     private fun hasMicrophonePermission(): Boolean =
@@ -97,7 +100,8 @@ class VoiceCommandManager(
                     // the recognizer before that result reaches the app.
                     if (!listening && !finishing) return
 
-                    if (text.isNotBlank()) {
+                    if (text.isNotBlank() && !commandDelivered) {
+                        commandDelivered = true
                         onStatus("Команда: $text")
                         onResult(text)
                     }
@@ -134,6 +138,7 @@ class VoiceCommandManager(
 
         listening = true
         finishing = false
+        commandDelivered = false
         if (restarting) return
 
         handler.removeCallbacksAndMessages(null)
@@ -170,6 +175,8 @@ class VoiceCommandManager(
             if (!listening || finishing) return@postDelayed
 
             try {
+                // This is a new recognition session after the previous result.
+                commandDelivered = false
                 val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ru-RU")
@@ -225,7 +232,7 @@ class VoiceCommandManager(
                 finishing = false
                 releaseRecognizer()
             }
-        }, 1200L)
+        }, 5000L)
     }
 
     private fun normalizeCommand(text: String): String {
@@ -267,6 +274,7 @@ class VoiceCommandManager(
         finishing = false
         restarting = false
         lastPartialText = ""
+        commandDelivered = false
         handler.removeCallbacksAndMessages(null)
         releaseRecognizer()
     }
