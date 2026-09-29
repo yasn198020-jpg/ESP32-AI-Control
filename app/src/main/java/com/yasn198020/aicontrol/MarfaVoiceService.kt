@@ -194,7 +194,8 @@ class MarfaVoiceService : Service() {
             }
         }
 
-        val result = LocalCommandManager().interpret(command, synchronizedCopyDevices())\n        when (result.action) {
+        val result = LocalCommandManager().interpret(command, synchronizedCopyDevices())
+        when (result.action) {
             LocalCommandAction.SMART_RULE -> {
                 askSmartRuleConfirmation(result)
             }
