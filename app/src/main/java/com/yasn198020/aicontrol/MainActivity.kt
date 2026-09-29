@@ -1204,9 +1204,9 @@ private fun PendingMarfaCommandsScreen(modifier: Modifier) {
                 val minutes = (totalSeconds % 3600L) / 60L
                 val seconds = totalSeconds % 60L
                 val remainingText = when {
-                    hours > 0L -> "через \${hours} ч \${minutes} мин"
-                    minutes > 0L -> "через \${minutes} мин \${seconds} сек"
-                    else -> "через \${seconds} сек"
+                    hours > 0L -> "через ${hours} ч ${minutes} мин"
+                    minutes > 0L -> "через ${minutes} мин ${seconds} сек"
+                    else -> "через ${seconds} сек"
                 }
                 val timeText = java.text.SimpleDateFormat(
                     "dd.MM.yyyy HH:mm",
@@ -1229,7 +1229,7 @@ private fun PendingMarfaCommandsScreen(modifier: Modifier) {
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Medium
                         )
-                        Text("Выполнение: \${timeText}")
+                        Text("Выполнение: ${timeText}")
                         Text(
                             remainingText,
                             style = MaterialTheme.typography.bodyMedium
