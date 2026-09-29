@@ -62,6 +62,16 @@ class MarfaCommandEngineTest {
     }
 
     @Test
+    fun numericRelativeDelayIsParsedForTwentyMinutes() {
+        val result = MarfaCommandEngine().parse("Открой форточку помидоров через 20 минут", catalog())
+
+        assertEquals(LocalCommandAction.CONTROL, result.action)
+        assertEquals("vent1", result.widgetId)
+        assertEquals("1", result.value)
+        assertTrue(result.delayMs in 19L * 60_000L..21L * 60_000L)
+    }
+
+    @Test
     fun relativeDelayIsParsedWithoutImmediateExecution() {
         val result = MarfaCommandEngine().parse("Выключи насос через двадцать минут", catalog())
 
