@@ -204,28 +204,71 @@ class LocalCommandManager {
     }
 
     private fun detectSmartRule(text: String, devices: List<Device>): LocalCommandResult? {
-        if (!text.contains("если") || !text.contains("температур")) return null
-        val thresholdMatch = Regex("""(?:выше|больше|поднимется\s+выше|станет\s+выше|ниже|меньше)\s+(-?\d+(?:[.,]\d+)?)""").find(text) ?: return null
+        // Natural rule forms:
+        // "если температура выше 28 открой форточку"
+        // "когда температура станет ниже 10, включи обогрев"
+        // "при температуре больше 30 закрывай форточку"
+        val hasRuleIntro =
+            text.contains("если") || text.contains("когда") || text.contains("при ")
+        val hasTemperature = listOf("температур", "темп", "градус", "тепло", "жарко", "холодно")
+            .any { text.contains(it) }
+        if (!hasRuleIntro || !hasTemperature) return null
+
+        val thresholdMatch = Regex(
+            """(?:выше|больше|меньше|ниже|достигнет|достигла|станет\s+(?:выше|ниже)|поднимется\s+(?:выше|до)|опустится\s+(?:ниже|до)|выше\s+чем|ниже\s+чем)\s*(-?\d+(?:[.,]\d+)?)"""
+        ).find(text) ?: Regex(
+            """(?:температур\w*|темп\w*).*?(?:до|на)\s*(-?\d+(?:[.,]\d+)?)"""
+        ).find(text) ?: return null
+
         val threshold = thresholdMatch.groupValues[1].replace(",", ".").toDoubleOrNull() ?: return null
-        val op = if (text.contains("ниже") || text.contains("меньше")) "<" else ">"
-        val values = devices.flatMap { device -> device.widgets.filter { it.type == WidgetState.Type.VALUE || it.type == WidgetState.Type.STATUS }.map { Candidate(device, it) } }
-        val condition = values.map { it to temperatureScore(text, it) }.maxByOrNull { it.second } ?: return null
-        if (condition.second <= 1) return null
-        // The action may be introduced by "тогда/то", but natural speech often
-        // simply continues after the threshold: "если температура выше 28, открой форточку".
-        val explicitAction = when {
-            text.contains("тогда") -> text.substringAfter("тогда")
-            Regex("""\bто\b""").find(text) != null -> Regex("""\bто\b""").find(text)?.let { text.substring(it.range.last + 1) } ?: ""
-            else -> text.substring(thresholdMatch.range.last + 1)
+        val op = when {
+            listOf("ниже", "меньше", "опустится").any { text.contains(it) } -> "<"
+            else -> ">"
         }
-        val actionText = explicitAction.trim().trim(',', '.', ':', ';')
+
+        val values = devices.flatMap { device ->
+            device.widgets
+                .filter { it.type == WidgetState.Type.VALUE || it.type == WidgetState.Type.STATUS }
+                .map { Candidate(device, it) }
+        }
+        val condition = values
+            .map { it to temperatureScore(text, it) }
+            .filter { it.second > 1 }
+            .maxByOrNull { it.second } ?: return null
+
+        // Everything after the threshold is the action. This also handles
+        // speech-recognition punctuation being absent.
+        val actionText = text.substring(thresholdMatch.range.last + 1)
+            .replaceFirst(Regex("""^\s*(?:градус\w*)?\s*(?:тогда|то)?\s*"""), "")
+            .trim(' ', ',', '.', ':', ';')
         val actionValue = detectValue(actionText) ?: return null
-        val actions = devices.flatMap { device -> device.widgets.filter { it.type == WidgetState.Type.TOGGLE || it.type == WidgetState.Type.BUTTON }.map { Candidate(device, it) } }
-        val action = actions.map { it to score(actionText, it) }.filter { it.second > 0 }.maxByOrNull { it.second } ?: return null
+
+        val actions = devices.flatMap { device ->
+            device.widgets
+                .filter { it.type == WidgetState.Type.TOGGLE || it.type == WidgetState.Type.BUTTON }
+                .map { Candidate(device, it) }
+        }
+        val action = actions
+            .map { it to score(actionText, it) }
+            .filter { it.second > 0 }
+            .maxByOrNull { it.second } ?: return null
+
         val cw = condition.first.widget
         val aw = action.first.widget
-        val title = "Если " + cw.title.ifBlank { cw.id } + " " + op + " " + threshold + " → " + (if (actionValue == "1") "включить " else "выключить ") + aw.title.ifBlank { aw.id }
-        return LocalCommandResult(LocalCommandAction.SMART_RULE, reply = "Поняла правило: $title", conditionDeviceId = condition.first.device.id, conditionWidgetId = cw.id, conditionOperator = op, conditionThreshold = threshold, actionDeviceId = action.first.device.id, actionWidgetId = aw.id, actionValue = actionValue)
+        val title = "Если " + cw.title.ifBlank { cw.id } + " " + op + " " + threshold +
+            " → " + (if (actionValue == "1") "включить " else "выключить ") + aw.title.ifBlank { aw.id }
+
+        return LocalCommandResult(
+            LocalCommandAction.SMART_RULE,
+            reply = "Поняла правило: $title",
+            conditionDeviceId = condition.first.device.id,
+            conditionWidgetId = cw.id,
+            conditionOperator = op,
+            conditionThreshold = threshold,
+            actionDeviceId = action.first.device.id,
+            actionWidgetId = aw.id,
+            actionValue = actionValue
+        )
     }
     private fun detectValue(text: String): String? {
         val open = listOf(
