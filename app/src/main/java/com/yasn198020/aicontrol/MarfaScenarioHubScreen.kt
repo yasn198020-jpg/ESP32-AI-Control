@@ -51,7 +51,7 @@ fun MarfaScenarioHubScreen(
         }
 
         if (mode == 0) {
-            DeviceScenariosScreen(modifier, deviceScenarioManager)
+            DeviceScenariosScreen(modifier, deviceScenarioManager, devices)
         } else {
             ScenariosScreen(
                 modifier,
@@ -67,7 +67,8 @@ fun MarfaScenarioHubScreen(
 @Composable
 private fun DeviceScenariosScreen(
     modifier: Modifier,
-    manager: DeviceScenarioManager
+    manager: DeviceScenarioManager,
+    devices: List<Device>
 ) {
     var title by remember { mutableStateOf("") }
     var source by remember { mutableStateOf("") }
@@ -447,6 +448,36 @@ private fun DeviceScenariosScreen(
                             contentPadding = PaddingValues(bottom = 16.dp)
                         ) {
                             item {
+                                val labels = devices
+                                    .flatMap { device -> device.widgets }
+                                    .associate { widget -> widget.id to widget.title }
+                                    .filterKeys { item.sensorIds.contains(it) }
+                                val overview = DeviceScenarioModelFormatter.actionOverview(model, labels)
+
+                                Text(
+                                    "Действия устройства",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                if (overview.isNotBlank()) {
+                                    Card(Modifier.fillMaxWidth()) {
+                                        SelectionContainer {
+                                            Text(
+                                                overview,
+                                                modifier = Modifier.padding(12.dp),
+                                                style = MaterialTheme.typography.bodyMedium
+                                            )
+                                        }
+                                    }
+                                } else {
+                                    Text(
+                                        "Для действий не найдено достаточно данных названий виджетов.",
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
+
+                                Spacer(Modifier.height(8.dp))
+
                                 Text(
                                     "Дерево логики устройства",
                                     style = MaterialTheme.typography.titleLarge,
@@ -463,7 +494,7 @@ private fun DeviceScenariosScreen(
                                 Card(Modifier.fillMaxWidth()) {
                                     SelectionContainer {
                                         Text(
-                                            DeviceScenarioModelFormatter.tree(model),
+                                            DeviceScenarioModelFormatter.tree(model, labels),
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .horizontalScroll(rememberScrollState())
