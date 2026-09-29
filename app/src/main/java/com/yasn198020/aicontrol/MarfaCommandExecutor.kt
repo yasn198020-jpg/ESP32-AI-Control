@@ -9,7 +9,17 @@ import java.util.concurrent.TimeUnit
  * It is process-wide so foreground UI and voice service cannot create competing
  * schedulers for the same command.
  */
+data class PendingMarfaCommand(
+    val id: String,
+    val commandText: String,
+    val reply: String,
+    val executeAtMs: Long
+)
+
 class MarfaCommandExecutor private constructor() {
+    private val pendingCommands = java.util.concurrent.ConcurrentHashMap<String, PendingMarfaCommand>()
+    private val scheduledTasks = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ScheduledFuture<*>>()
+
     private val scheduler: ScheduledExecutorService =
         Executors.newSingleThreadScheduledExecutor { runnable ->
             Thread(runnable, "MarfaCommandExecutor").apply { isDaemon = true }
@@ -45,34 +55,48 @@ class MarfaCommandExecutor private constructor() {
         }
 
         if (result.delayMs > 0L) {
+            val taskId = java.util.UUID.randomUUID().toString()
+            val executeAtMs = System.currentTimeMillis() + result.delayMs
+            pendingCommands[taskId] = PendingMarfaCommand(
+                id = taskId,
+                commandText = result.reply,
+                reply = result.reply,
+                executeAtMs = executeAtMs
+            )
             onReply("Запланировано: " + result.reply)
-            scheduler.schedule(
+            val future = scheduler.schedule(
                 {
-                    val plan = runtime.deviceScenarioManager.planCommand(
-                        result,
-                        runtime.deviceRepository.snapshot()
-                    )
-                    if (plan.blockedReason != null) {
-                        onReply(plan.blockedReason)
-                        return@schedule
-                    }
-                    val outcome = perform(plan.actions, runtime)
-                    onReply(
-                        when {
-                            outcome.sent == plan.actions.size && outcome.sent == 1 -> result.reply
-                            outcome.sent == plan.actions.size && plan.prerequisites.isNotEmpty() ->
-                                "Выполнено: сначала подготовила условия, затем " + result.reply.lowercase()
-                            outcome.sent == plan.actions.size ->
-                                "Выполнено: " + result.reply
-                            outcome.sent > 0 ->
-                                "Часть команд выполнена: " + outcome.sent
-                            else -> "Не удалось выполнить запланированную команду"
+                    try {
+                        val plan = runtime.deviceScenarioManager.planCommand(
+                            result,
+                            runtime.deviceRepository.snapshot()
+                        )
+                        if (plan.blockedReason != null) {
+                            onReply(plan.blockedReason)
+                            return@schedule
                         }
-                    )
+                        val outcome = perform(plan.actions, runtime)
+                        onReply(
+                            when {
+                                outcome.sent == plan.actions.size && outcome.sent == 1 -> result.reply
+                                outcome.sent == plan.actions.size && plan.prerequisites.isNotEmpty() ->
+                                    "Выполнено: сначала подготовила условия, затем " + result.reply.lowercase()
+                                outcome.sent == plan.actions.size ->
+                                    "Выполнено: " + result.reply
+                                outcome.sent > 0 ->
+                                    "Часть команд выполнена: " + outcome.sent
+                                else -> "Не удалось выполнить запланированную команду"
+                            }
+                        )
+                    } finally {
+                        pendingCommands.remove(taskId)
+                        scheduledTasks.remove(taskId)
+                    }
                 },
                 result.delayMs,
                 TimeUnit.MILLISECONDS
             )
+            scheduledTasks[taskId] = future
             return
         }
 
@@ -89,8 +113,19 @@ class MarfaCommandExecutor private constructor() {
         )
     }
 
+    fun pendingCommands(): List<PendingMarfaCommand> =
+        pendingCommands.values.sortedBy { it.executeAtMs }
+
+    fun cancelScheduled(id: String): Boolean {
+        val cancelled = scheduledTasks.remove(id)?.cancel(false) ?: false
+        pendingCommands.remove(id)
+        return cancelled
+    }
+
     fun shutdown() {
         scheduler.shutdownNow()
+        scheduledTasks.clear()
+        pendingCommands.clear()
     }
 
     private data class Outcome(val sent: Int, val failed: Int)
