@@ -51,7 +51,7 @@ fun MarfaScenarioHubScreen(
         }
 
         if (mode == 0) {
-            DeviceScenariosScreen(modifier, devices, deviceScenarioManager)
+            DeviceScenariosScreen(modifier, deviceScenarioManager)
         } else {
             ScenariosScreen(
                 modifier,
@@ -67,7 +67,6 @@ fun MarfaScenarioHubScreen(
 @Composable
 private fun DeviceScenariosScreen(
     modifier: Modifier,
-    devices: List<Device>,
     manager: DeviceScenarioManager
 ) {
     var title by remember { mutableStateOf("") }
