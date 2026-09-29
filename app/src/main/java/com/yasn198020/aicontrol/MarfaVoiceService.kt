@@ -115,7 +115,20 @@ class MarfaVoiceService : Service() {
         if (command.isBlank()) return
 
         try {
-            val trained = TrainedCommandMatcher(TrainedCommandStore(prefs)).matchAll(command)
+            // Smart rules have priority over trained commands.
+        // This prevents a learned action phrase from swallowing a natural rule.
+        val smartRuleFirst = LocalCommandManager().interpret(command, synchronizedCopyDevices())
+        if (smartRuleFirst.action == LocalCommandAction.SMART_RULE) {
+            askSmartRuleConfirmation(smartRuleFirst)
+            sendBroadcast(
+                Intent(ACTION_VOICE_RESULT)
+                    .setPackage(packageName)
+                    .putExtra(EXTRA_TEXT, command)
+            )
+            return
+        }
+
+        val trained = TrainedCommandMatcher(TrainedCommandStore(prefs)).matchAll(command)
         android.util.Log.d("MARFA_TRAINED", "command=" + command + " matches=" + trained.size)
 
         // Saved training has absolute priority. A trained read action answers
