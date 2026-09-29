@@ -197,7 +197,7 @@ class DeviceScenarioManager(
             model.rules.forEach { rule ->
                 val context = IoTScenarioEvaluationContext(variables)
                 val condition = IoTScenarioEvaluator.evaluate(rule.condition.expression, context)
-                if ((condition as? IoTValue.BooleanValue)?.value != true) return@forEach
+                if (!condition.isTruthy()) return@forEach
 
                 rule.actions.forEach { action ->
                     val target = widgetMap.values.firstOrNull { it.id == action.targetId } ?: return@forEach
