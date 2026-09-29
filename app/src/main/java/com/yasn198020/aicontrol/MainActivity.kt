@@ -166,6 +166,7 @@ private fun App(
     var voiceText by remember { mutableStateOf("") }
     var voiceStatus by remember { mutableStateOf("Нажмите 🎤 и скажите команду") }
     var pendingSmartRule by remember { mutableStateOf<LocalCommandResult?>(null) }
+    var pendingControl by remember { mutableStateOf<LocalCommandResult?>(null) }
     val localCommandManager = remember { LocalCommandManager() }
     val speech = remember { TextToSpeech(context, null) }
     val trainedStore = remember { TrainedCommandStore(prefs) }
@@ -518,6 +519,33 @@ private fun App(
 
         voiceStatus = "Анализ команды…"
 
+        pendingControl?.let { pending ->
+            val normalized = command.lowercase(Locale("ru", "RU")).trim().replace("ё", "е")
+            when {
+                normalized in setOf("да", "давай", "выполняй", "выполни", "подтверждаю", "верно", "точно", "сделай") || normalized.contains("давай") -> {
+                    pendingControl = null
+                    MarfaCommandExecutor.get().execute(pending, runtime) { reply ->
+                        android.os.Handler(android.os.Looper.getMainLooper()).post {
+                            voiceStatus = reply
+                            speech.speak(reply, TextToSpeech.QUEUE_FLUSH, null, "marfa-command-confirmed")
+                        }
+                    }
+                    return@LaunchedEffect
+                }
+                normalized in setOf("нет", "отмена", "отменить", "не надо", "не делай", "не выполняй", "стоп") || normalized.contains("отмен") || normalized.contains("не выполняй") -> {
+                    pendingControl = null
+                    voiceStatus = "Хорошо, не выполняю"
+                    speech.speak(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "marfa-command-cancelled")
+                    return@LaunchedEffect
+                }
+                else -> {
+                    voiceStatus = "Выполнить это? Скажите да или нет"
+                    speech.speak(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "marfa-command-ask-again")
+                    return@LaunchedEffect
+                }
+            }
+        }
+
         pendingSmartRule?.let { pending ->
             val normalized = command.lowercase(Locale("ru", "RU")).trim().replace("ё", "е")
             when {
@@ -581,6 +609,10 @@ private fun App(
             pendingSmartRule = result
             voiceStatus = result.reply + ". Сохранить это правило? Скажите да или нет"
             speech.speak(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "smart-rule-ask")
+        } else if (result.action == LocalCommandAction.CONTROL && result.needsConfirmation) {
+            pendingControl = result
+            voiceStatus = "Поняла. " + result.reply + ". Выполнить? Скажите да или нет"
+            speech.speak(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "marfa-command-ask")
         } else {
             val trainedActions = trainedMatcher.matchAll(command)
             android.util.Log.d(
