@@ -25,7 +25,8 @@ data class LocalCommandResult(
     val actionDeviceId: String = "",
     val actionWidgetId: String = "",
     val actionValue: String = "1",
-    val actionItems: List<LocalCommandActionItem> = emptyList()
+    val actionItems: List<LocalCommandActionItem> = emptyList(),
+    val needsConfirmation: Boolean = false
 )
 
 /**
