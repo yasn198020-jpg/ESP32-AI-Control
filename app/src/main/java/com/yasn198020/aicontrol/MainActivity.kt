@@ -946,6 +946,7 @@ private fun App(
                             DropdownMenuItem(text = { Text("Журнал") }, onClick = { menuOpen = false; tab = 3 })
                             DropdownMenuItem(text = { Text("История и графики") }, onClick = { menuOpen = false; tab = 6 })
                             DropdownMenuItem(text = { Text("Сценарии") }, onClick = { menuOpen = false; tab = 4 })
+                            DropdownMenuItem(text = { Text("Отложенные команды") }, onClick = { menuOpen = false; tab = 9 })
                             DropdownMenuItem(text = { Text("Голос") }, onClick = { menuOpen = false; tab = 5 })
                             DropdownMenuItem(text = { Text("Размер текста") }, onClick = { menuOpen = false; textSizeDialogOpen = true })
                             DropdownMenuItem(
@@ -1003,7 +1004,7 @@ private fun App(
                         }
                     }
                     Text("?", fontSize = 22.sp, modifier = Modifier.padding(end = 18.dp))
-                    Text(when (tab) { 0 -> "Dashboard"; 1 -> "Обученные команды"; 2 -> "MQTT"; 3 -> "Log"; 4 -> "Сценарии"; 5 -> "Голос"; 8 -> "Очистка приложения"; else -> "История и графики" }, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    Text(when (tab) { 0 -> "Dashboard"; 1 -> "Обученные команды"; 2 -> "MQTT"; 3 -> "Log"; 4 -> "Сценарии"; 5 -> "Голос"; 9 -> "Отложенные команды"; 8 -> "Очистка приложения"; else -> "История и графики" }, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                     Text("ⓘ", fontSize = 22.sp, modifier = Modifier.padding(horizontal = 10.dp)); Text("☁", fontSize = 27.sp)
                 }
                 if (tab == 0) DashboardPageTabs(devices, selectedPage, onSelect = { selectedPage = it })
@@ -1065,6 +1066,13 @@ private fun App(
                     icon = { Text("🔔", fontSize = 22.sp) },
                     label = { Text("Сценарии") }
                 )
+
+                NavigationBarItem(
+                    selected = tab == 9,
+                    onClick = { tab = 9 },
+                    icon = { Text("⏱", fontSize = 22.sp) },
+                    label = { Text("Отложенные") }
+                )
             }
         }
     ) { padding ->
@@ -1115,6 +1123,7 @@ private fun App(
                     }
                 }
             )
+            9 -> PendingMarfaCommandsScreen(Modifier.padding(padding))
             6 -> HistoryScreen(Modifier.padding(padding), devices, historyStore)
             8 -> CleanupScreen(
                 modifier = Modifier.padding(padding),
@@ -1142,6 +1151,98 @@ private fun App(
                 ::saveVoiceSettings,
                 { sample -> applyVoiceSettings(); speech.speak(sample, TextToSpeech.QUEUE_FLUSH, null, "voice-preview") }
             )
+        }
+    }
+}
+
+@Composable
+private fun PendingMarfaCommandsScreen(modifier: Modifier) {
+    val executor = remember { MarfaCommandExecutor.get() }
+    var commands by remember { mutableStateOf(executor.pendingCommands()) }
+
+    LaunchedEffect(executor) {
+        while (true) {
+            commands = executor.pendingCommands()
+            delay(500)
+        }
+    }
+
+    LazyColumn(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        item {
+            Text(
+                "Отложенные голосовые команды",
+                fontSize = 22.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Здесь отображаются команды, которые Марфа уже приняла и ожидает к выполнению.",
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+
+        if (commands.isEmpty()) {
+            item {
+                Text(
+                    "Сейчас отложенных команд нет.",
+                    modifier = Modifier.padding(vertical = 18.dp),
+                    style = MaterialTheme.typography.bodyLarge
+                )
+            }
+        } else {
+            items(commands, key = { it.id }) { command ->
+                val remainingMs = (command.executeAtMs - System.currentTimeMillis()).coerceAtLeast(0L)
+                val totalSeconds = remainingMs / 1000L
+                val hours = totalSeconds / 3600L
+                val minutes = (totalSeconds % 3600L) / 60L
+                val seconds = totalSeconds % 60L
+                val remainingText = when {
+                    hours > 0L -> "через \${hours} ч \${minutes} мин"
+                    minutes > 0L -> "через \${minutes} мин \${seconds} сек"
+                    else -> "через \${seconds} сек"
+                }
+                val timeText = java.text.SimpleDateFormat(
+                    "dd.MM.yyyy HH:mm",
+                    Locale("ru", "RU")
+                ).format(java.util.Date(command.executeAtMs))
+
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    color = Color(0xFF2B2B2B)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            command.commandText,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text("Выполнение: \${timeText}")
+                        Text(
+                            remainingText,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        TextButton(
+                            onClick = {
+                                executor.cancelScheduled(command.id)
+                                commands = executor.pendingCommands()
+                            }
+                        ) {
+                            Text("Удалить")
+                        }
+                    }
+                }
+            }
         }
     }
 }
