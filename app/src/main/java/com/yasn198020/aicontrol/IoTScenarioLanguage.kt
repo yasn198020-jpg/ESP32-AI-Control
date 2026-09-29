@@ -785,6 +785,10 @@ object DeviceScenarioModelFormatter {
             val value = valueText(statement.expression)
             val semanticName = semanticActionName(label, statement.expression)
 
+            if (semanticName != null && label.lowercase().let { it.contains("закрыта") || it.contains("открыта") }) {
+                val state = if (value == "1") "открыта" else if (value == "0") "закрыта" else value
+                return "ДЕЙСТВИЕ: $semanticName → установить состояние «$label» = $state"
+            }
             if (value == "1") {
                 if (semanticName != null) {
                     return "ДЕЙСТВИЕ: $semanticName → включить «$label»"
@@ -892,9 +896,12 @@ object DeviceScenarioModelFormatter {
                             else -> null
                         }
                     if (group != null) {
-                        val detail = when (value) {
-                            "1" -> "включить «$label»"
-                            "0" -> "выключить «$label»"
+                        val isState = lower.contains("закрыта") || lower.contains("открыта")
+                        val detail = when {
+                            isState && value == "1" -> "установить состояние «$label» = открыта"
+                            isState && value == "0" -> "установить состояние «$label» = закрыта"
+                            value == "1" -> "включить «$label»"
+                            value == "0" -> "выключить «$label»"
                             else -> "установить «$label» = $value"
                         }
                         grouped.getOrPut(group) { linkedSetOf() }.add(detail)
