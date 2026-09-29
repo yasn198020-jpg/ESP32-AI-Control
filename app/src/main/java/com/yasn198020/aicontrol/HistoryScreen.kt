@@ -18,6 +18,11 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.FileProvider
+import android.content.Context
+import android.content.Intent
+import java.io.File
 import com.yasn198020.aicontrol.core.Device
 import com.yasn198020.aicontrol.core.WidgetState
 import java.text.SimpleDateFormat
@@ -26,24 +31,441 @@ import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.min
 
-@Composable fun HistoryScreen(modifier: Modifier, devices: List<Device>, store: HistoryStore) {
-    var points by remember { mutableStateOf(store.load()) }; var selectedKey by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(Unit) { while (true) { points=store.load(); kotlinx.coroutines.delay(5000) } }
-    val numeric=devices.flatMap { d -> d.widgets.filter { it.type==WidgetState.Type.VALUE || it.type==WidgetState.Type.STATUS }.map { d to it } }
-    val selected=selectedKey?.split("/", limit=2); val selectedPoints=if(selected!=null&&selected.size==2) points.filter { it.deviceId==selected[0]&&it.widgetId==selected[1] } else emptyList()
-    Column(modifier.fillMaxSize().padding(12.dp), verticalArrangement=Arrangement.spacedBy(8.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment=Alignment.CenterVertically) { Text("История",fontSize=24.sp,modifier=Modifier.weight(1f)); OutlinedButton(onClick={store.clear();points=emptyList()}){Text("Очистить")} }
-        Text("Последние 7 дней, максимум 5000 измерений.",style=MaterialTheme.typography.bodySmall)
-        if(numeric.isEmpty()){Text("Нет числовых виджетов. Подключитесь к MQTT и дождитесь CONFIG/STATE.")} else {
-            LazyColumn(verticalArrangement=Arrangement.spacedBy(6.dp),modifier=Modifier.weight(1f)){ items(numeric,key={"${it.first.id}/${it.second.id}"}){(device,widget)->
-                val key="${device.id}/${widget.id}"; val open=selectedKey==key
-                OutlinedButton(onClick={selectedKey=if(open)null else key},modifier=Modifier.fillMaxWidth()){Column(Modifier.fillMaxWidth(),horizontalAlignment=Alignment.Start){Text(widget.title,fontSize=17.sp);Text("${device.name.ifBlank{device.id}} • ${widget.value}${widget.unit}",style=MaterialTheme.typography.bodySmall)}}
-                if(open){HistoryChart(selectedPoints,widget.unit); Text(if(selectedPoints.isEmpty())"Пока нет сохранённых измерений." else "Измерений: ${selectedPoints.size}",style=MaterialTheme.typography.bodySmall)}
-            }}
+@Composable
+fun HistoryScreen(
+    modifier: Modifier,
+    devices: List<Device>,
+    store: HistoryStore
+) {
+    var points by remember { mutableStateOf(emptyList<HistoryPoint>()) }
+    var selectedKey by remember { mutableStateOf<String?>(null) }
+    var periodMenuOpen by remember { mutableStateOf(false) }
+    var displayPeriodMenuOpen by remember { mutableStateOf(false) }
+    var retentionMenuOpen by remember { mutableStateOf(false) }
+    var samplePeriod by remember { mutableLongStateOf(store.samplePeriodMs()) }
+    var displayPeriod by remember { mutableLongStateOf(store.displayPeriodMs()) }
+    var retentionDays by remember { mutableIntStateOf(store.retentionDays()) }
+    var autoWordExportPeriod by remember { mutableIntStateOf(store.wordAutoExportPeriod()) }
+    var autoWordMenuExpanded by remember { mutableStateOf(false) }
+    var settingsExpanded by remember { mutableStateOf(false) }
+    var graphZoom by remember { mutableFloatStateOf(1f) }
+    var graphOffsetX by remember { mutableFloatStateOf(0f) }
+    var exportMessage by remember { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
+
+    fun exportWord() {
+        val result = store.exportCurrentDayToWord()
+        if (result == null) {
+            exportMessage = "За сегодня пока нет сохранённых измерений."
+        } else {
+            exportMessage = "Word сохранён: " + result.file.name
+            runCatching {
+                shareWordFile(context, result.file)
+            }.onFailure {
+                exportMessage = "Word сохранён: " + result.file.name
+            }
+        }
+    }
+
+    val selected = selectedKey?.split("/", limit = 2)
+
+    LaunchedEffect(selectedKey) {
+        graphZoom = 1f
+        graphOffsetX = 0f
+    }
+    LaunchedEffect(selectedKey, displayPeriod) {
+        while (true) {
+            points = if (selected != null && selected.size == 2) {
+                store.loadSince(
+                    selected[0],
+                    selected[1],
+                    store.displaySinceMillis()
+                )
+            } else {
+                emptyList()
+            }
+            kotlinx.coroutines.delay(5000)
+        }
+    }
+
+    val numeric = devices.flatMap { d ->
+        d.widgets
+            .filter {
+                it.type == WidgetState.Type.VALUE ||
+                    it.type == WidgetState.Type.STATUS
+            }
+            .map { d to it }
+    }
+
+    val selectedPoints =
+        if (selected != null && selected.size == 2) {
+            points.filter {
+                it.deviceId == selected[0] && it.widgetId == selected[1]
+            }
+        } else {
+            emptyList()
+        }
+
+    val samplePeriods = listOf(
+        1_000L to "1 сек",
+        5_000L to "5 сек",
+        10_000L to "10 сек",
+        30_000L to "30 сек",
+        60_000L to "1 мин",
+        300_000L to "5 мин",
+        600_000L to "10 мин",
+        1_800_000L to "30 мин",
+        3_600_000L to "1 час"
+    )
+
+    val samplePeriodLabel = samplePeriods.firstOrNull { it.first == samplePeriod }?.second
+        ?: (samplePeriod / 1000).toString() + " сек"
+
+    Column(
+        modifier
+            .fillMaxSize()
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "История",
+                fontSize = 24.sp,
+                modifier = Modifier.weight(1f)
+            )
+            OutlinedButton(
+                onClick = {
+                    store.clear()
+                    points = emptyList()
+                }
+            ) {
+                Text("Очистить")
+            }
+        }
+
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                if (settingsExpanded) "Настройки графиков" else "Настройки скрыты",
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.titleSmall
+            )
+            TextButton(onClick = { settingsExpanded = !settingsExpanded }) {
+                Text(if (settingsExpanded) "Скрыть" else "⚙ Настройки")
+            }
+        }
+
+        if (settingsExpanded) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "Период измерения:",
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyMedium
+            )
+
+            Box {
+                OutlinedButton(onClick = { periodMenuOpen = true }) {
+                    Text(samplePeriodLabel)
+                }
+
+                DropdownMenu(
+                    expanded = periodMenuOpen,
+                    onDismissRequest = { periodMenuOpen = false }
+                ) {
+                    samplePeriods.forEach { (periodMs, label) ->
+                        DropdownMenuItem(
+                            text = { Text(label) },
+                            onClick = {
+                                store.setSamplePeriodMs(periodMs)
+                                samplePeriod = periodMs
+                                periodMenuOpen = false
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        Text(
+            "Точка графика записывается таймером, независимо от частоты MQTT. " +
+                "По умолчанию — каждые 10 секунд.",
+            style = MaterialTheme.typography.bodySmall
+        )
+
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "Показывать на графике:",
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyMedium
+            )
+
+            Box {
+                OutlinedButton(onClick = { displayPeriodMenuOpen = true }) {
+                    Text(
+                        when (displayPeriod) {
+                            3_600_000L -> "1 час"
+                            21_600_000L -> "6 часов"
+                            43_200_000L -> "12 часов"
+                            86_400_000L -> "Сегодня"
+                            259_200_000L -> "3 дня"
+                            604_800_000L -> "7 дней"
+                            2_592_000_000L -> "30 дней"
+                            else -> "Весь срок"
+                        }
+                    )
+                }
+
+                DropdownMenu(
+                    expanded = displayPeriodMenuOpen,
+                    onDismissRequest = { displayPeriodMenuOpen = false }
+                ) {
+                    listOf(
+                        3_600_000L to "1 час",
+                        21_600_000L to "6 часов",
+                        43_200_000L to "12 часов",
+                        86_400_000L to "Сегодня",
+                        259_200_000L to "3 дня",
+                        604_800_000L to "7 дней",
+                        2_592_000_000L to "30 дней",
+                        0L to "Весь срок"
+                    ).forEach { (periodMs, label) ->
+                        DropdownMenuItem(
+                            text = { Text(label) },
+                            onClick = {
+                                store.setDisplayPeriodMs(periodMs)
+                                displayPeriod = periodMs
+                                displayPeriodMenuOpen = false
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "Хранить историю:",
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyMedium
+            )
+
+            Box {
+                OutlinedButton(onClick = { retentionMenuOpen = true }) {
+                    Text(
+                        when (retentionDays) {
+                            0 -> "Всегда"
+                            1 -> "1 день"
+                            3 -> "3 дня"
+                            7 -> "7 дней"
+                            14 -> "14 дней"
+                            30 -> "30 дней"
+                            90 -> "90 дней"
+                            180 -> "180 дней"
+                            else -> "365 дней"
+                        }
+                    )
+                }
+
+                DropdownMenu(
+                    expanded = retentionMenuOpen,
+                    onDismissRequest = { retentionMenuOpen = false }
+                ) {
+                    listOf(
+                        1 to "1 день",
+                        3 to "3 дня",
+                        7 to "7 дней",
+                        14 to "14 дней",
+                        30 to "30 дней",
+                        90 to "90 дней",
+                        180 to "180 дней",
+                        365 to "365 дней",
+                        0 to "Всегда"
+                    ).forEach { (days, label) ->
+                        DropdownMenuItem(
+                            text = { Text(label) },
+                            onClick = {
+                                store.setRetentionDays(days)
+                                retentionDays = days
+                                retentionMenuOpen = false
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        Text(
+            "История записывается в отдельный файл на каждый календарный день. " +
+                "По умолчанию хранение — 30 дней.",
+            style = MaterialTheme.typography.bodySmall
+        )
+
+        Text(
+            "Период автоэкспорта Word",
+            style = MaterialTheme.typography.bodyMedium
+        )
+
+        val autoWordPeriodNames = listOf(
+            "Никогда",
+            "1 день",
+            "Неделя",
+            "Месяц"
+        )
+
+        Box(Modifier.fillMaxWidth()) {
+            OutlinedButton(
+                onClick = { autoWordMenuExpanded = true },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(autoWordPeriodNames[autoWordExportPeriod])
+            }
+            DropdownMenu(
+                expanded = autoWordMenuExpanded,
+                onDismissRequest = { autoWordMenuExpanded = false }
+            ) {
+                autoWordPeriodNames.forEachIndexed { index, name ->
+                    DropdownMenuItem(
+                        text = { Text(name) },
+                        onClick = {
+                            autoWordExportPeriod = index
+                            store.setWordAutoExportPeriod(index)
+                            autoWordMenuExpanded = false
+                        }
+                    )
+                }
+            }
+        }
+
+        Button(
+            onClick = { exportWord() },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Экспорт Word за сегодня")
+        }
+
+        exportMessage?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+
+        Text(
+            "При выборе периода создаётся .docx с историей соответствующего периода.",
+            style = MaterialTheme.typography.bodySmall
+        )
+            if (selectedKey != null) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "Масштаб выбранного графика:",
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    TextButton(onClick = {
+                        graphZoom = (graphZoom / 1.5f).coerceAtLeast(1f)
+                        if (graphZoom == 1f) graphOffsetX = 0f
+                    }) { Text("−") }
+                    Text(
+                        "×${String.format(Locale.US, "%.1f", graphZoom)}",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    TextButton(onClick = {
+                        graphZoom = (graphZoom * 1.5f).coerceAtMost(20f)
+                    }) { Text("+") }
+                    TextButton(onClick = {
+                        graphZoom = 1f
+                        graphOffsetX = 0f
+                    }) { Text("Сброс") }
+                }
+                Text(
+                    "Перетаскивание и выбор точки выполняются прямо на графике.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+
+        }
+
+        if (numeric.isEmpty()) {
+            Text("Нет числовых виджетов. Подключитесь к MQTT и дождитесь CONFIG/STATE.")
+        } else {
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                items(
+                    numeric,
+                    key = { it.first.id + "/" + it.second.id }
+                ) { (device, widget) ->
+                    val key = device.id + "/" + widget.id
+                    val open = selectedKey == key
+
+                    OutlinedButton(
+                        onClick = {
+                            selectedKey = if (open) null else key
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.Start
+                        ) {
+                            Text(widget.title, fontSize = 17.sp)
+                            Text(
+                                device.name.ifBlank { device.id } + " • " + widget.value + widget.unit,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+
+                    if (open) {
+                        HistoryChart(
+                            points = selectedPoints,
+                            unit = widget.unit,
+                            zoom = graphZoom,
+                            offsetX = graphOffsetX,
+                            onZoomOffsetChanged = { newZoom, newOffset ->
+                                graphZoom = newZoom
+                                graphOffsetX = newOffset
+                            }
+                        )
+                        Text(
+                            if (selectedPoints.isEmpty()) {
+                                "Пока нет сохранённых измерений."
+                            } else {
+                                "Измерений: " + selectedPoints.size
+                            },
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            }
         }
     }
 }
-@Composable private fun HistoryChart(points: List<HistoryPoint>, unit:String){
+@Composable private fun HistoryChart(
+    points: List<HistoryPoint>,
+    unit: String,
+    zoom: Float,
+    offsetX: Float,
+    onZoomOffsetChanged: (Float, Float) -> Unit
+){
     if(points.size<2){
         Text("Нужно минимум два измерения для графика.",modifier=Modifier.padding(8.dp))
         return
@@ -55,9 +477,9 @@ import kotlin.math.min
     val primaryColor=MaterialTheme.colorScheme.primary
     val timeFormat=remember{SimpleDateFormat("dd.MM.yyyy HH:mm:ss",Locale.getDefault())}
 
-    var zoom by remember(points.firstOrNull()?.timestamp,points.size){mutableFloatStateOf(1f)}
-    var offsetX by remember(points.firstOrNull()?.timestamp,points.size){mutableFloatStateOf(0f)}
-    var selectedIndex by remember(points.firstOrNull()?.timestamp,points.size){mutableIntStateOf(points.lastIndex)}
+    var selectedIndex by remember(points.firstOrNull()?.timestamp, points.size){
+        mutableIntStateOf(points.lastIndex)
+    }
 
     Column(Modifier.fillMaxWidth()){
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically){
@@ -65,15 +487,7 @@ import kotlin.math.min
                 Text(String.format(Locale.US,"%.2f %s",maxValue,unit),style=MaterialTheme.typography.bodySmall)
                 Text(String.format(Locale.US,"%.2f %s",minValue,unit),style=MaterialTheme.typography.bodySmall)
             }
-            Row(horizontalArrangement=Arrangement.spacedBy(4.dp),verticalAlignment=Alignment.CenterVertically){
-                TextButton(onClick={
-                    zoom=(zoom/1.5f).coerceAtLeast(1f)
-                    if(zoom==1f) offsetX=0f
-                }){Text("−")}
-                Text("×${String.format(Locale.US,"%.1f",zoom)}",style=MaterialTheme.typography.bodySmall)
-                TextButton(onClick={zoom=(zoom*1.5f).coerceAtMost(20f)}){Text("+")}
-                TextButton(onClick={zoom=1f;offsetX=0f}){Text("Сброс")}
-            }
+
         }
 
         Surface(Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.medium,tonalElevation=2.dp){
@@ -93,7 +507,7 @@ import kotlin.math.min
                     offsetX=offsetX,
                     selectedIndex=selectedIndex,
                     primaryColor=primaryColor,
-                    onZoomOffsetChanged={newZoom,newOffset->{zoom=newZoom;offsetX=newOffset}},
+                    onZoomOffsetChanged={newZoom, newOffset -> onZoomOffsetChanged(newZoom, newOffset)},
                     onSelectIndex={selectedIndex=it.coerceIn(0,points.lastIndex)}
                 )
                 Text(
@@ -254,3 +668,20 @@ private fun nearestPointIndex(
     return if(abs(lowerX-tapX)<=abs(upperX-tapX))lower else upper
 }
 
+
+
+private fun shareWordFile(context: Context, file: File) {
+    val uri = FileProvider.getUriForFile(
+        context,
+        context.packageName + ".fileprovider",
+        file
+    )
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(
+        Intent.createChooser(intent, "Экспорт Word")
+    )
+}
