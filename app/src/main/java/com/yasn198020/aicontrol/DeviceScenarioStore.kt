@@ -253,7 +253,7 @@ class DeviceScenarioManager(
                             val synthetic = Scenario(
                                 id = "device-" + key.hashCode().toString(),
                                 title = "Марфа: отклонение от сценария",
-                                deviceId = stored.deviceId,
+                                deviceId = targetDeviceId,
                                 widgetId = target.id,
                                 threshold = expectedText.replace(',', '.').toDoubleOrNull() ?: 0.0,
                                 message = deviation.message
