@@ -44,7 +44,8 @@ data class DeviceScenarioRule(
 data class DeviceScenarioModel(
     val rules: List<DeviceScenarioRule>,
     val identifiers: Set<String>,
-    val parserErrors: List<String>
+    val parserErrors: List<String>,
+    val statements: List<IoTStatement> = emptyList()
 ) {
     val valid: Boolean get() = parserErrors.isEmpty() && rules.isNotEmpty()
 }
@@ -390,7 +391,12 @@ object IoTScenarioSemanticAnalyzer {
         }
 
         parsed.statements.forEach { walk(it, null) }
-        return DeviceScenarioModel(rules, parsed.referencedIdentifiers, parsed.errors)
+        return DeviceScenarioModel(
+            rules = rules,
+            identifiers = parsed.referencedIdentifiers,
+            parserErrors = parsed.errors,
+            statements = parsed.statements
+        )
     }
 }
 
@@ -706,5 +712,56 @@ object DeviceScenarioModelFormatter {
         }
         if (model.rules.size > 12) lines += "… ещё " + (model.rules.size - 12)
         return lines.joinToString("\n")
+    }
+
+    fun tree(model: DeviceScenarioModel): String {
+        if (model.parserErrors.isNotEmpty()) {
+            return "Дерево недоступно: сначала исправьте ошибки разбора.\\n" +
+                model.parserErrors.take(5).joinToString("\\n")
+        }
+        if (model.statements.isEmpty()) return "Дерево пустое."
+
+        val lines = mutableListOf<String>()
+
+        fun appendStatement(statement: IoTStatement, prefix: String, branch: String) {
+            val linePrefix = if (branch.isEmpty()) "" else prefix + branch
+            when (statement) {
+                is IoTStatement.If -> {
+                    lines += linePrefix + "ЕСЛИ " + statement.condition.render()
+                    appendStatement(statement.thenBranch, prefix + if (branch.isEmpty()) "    " else "│   ", "├─ ")
+                    statement.elseBranch?.let {
+                        lines += prefix + if (branch.isEmpty()) "" else "│   " + "ИНАЧЕ"
+                        appendStatement(it, prefix + if (branch.isEmpty()) "    " else "    ", "└─ ")
+                    }
+                }
+                is IoTStatement.Assignment -> {
+                    lines += linePrefix + "ДЕЙСТВИЕ: " +
+                        statement.target + " " + statement.operator + " " + statement.expression.render()
+                }
+                is IoTStatement.ExpressionStatement -> {
+                    lines += linePrefix + "ВЫЗОВ: " + statement.expression.render()
+                }
+                is IoTStatement.Block -> {
+                    if (statement.statements.isEmpty()) {
+                        lines += linePrefix + "БЛОК: пусто"
+                    } else {
+                        statement.statements.forEachIndexed { index, child ->
+                            val childBranch = if (index == statement.statements.lastIndex) "└─ " else "├─ "
+                            appendStatement(child, prefix, childBranch)
+                        }
+                    }
+                }
+            }
+        }
+
+        model.statements.forEachIndexed { index, statement ->
+            appendStatement(
+                statement,
+                "",
+                if (model.statements.size == 1) "" else if (index == model.statements.lastIndex) "└─ " else "├─ "
+            )
+        }
+
+        return lines.joinToString("\\n")
     }
 }
