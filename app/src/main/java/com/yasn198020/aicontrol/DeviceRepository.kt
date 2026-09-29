@@ -57,7 +57,10 @@ class DeviceRepository {
                     if (it.id != deviceId) it else it.copy(
                         online = true,
                         widgets = it.widgets.map { current ->
-                            if (current.id == widgetId) current.copy(value = value) else current
+                            if (current.id == widgetId) current.copy(
+                                value = value,
+                                lastUpdated = System.currentTimeMillis()
+                            ) else current
                         }
                     )
                 }
