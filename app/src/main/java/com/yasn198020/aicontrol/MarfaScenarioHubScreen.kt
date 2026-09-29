@@ -1,5 +1,8 @@
 package com.yasn198020.aicontrol
 
+import android.provider.OpenableColumns
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -16,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.platform.LocalContext
 import com.yasn198020.aicontrol.core.Device
 
 @Composable
@@ -66,9 +70,9 @@ private fun DeviceScenariosScreen(
     devices: List<Device>,
     manager: DeviceScenarioManager
 ) {
-    var selectedDeviceId by remember { mutableStateOf(devices.firstOrNull()?.id.orEmpty()) }
     var title by remember { mutableStateOf("") }
     var source by remember { mutableStateOf("") }
+    var sensorIds by remember { mutableStateOf<List<String>>(emptyList()) }
     var parseMessage by remember { mutableStateOf("") }
     var saved by remember { mutableStateOf(manager.scenarios()) }
     var deviations by remember { mutableStateOf(manager.deviationSnapshot()) }
@@ -87,12 +91,6 @@ private fun DeviceScenariosScreen(
         }
     }
 
-    LaunchedEffect(devices) {
-        if (selectedDeviceId.isBlank() && devices.isNotEmpty()) {
-            selectedDeviceId = devices.first().id
-        }
-    }
-
     Column(
         modifier = modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 4.dp)
     ) {
@@ -102,34 +100,82 @@ private fun DeviceScenariosScreen(
             fontWeight = FontWeight.Bold
         )
         Text(
-            "Передайте Марфе scenario.txt. ESP32 продолжает выполнять свой локальный сценарий.",
+            "Загрузите экспорт IoTManager в JSON. ESP32 продолжает выполнять свой локальный сценарий.",
             style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.padding(top = 4.dp)
         )
 
-        if (devices.isNotEmpty()) {
-            Text(
-                "Устройство",
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(top = 8.dp)
-            )
-            Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+        val context = LocalContext.current
+        val jsonLauncher = rememberLauncherForActivityResult(
+            ActivityResultContracts.OpenDocument()
+        ) { uri ->
+            if (uri == null) return@rememberLauncherForActivityResult
+
+            runCatching {
+                val raw = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                    ?: throw IllegalArgumentException("Не удалось прочитать выбранный файл.")
+
+                val fileName = context.contentResolver.query(
+                    uri,
+                    arrayOf(OpenableColumns.DISPLAY_NAME),
+                    null,
+                    null,
+                    null
+                )?.use { cursor ->
+                    if (cursor.moveToFirst()) cursor.getString(0) else null
+                } ?: "scenario.json"
+
+                val imported = IoTManagerJsonImporter.parse(fileName, raw)
+                title = imported.title
+                source = imported.source
+                sensorIds = imported.sensorIds
+                parseMessage = "Файл загружен: " + fileName +
+                    "\nID из config: " + imported.sensorIds.size +
+                    "\nПравил после разбора: " + manager.parseSource(imported.source).rules.size
+            }.onFailure {
+                parseMessage = "Ошибка импорта: " + (it.message ?: "неизвестная ошибка")
+                title = ""
+                source = ""
+                sensorIds = emptyList()
+            }
+        }
+
+        Text(
+            "Источник сценария",
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(top = 8.dp)
+        )
+        Button(
+            onClick = {
+                jsonLauncher.launch(arrayOf("application/json", "text/json", "text/plain", "text/*"))
+            },
+            modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
+        ) {
+            Text("Загрузить JSON с телефона")
+        }
+
+        if (source.isNotBlank()) {
+            Card(
+                Modifier.fillMaxWidth().padding(top = 8.dp)
             ) {
-                devices.forEach { device ->
-                    FilterChip(
-                        selected = selectedDeviceId == device.id,
-                        onClick = { selectedDeviceId = device.id },
-                        label = { Text(device.name.ifBlank { device.id }) }
+                Column(Modifier.padding(12.dp)) {
+                    Text(
+                        "Файл сценария загружен",
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        "Привязка по ID датчиков/виджетов: " + sensorIds.size,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = 3.dp)
+                    )
+                    Text(
+                        sensorIds.take(12).joinToString(", ") +
+                            if (sensorIds.size > 12) " …" else "",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = 3.dp)
                     )
                 }
             }
-        } else {
-            Text(
-                "Подключите MQTT и дождитесь конфигурации устройств.",
-                modifier = Modifier.padding(vertical = 8.dp)
-            )
         }
 
         OutlinedTextField(
@@ -138,17 +184,6 @@ private fun DeviceScenariosScreen(
             label = { Text("Название") },
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
             singleLine = true
-        )
-
-        OutlinedTextField(
-            value = source,
-            onValueChange = { source = it },
-            label = { Text("Текст scenario.txt") },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(120.dp)
-                .padding(top = 8.dp),
-            textStyle = LocalTextStyle.current.copy(fontSize = 14.sp)
         )
 
         Row(
@@ -168,17 +203,18 @@ private fun DeviceScenariosScreen(
             }
 
             Button(
-                enabled = selectedDeviceId.isNotBlank() && source.isNotBlank(),
+                enabled = source.isNotBlank() && sensorIds.isNotEmpty(),
                 onClick = {
-                    val result = manager.saveScenario(selectedDeviceId, title, source)
+                    val result = manager.saveScenario(title, source, sensorIds)
                     val item = result.first
                     if (item == null) {
                         parseMessage = DeviceScenarioModelFormatter.summary(result.second)
                     } else {
                         parseMessage = "Сценарий сохранён. Правил: " + result.second.rules.size +
-                            ". Контроль исполнения включён."
+                            ". Привязано ID: " + sensorIds.size + ". Контроль исполнения включён."
                         title = ""
                         source = ""
+                        sensorIds = emptyList()
                         refresh()
                     }
                 },
@@ -191,6 +227,7 @@ private fun DeviceScenariosScreen(
                 onClick = {
                     title = ""
                     source = ""
+                    sensorIds = emptyList()
                     parseMessage = ""
                 },
                 modifier = Modifier.weight(0.85f)
@@ -307,7 +344,12 @@ private fun DeviceScenariosScreen(
                                             fontWeight = FontWeight.SemiBold
                                         )
                                         Text(
-                                            "Устройство: " + item.deviceId,
+                                            "ID датчиков/виджетов: " + item.sensorIds.size,
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                        Text(
+                                            item.sensorIds.take(8).joinToString(", ") +
+                                                if (item.sensorIds.size > 8) " …" else "",
                                             style = MaterialTheme.typography.bodySmall
                                         )
                                         Row(
@@ -386,7 +428,12 @@ private fun DeviceScenariosScreen(
                                     fontWeight = FontWeight.Bold
                                 )
                                 Text(
-                                    "Устройство: " + item.deviceId,
+                                    "ID датчиков/виджетов: " + item.sensorIds.size,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                Text(
+                                    item.sensorIds.take(12).joinToString(", ") +
+                                        if (item.sensorIds.size > 12) " …" else "",
                                     style = MaterialTheme.typography.bodySmall
                                 )
                             }
@@ -430,7 +477,7 @@ private fun DeviceScenariosScreen(
 
                             item {
                                 Text(
-                                    "Исходный scenario.txt",
+                                    "Сценарий из JSON-файла",
                                     style = MaterialTheme.typography.titleLarge,
                                     fontWeight = FontWeight.Bold
                                 )
