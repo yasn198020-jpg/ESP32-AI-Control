@@ -5,6 +5,12 @@ import com.yasn198020.aicontrol.core.Device
 
 enum class LocalCommandAction { CONTROL, READ_VALUE, SMART_RULE, CLARIFY, NOT_FOUND }
 
+data class LocalCommandActionItem(
+    val deviceId: String,
+    val widgetId: String,
+    val value: String = "1"
+)
+
 data class LocalCommandResult(
     val action: LocalCommandAction,
     val deviceId: String = "",
@@ -18,12 +24,13 @@ data class LocalCommandResult(
     val conditionThreshold: Double = 0.0,
     val actionDeviceId: String = "",
     val actionWidgetId: String = "",
-    val actionValue: String = "1"
+    val actionValue: String = "1",
+    val actionItems: List<LocalCommandActionItem> = emptyList()
 )
 
 /**
- * Compatibility facade. The old parser API stays intact, while all parsing
- * is now performed by MarfaCommandEngine.
+ * Compatibility entry point used by the UI and voice service.
+ * The old public API is kept, but parsing is delegated to MarfaCommandEngine.
  */
 class LocalCommandManager {
     private val engine = MarfaCommandEngine()
@@ -34,7 +41,9 @@ class LocalCommandManager {
 
 fun formatTemperatureForSpeech(raw: String, unit: String = "°C"): String {
     val normalized = raw.trim().replace(',', '.')
-    val number = normalized.toBigDecimalOrNull() ?: return raw + " " + unit.ifBlank { "°C" }
+    val number = normalized.toBigDecimalOrNull()
+        ?: return raw + " " + unit.ifBlank { "°C" }
+
     val value = number.stripTrailingZeros().toPlainString().replace('.', ',')
     val degreeWord = if (number.abs().remainder(BigDecimal.ONE) == BigDecimal.ZERO) {
         val whole = number.abs().toInt()
