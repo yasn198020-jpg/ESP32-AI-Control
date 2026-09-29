@@ -10,12 +10,11 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import android.os.Handler
+import android.os.Looper
 import android.speech.tts.TextToSpeech
 import androidx.core.app.NotificationCompat
 import java.util.Locale
-import java.util.concurrent.Executors
-import java.util.concurrent.ScheduledExecutorService
-import java.util.concurrent.TimeUnit
 
 class MarfaVoiceService : Service() {
 
@@ -34,7 +33,9 @@ class MarfaVoiceService : Service() {
     private var pendingSmartRule: LocalCommandResult? = null
     private var keepListeningForSmartRuleConfirmation = false
     private lateinit var prefs: android.content.SharedPreferences
-    private val commandScheduler: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor()
+    private val commandExecutor = MarfaCommandExecutor.get()
+    private val commandEngine = LocalCommandManager()
+    private val mainHandler = Handler(Looper.getMainLooper())
 
 
     override fun onCreate() {
@@ -116,122 +117,96 @@ class MarfaVoiceService : Service() {
         if (command.isBlank()) return
 
         try {
-            // Smart rules have priority over trained commands.
-        // This prevents a learned action phrase from swallowing a natural rule.
-        val smartRuleFirst = LocalCommandManager().interpret(command, synchronizedCopyDevices())
-        if (smartRuleFirst.action == LocalCommandAction.SMART_RULE) {
-            askSmartRuleConfirmation(smartRuleFirst)
-            sendBroadcast(
-                Intent(ACTION_VOICE_RESULT)
-                    .setPackage(packageName)
-                    .putExtra(EXTRA_TEXT, command)
-            )
-            return
-        }
-
-        val trained = TrainedCommandMatcher(TrainedCommandStore(prefs)).matchAll(command)
-        android.util.Log.d("MARFA_TRAINED", "command=" + command + " matches=" + trained.size)
-
-        // Saved training has absolute priority. A trained read action answers
-        // from the exact widget selected during training.
-        val readActions = trained.filter { it.value == TRAINED_READ_VALUE }
-        if (readActions.isNotEmpty()) {
-            var answered = false
-
-            readActions.forEach { action ->
-                val widget = synchronizedCopyDevices()
-                    .firstOrNull { it.id == action.deviceId }
-                    ?.widgets
-                    ?.firstOrNull { it.id == action.widgetId }
-
-                if (widget != null) {
-                    val raw = widget.value.trim()
-                    val spoken = if (raw.isBlank() || raw == "—") {
-                        widget.title + ": значение пока неизвестно"
-                    } else {
-                        widget.title + ": " + formatTemperatureForSpeech(raw, widget.unit)
+            pendingSmartRule?.let { pending ->
+                when {
+                    isSmartRuleConfirmation(command) -> {
+                        clearPendingSmartRule()
+                        keepListeningForSmartRuleConfirmation = false
+                        saveSmartRule(pending)
+                        return
                     }
+                    isSmartRuleRejection(command) -> {
+                        clearPendingSmartRule()
+                        keepListeningForSmartRuleConfirmation = false
+                        speak("Правило не сохранено")
+                        return
+                    }
+                    else -> {
+                        speak("Сохранить предыдущее правило? Скажите да или нет")
+                        return
+                    }
+                }
+            }
+
+            // Exactly one parser pass. Trained phrases are only a fallback.
+            val result = commandEngine.interpret(command, synchronizedCopyDevices())
+            android.util.Log.d(
+                "MARFA_ENGINE",
+                "command=${command} action=${result.action} delayMs=${result.delayMs} actions=${result.actionItems.size}"
+            )
+
+            when (result.action) {
+                LocalCommandAction.SMART_RULE -> askSmartRuleConfirmation(result)
+
+                LocalCommandAction.CONTROL -> {
+                    commandExecutor.execute(result, runtime ?: return) { reply ->
+                        mainHandler.post { speak(reply) }
+                    }
+                }
+
+                LocalCommandAction.READ_VALUE,
+                LocalCommandAction.CLARIFY -> speak(result.reply)
+
+                LocalCommandAction.NOT_FOUND -> {
+                    val trained = TrainedCommandMatcher(TrainedCommandStore(prefs)).matchAll(command)
                     android.util.Log.d(
                         "MARFA_TRAINED",
-                        "read phrase=" + command + " device=" + action.deviceId +
-                            " widget=" + action.widgetId + " value=" + raw
+                        "fallback command=${command} matches=${trained.size}"
                     )
-                    speak(spoken)
-                    answered = true
+
+                    val readActions = trained.filter { it.value == TRAINED_READ_VALUE }
+                    if (readActions.isNotEmpty()) {
+                        var answered = false
+                        readActions.forEach { action ->
+                            val widget = synchronizedCopyDevices()
+                                .firstOrNull { it.id == action.deviceId }
+                                ?.widgets
+                                ?.firstOrNull { it.id == action.widgetId }
+
+                            if (widget != null) {
+                                val raw = widget.value.trim()
+                                val spoken = if (raw.isBlank() || raw == "—") {
+                                    widget.title + ": значение пока неизвестно"
+                                } else {
+                                    widget.title + ": " + formatTemperatureForSpeech(raw, widget.unit)
+                                }
+                                speak(spoken)
+                                answered = true
+                            }
+                        }
+                        if (!answered) {
+                            speak("Сохранённая команда найдена, но значение датчика пока не получено")
+                        }
+                    } else if (trained.isNotEmpty()) {
+                        var sent = 0
+                        trained.forEach { action ->
+                            if (mqtt?.publishControl(action.deviceId, action.widgetId, action.value) == true) sent++
+                        }
+                        if (sent > 0) {
+                            speak(if (sent == 1) "Готово" else "Выполнено")
+                        } else {
+                            speak(
+                                if (mqtt?.isConnected() == true)
+                                    "Не удалось отправить команду"
+                                else
+                                    "MQTT ещё не подключён"
+                            )
+                        }
+                    } else {
+                        speak(result.reply)
+                    }
                 }
             }
-
-            if (!answered) {
-                android.util.Log.w("MARFA_TRAINED", "trained read matched but widget is not loaded")
-                speak("Сохранённая команда найдена, но значение датчика пока не получено")
-            }
-            return
-        }
-
-        if (trained.isNotEmpty()) {
-            var sent = 0
-
-            trained.forEach { action ->
-                if (mqtt?.publishControl(action.deviceId, action.widgetId, action.value) == true) {
-                    sent++
-                }
-            }
-
-            if (sent > 0) {
-                speak(if (sent == 1) "Готово" else "Выполнено")
-                return
-            }
-
-            if (mqtt?.isConnected() != true) {
-                speak("MQTT ещё не подключён")
-                return
-            }
-        }
-
-        // A smart-rule confirmation is intentionally handled before parsing a new command.
-        // This makes the next short answer ("да" / "нет") apply to the pending rule.
-        pendingSmartRule?.let { pending ->
-            when {
-                isSmartRuleConfirmation(command) -> {
-                    clearPendingSmartRule()
-                    keepListeningForSmartRuleConfirmation = false
-                    saveSmartRule(pending)
-                    return
-                }
-                isSmartRuleRejection(command) -> {
-                    clearPendingSmartRule()
-                    keepListeningForSmartRuleConfirmation = false
-                    speak("Правило не сохранено")
-                    return
-                }
-                else -> {
-                    speak("Сохранить предыдущее правило? Скажите да или нет")
-                    return
-                }
-            }
-        }
-
-        val result = LocalCommandManager().interpret(command, synchronizedCopyDevices())
-        when (result.action) {
-            LocalCommandAction.SMART_RULE -> {
-                askSmartRuleConfirmation(result)
-            }
-            LocalCommandAction.CONTROL -> {
-                if (result.delayMs > 0L) {
-                    scheduleControl(result.deviceId, result.widgetId, result.value, result.delayMs, result.reply)
-                } else {
-                    val ok = mqtt?.publishControl(result.deviceId, result.widgetId, result.value) == true
-                    speak(if (ok) result.reply else "Не удалось отправить команду")
-                }
-            }
-            LocalCommandAction.READ_VALUE -> {
-                speak(result.reply)
-            }
-            LocalCommandAction.CLARIFY,
-            LocalCommandAction.NOT_FOUND -> {
-                speak(result.reply)
-            }
-        }
 
             sendBroadcast(
                 Intent(ACTION_VOICE_RESULT)
@@ -239,8 +214,6 @@ class MarfaVoiceService : Service() {
                     .putExtra(EXTRA_TEXT, command)
             )
         } finally {
-            // A smart-rule command has a second voice turn: "да" or "нет".
-            // Keep the microphone alive only while that confirmation is pending.
             if (!keepListeningForSmartRuleConfirmation) {
                 voiceManager?.stop()
                 prefs.edit().putBoolean("marfa_voice_active", false).apply()
@@ -357,34 +330,6 @@ class MarfaVoiceService : Service() {
     private fun synchronizedCopyDevices(): List<Device> =
         runtime?.deviceRepository?.snapshot() ?: emptyList()
 
-    private fun scheduleControl(
-        deviceId: String,
-        widgetId: String,
-        value: String,
-        delayMs: Long,
-        confirmation: String
-    ) {
-        speak("Запланировано: $confirmation")
-        android.util.Log.d(
-            "MARFA_SCHEDULER",
-            "scheduled device=$deviceId widget=$widgetId value=$value delayMs=$delayMs"
-        )
-
-        commandScheduler.schedule({
-            val ok = mqtt?.publishControl(deviceId, widgetId, value) == true
-            val resultText = if (ok) {
-                "Выполнено: $confirmation"
-            } else {
-                "Не удалось выполнить запланированную команду: MQTT не подключён"
-            }
-            android.util.Log.d(
-                "MARFA_SCHEDULER",
-                "execute device=$deviceId widget=$widgetId value=$value ok=$ok"
-            )
-            speak(resultText)
-        }, delayMs, TimeUnit.MILLISECONDS)
-    }
-
     private fun formatTemperatureForSpeech(raw: String, unit: String = ""): String {
         val normalized = raw.trim().replace(',', '.')
         val number = normalized.toBigDecimalOrNull() ?: return raw
@@ -420,7 +365,7 @@ class MarfaVoiceService : Service() {
         runtimeListener = null
         mqtt = null
         runtime = null
-        commandScheduler.shutdownNow()
+        mainHandler.removeCallbacksAndMessages(null)
         tts?.stop()
         tts?.shutdown()
         tts = null

@@ -503,139 +503,171 @@ private fun App(
 
     LaunchedEffect(voiceText) {
         val command = voiceText.trim()
-        if (command.isNotBlank()) {
-            if (variantPhraseTarget != null) {
-                variantPhraseText = command
-                voiceStatus = "Вариант распознан — нажмите «Добавить»"
-            } else if (trainingTarget != null) {
-                saveTraining(command)
-            } else {
-                voiceStatus = "Анализ команды…"
+        if (command.isBlank()) return@LaunchedEffect
 
-                pendingSmartRule?.let { pending ->
-                    val normalized = command.lowercase(Locale("ru", "RU")).trim().replace("ё", "е")
-                    when {
-                        normalized in setOf("да", "сохрани", "сохранить", "подтверждаю", "верно", "правильно", "согласен", "согласна") -> {
-                            pendingSmartRule = null
-                            val scenario = Scenario(
-                                title = "Марфа: " + pending.reply.removePrefix("Поняла правило: "),
-                                deviceId = pending.conditionDeviceId,
-                                widgetId = pending.conditionWidgetId,
-                                operator = pending.conditionOperator,
-                                threshold = pending.conditionThreshold,
-                                message = pending.reply,
-                                actionType = "MQTT_CONTROL",
-                                actionDeviceId = pending.actionDeviceId,
-                                actionWidgetId = pending.actionWidgetId,
-                                actionValue = pending.actionValue,
-                                actions = listOf(ScenarioAction(pending.actionDeviceId, pending.actionWidgetId, pending.actionValue)),
-                                notificationEnabled = true,
-                                conditions = listOf(ScenarioCondition(pending.conditionDeviceId, pending.conditionWidgetId, pending.conditionOperator, pending.conditionThreshold))
+        if (variantPhraseTarget != null) {
+            variantPhraseText = command
+            voiceStatus = "Вариант распознан — нажмите «Добавить»"
+            return@LaunchedEffect
+        }
+
+        if (trainingTarget != null) {
+            saveTraining(command)
+            return@LaunchedEffect
+        }
+
+        voiceStatus = "Анализ команды…"
+
+        pendingSmartRule?.let { pending ->
+            val normalized = command.lowercase(Locale("ru", "RU")).trim().replace("ё", "е")
+            when {
+                normalized in setOf("да", "сохрани", "сохранить", "подтверждаю", "верно", "правильно", "согласен", "согласна") -> {
+                    pendingSmartRule = null
+                    val scenario = Scenario(
+                        title = "Марфа: " + pending.reply.removePrefix("Поняла правило: "),
+                        deviceId = pending.conditionDeviceId,
+                        widgetId = pending.conditionWidgetId,
+                        operator = pending.conditionOperator,
+                        threshold = pending.conditionThreshold,
+                        message = pending.reply,
+                        actionType = "MQTT_CONTROL",
+                        actionDeviceId = pending.actionDeviceId,
+                        actionWidgetId = pending.actionWidgetId,
+                        actionValue = pending.actionValue,
+                        actions = listOf(
+                            ScenarioAction(pending.actionDeviceId, pending.actionWidgetId, pending.actionValue)
+                        ),
+                        notificationEnabled = true,
+                        conditions = listOf(
+                            ScenarioCondition(
+                                pending.conditionDeviceId,
+                                pending.conditionWidgetId,
+                                pending.conditionOperator,
+                                pending.conditionThreshold
                             )
-                            runtime.scenarioStore.add(scenario)
-                            voiceStatus = pending.reply + ". Правило сохранено."
-                            speech.speak(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "smart-rule-confirmed")
-                            return@LaunchedEffect
-                        }
-                        normalized in setOf("нет", "отмена", "отменить", "не сохраняй", "не сохранять", "не надо") -> {
-                            pendingSmartRule = null
-                            voiceStatus = "Правило не сохранено"
-                            speech.speak(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "smart-rule-cancelled")
-                            return@LaunchedEffect
-                        }
-                        else -> {
-                            voiceStatus = "Сохранить предыдущее правило? Скажите да или нет"
-                            speech.speak(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "smart-rule-ask-again")
-                            return@LaunchedEffect
-                        }
-                    }
-                }
-
-                // Smart rules must be checked before trained commands.
-                // A trained phrase such as "открой форточку" must not swallow
-                // a new natural-language rule containing that same action.
-                val smartRuleFirst = localCommandManager.interpret(command, devices)
-                if (smartRuleFirst.action == LocalCommandAction.SMART_RULE) {
-                    pendingSmartRule = smartRuleFirst
-                    voiceStatus = smartRuleFirst.reply + ". Сохранить это правило? Скажите да или нет"
-                    speech.speak(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "smart-rule-ask")
+                        )
+                    )
+                    runtime.scenarioStore.add(scenario)
+                    voiceStatus = pending.reply + ". Правило сохранено."
+                    speech.speak(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "smart-rule-confirmed")
                     return@LaunchedEffect
                 }
+                normalized in setOf("нет", "отмена", "отменить", "не сохраняй", "не сохранять", "не надо") -> {
+                    pendingSmartRule = null
+                    voiceStatus = "Правило не сохранено"
+                    speech.speak(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "smart-rule-cancelled")
+                    return@LaunchedEffect
+                }
+                else -> {
+                    voiceStatus = "Сохранить предыдущее правило? Скажите да или нет"
+                    speech.speak(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "smart-rule-ask-again")
+                    return@LaunchedEffect
+                }
+            }
+        }
 
-                val trainedActions = trainedMatcher.matchAll(command)
-                if (trainedActions.isNotEmpty()) {
-                    var sent = 0
-                    var skipped = 0
-                    trainedActions.forEach { trained ->
-                        val device = devices.firstOrNull { it.id == trained.deviceId }
-                        val widget = device?.widgets?.firstOrNull { it.id == trained.widgetId }
-                        if (device == null || widget == null) {
-                            skipped++
-                        } else if (trained.value == TRAINED_READ_VALUE) {
-                            if (widget.type == WidgetState.Type.VALUE || widget.type == WidgetState.Type.STATUS) {
-                                val raw = widget.value.trim()
-                                val unit = widget.unit.trim()
-                                val spoken = if (raw.isBlank() || raw == "—") {
-                                    "${widget.title}: значение пока неизвестно"
+        val result = localCommandManager.interpret(command, devices)
+        android.util.Log.d(
+            "MARFA_ENGINE",
+            "command=" + command +
+                " action=" + result.action +
+                " delayMs=" + result.delayMs +
+                " actions=" + result.actionItems.size
+        )
+
+        when (result.action) {
+            LocalCommandAction.SMART_RULE -> {
+                pendingSmartRule = result
+                voiceStatus = result.reply + ". Сохранить это правило? Скажите да или нет"
+                speech.speak(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "smart-rule-ask")
+            }
+
+            LocalCommandAction.CONTROL -> {
+                MarfaCommandExecutor.get().execute(result, runtime) { reply ->
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        voiceStatus = reply
+                        speech.speak(
+                            reply,
+                            TextToSpeech.QUEUE_FLUSH,
+                            null,
+                            "marfa-command-" + System.nanoTime()
+                        )
+                    }
+                }
+            }
+
+            LocalCommandAction.READ_VALUE -> {
+                voiceStatus = result.reply
+                speech.speak(result.reply, TextToSpeech.QUEUE_FLUSH, null, "marfa-value")
+            }
+
+            LocalCommandAction.CLARIFY,
+            LocalCommandAction.NOT_FOUND -> {
+                if (result.action == LocalCommandAction.CLARIFY) {
+                    voiceStatus = result.reply
+                    speech.speak(result.reply, TextToSpeech.QUEUE_FLUSH, null, "marfa-clarify")
+                } else {
+                    val trainedActions = trainedMatcher.matchAll(command)
+                    if (trainedActions.isNotEmpty()) {
+                        var sent = 0
+                        var skipped = 0
+
+                        trainedActions.forEach { trained ->
+                            val widget = devices.firstOrNull { it.id == trained.deviceId }
+                                ?.widgets?.firstOrNull { it.id == trained.widgetId }
+
+                            if (widget == null) {
+                                skipped++
+                            } else if (trained.value == TRAINED_READ_VALUE) {
+                                if (widget.type == WidgetState.Type.VALUE ||
+                                    widget.type == WidgetState.Type.STATUS
+                                ) {
+                                    val raw = widget.value.trim()
+                                    val spoken = if (raw.isBlank() || raw == "—") {
+                                        widget.title + ": значение пока неизвестно"
+                                    } else {
+                                        widget.title + ": " +
+                                            formatTemperatureForSpeech(raw, widget.unit)
+                                    }
+                                    voiceStatus = spoken
+                                    speech.speak(
+                                        spoken,
+                                        if (sent == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD,
+                                        null,
+                                        "trained-value-" + sent
+                                    )
+                                    sent++
                                 } else {
-                                    "${widget.title}: ${formatTemperatureForSpeech(raw, unit)}"
+                                    skipped++
                                 }
-                                voiceStatus = spoken
-                                speech.speak(spoken, if (sent == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD, null, "trained-value-$sent")
-                                sent++
+                            } else if (
+                                widget.type == WidgetState.Type.TOGGLE ||
+                                widget.type == WidgetState.Type.BUTTON ||
+                                widget.type == WidgetState.Type.INPUT
+                            ) {
+                                if (sendWidget(trained.deviceId, trained.widgetId, trained.value)) {
+                                    sent++
+                                } else {
+                                    skipped++
+                                }
                             } else {
                                 skipped++
                             }
-                        } else if (widget.type == WidgetState.Type.TOGGLE || widget.type == WidgetState.Type.BUTTON) {
-                            if (sendWidget(trained.deviceId, trained.widgetId, trained.value)) sent++ else skipped++
+                        }
+
+                        voiceStatus = if (skipped == 0) {
+                            "Выполнено действий: " + sent
                         } else {
-                            skipped++
+                            "Выполнено действий: " + sent + ", пропущено: " + skipped
                         }
-                    }
-                    voiceStatus = if (skipped == 0) {
-                        "Выполнено действий: $sent"
                     } else {
-                        "Выполнено действий: $sent, пропущено: $skipped"
-                    }
-                } else {
-                    val result = localCommandManager.interpret(command, devices)
-                    when (result.action) {
-                        LocalCommandAction.CONTROL -> {
-                            val device = devices.firstOrNull { it.id == result.deviceId }
-                            val widget = device?.widgets?.firstOrNull { it.id == result.widgetId }
-                            if (device == null || widget == null) {
-                                voiceStatus = "Подходящий виджет не найден. Команда не отправлена."
-                            } else if (widget.type != WidgetState.Type.TOGGLE && widget.type != WidgetState.Type.BUTTON) {
-                                voiceStatus = "Этот виджет нельзя управлять голосовой командой."
-                            } else {
-                                val published = sendWidget(result.deviceId, result.widgetId, result.value)
-                                voiceStatus = if (published) result.reply else "Команда распознана, но MQTT публикация не выполнена."
-                            }
-                        }
-                        LocalCommandAction.READ_VALUE -> {
-                            voiceStatus = result.reply
-                            speech.speak(result.reply, TextToSpeech.QUEUE_FLUSH, null, "temperature")
-                        }
-                        LocalCommandAction.SMART_RULE -> {
-                            if (result.conditionDeviceId.isBlank() ||
-                                result.conditionWidgetId.isBlank() ||
-                                result.actionDeviceId.isBlank() ||
-                                result.actionWidgetId.isBlank()) {
-                                voiceStatus = "Не удалось определить все элементы правила."
-                            } else {
-                                pendingSmartRule = result
-                                voiceStatus = result.reply + ". Сохранить это правило? Скажите да или нет"
-                                speech.speak(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "smart-rule-ask")
-                            }
-                        }
-                        LocalCommandAction.CLARIFY -> voiceStatus = result.reply
-                        LocalCommandAction.NOT_FOUND -> voiceStatus = result.reply
+                        voiceStatus = result.reply
+                        speech.speak(result.reply, TextToSpeech.QUEUE_FLUSH, null, "marfa-not-found")
                     }
                 }
             }
         }
     }
-
 
     if (updateDialogOpen && updateStatus != null) {
         AlertDialog(
