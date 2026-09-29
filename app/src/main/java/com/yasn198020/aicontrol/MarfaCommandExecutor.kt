@@ -20,13 +20,23 @@ class MarfaCommandExecutor private constructor() {
         runtime: AppRuntime,
         onReply: (String) -> Unit
     ) {
-        val actions = result.actionItems.ifEmpty {
-            if (result.deviceId.isNotBlank() && result.widgetId.isNotBlank()) {
-                listOf(LocalCommandActionItem(result.deviceId, result.widgetId, result.value))
-            } else emptyList()
+        val plan = runtime.deviceScenarioManager.planCommand(result, runtime.deviceRepository.snapshot())
+        plan.blockedReason?.let {
+            onReply(it)
+            return
         }
+
+        val actions = plan.actions
         if (actions.isEmpty()) {
             onReply("Не удалось определить действие")
+            return
+        }
+
+        val target = runtime.deviceRepository.snapshot()
+            .flatMap { it.widgets.map { widget -> it to widget } }
+            .firstOrNull { it.first.id == result.deviceId && it.second.id == result.widgetId }
+        if (target?.second?.value == result.value && plan.prerequisites.isEmpty()) {
+            onReply("Уже установлено: " + result.reply.lowercase())
             return
         }
 
@@ -37,7 +47,11 @@ class MarfaCommandExecutor private constructor() {
                     val outcome = perform(actions, runtime)
                     onReply(
                         if (outcome.sent > 0 && outcome.failed == 0) {
-                            "Выполнено: " + result.reply
+                            if (plan.prerequisites.isEmpty()) {
+                                "Выполнено: " + result.reply
+                            } else {
+                                "Выполнено: сначала подготовила режим, затем " + result.reply.lowercase()
+                            }
                         } else if (outcome.sent > 0) {
                             "Часть команд выполнена: " + outcome.sent
                         } else {
@@ -72,6 +86,11 @@ class MarfaCommandExecutor private constructor() {
         actions: List<LocalCommandActionItem>,
         runtime: AppRuntime
     ): Outcome {
+        if (!runtime.mqtt.isConnected()) {
+            DiagnosticTrace.system("MARFA command blocked: MQTT is not connected")
+            return Outcome(0, actions.size)
+        }
+
         var sent = 0
         var failed = 0
 
