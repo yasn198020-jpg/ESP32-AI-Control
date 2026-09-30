@@ -1,4 +1,5 @@
 package com.yasn198020.aicontrol
+import android.app.ActivityManager
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
@@ -19,7 +20,7 @@ import java.util.Locale
 class GemmaLocalEngine private constructor(private val appContext: Context) {
     companion object {
         private const val MODEL_FILE_NAME = "marfa-gemma.gguf"
-        private const val CONTEXT_SIZE = 4096
+        private const val CONTEXT_SIZE = 2048
         private const val THREADS = 4
         private const val MAX_TOKENS = 320
         @Volatile private var instance: GemmaLocalEngine? = null
@@ -123,6 +124,26 @@ class GemmaLocalEngine private constructor(private val appContext: Context) {
     private suspend fun loadModelLocked(): LlamaModel {
         val path = modelFile.absolutePath
         loadedModel?.let { if (loadedPath == path) return it }
+
+        // Gemma 3 4B needs a large native allocation. Check free RAM before
+        // entering llama.cpp so Android can report a clean error instead of
+        // killing the whole application process.
+        val memory = appContext.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        val info = ActivityManager.MemoryInfo()
+        memory.getMemoryInfo(info)
+        val modelBytes = modelFile.length()
+        val estimatedRequired = maxOf(
+            2_500L * 1024L * 1024L,
+            modelBytes * 5L / 4L + 512L * 1024L * 1024L
+        )
+        if (info.availMem < estimatedRequired) {
+            throw Exception(
+                "Недостаточно оперативной памяти для Gemma: свободно " +
+                    formatBytes(info.availMem) + ", требуется примерно " +
+                    formatBytes(estimatedRequired)
+            )
+        }
+
         loadedModel?.let { runCatching { Llama.releaseModel(it) } }
         loadedModel = Llama.loadModel(
             path,
