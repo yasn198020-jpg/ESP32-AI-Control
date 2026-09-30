@@ -1092,6 +1092,9 @@ object IoTScenarioCommandPlanner {
                 }
                 if (actuatorActions.isEmpty()) emptyList()
                 else rule.condition.identifiers.mapNotNull { id ->
+                    // The requested logical element itself is not an actuator
+                    // dependency. Never reverse-resolve it as another node.
+                    if (id == targetWidgetId) return@mapNotNull null
                     val entries = resolved[id] ?: return@mapNotNull null
                     if (entries.size != 1) return@mapNotNull null
                     val widget = entries.single().second.second
