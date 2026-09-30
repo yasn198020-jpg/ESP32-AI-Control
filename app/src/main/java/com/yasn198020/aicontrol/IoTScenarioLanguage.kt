@@ -813,16 +813,17 @@ object IoTScenarioCommandPlanner {
                          * runtime conditions and must never block the voice plan
                          * or become MQTT writes.
                          */
-                        result += filtered + ScenarioPrerequisite(
-                            deviceId = actionTargetDeviceId(action, resolved, targetDeviceId),
-                            widgetId = action.targetId,
-                            value = literalValue(action.expression) ?: targetDesired,
-                            reason = "Сценарий: после установки «" +
-                                (resolved[targetWidgetId]?.second?.title?.ifBlank { targetWidgetId } ?: targetWidgetId) +
-                                "» срабатывает «" +
-                                (resolved[action.targetId]?.second?.title?.ifBlank { action.targetId } ?: action.targetId) +
-                                "»"
-                        )
+                        /*
+                         * The action here is an IoTManager scenario OUTPUT
+                         * (for example btn43/btn42), not a command for Marfa.
+                         * Only controllable conditions required to enter the
+                         * branch are returned as prerequisites. The requested
+                         * logical target itself is added later from `base`.
+                         *
+                         * Sending action.targetId here would bypass the
+                         * scenario and physically drive the relay directly.
+                         */
+                        result += filtered
                     }
                 }
             }
