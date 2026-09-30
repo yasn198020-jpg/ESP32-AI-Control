@@ -127,6 +127,53 @@ class MarfaAnalyticalEngineTest {
     }
 
     @Test
+    fun arbitraryContextWordResolvesFromTheActualPageName() {
+        val result = MarfaAnalyticalEngine().resolveControl(
+            "открой дверь баклажана",
+            listOf(
+                Device("d1", "Дом", true, listOf(
+                    WidgetState("door1", "дверь", WidgetState.Type.TOGGLE, "0", page = "Огурцы"),
+                    WidgetState("door2", "дверь", WidgetState.Type.TOGGLE, "0", page = "Баклажаны")
+                ))
+            ),
+            "1"
+        )
+        assertEquals("door2", result.candidate!!.widget.id)
+        assertEquals("Баклажаны", result.candidate!!.widget.page)
+    }
+
+    @Test
+    fun arbitraryMultiWordContextMatchesRussianInflection() {
+        val result = MarfaAnalyticalEngine().resolveControl(
+            "открой дверь на первом этаже",
+            listOf(
+                Device("d1", "Дом", true, listOf(
+                    WidgetState("door1", "дверь", WidgetState.Type.TOGGLE, "0", page = "Первый этаж"),
+                    WidgetState("door2", "дверь", WidgetState.Type.TOGGLE, "0", page = "Второй этаж")
+                ))
+            ),
+            "1"
+        )
+        assertEquals("door1", result.candidate!!.widget.id)
+        assertEquals("Первый этаж", result.candidate!!.widget.page)
+    }
+
+    @Test
+    fun unknownArbitraryContextStillRequiresClarification() {
+        val result = MarfaAnalyticalEngine().resolveControl(
+            "открой дверь баклажана",
+            listOf(
+                Device("d1", "Дом", true, listOf(
+                    WidgetState("door1", "дверь", WidgetState.Type.TOGGLE, "0", page = "Огурцы")
+                ))
+            ),
+            "1"
+        )
+        assertEquals(null, result.candidate)
+        assertTrue(result.clarification!!.contains("баклажана"))
+    }
+
+    @Test
     fun exactElementIdOverridesTitle() {
         val result = MarfaAnalyticalEngine().resolveControl(
             "открой дверь id door2",
