@@ -1159,6 +1159,8 @@ private fun App(
             else -> VoiceSettingsScreen(
                 Modifier.padding(padding), voicePreset, voiceRate, voicePitch,
                 availableVoices, selectedVoiceName,
+                gemmaStatus,
+                { pickGemmaModel.launch(arrayOf("*/*")) },
                 ::selectVoicePreset,
                 { voiceRate = it; voicePreset = "custom" },
                 { voicePitch = it; voicePreset = "custom" },
