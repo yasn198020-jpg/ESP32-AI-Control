@@ -1007,7 +1007,6 @@ object DeviceScenarioModelFormatter {
         labels: Map<String, String> = emptyMap()
     ): String {
         if (model.parserErrors.isNotEmpty()) return ""
-        val grouped = linkedMapOf<String, LinkedHashSet<String>>()
 
         fun labelFor(id: String): String =
             labels[id]?.trim()?.takeIf { it.isNotBlank() } ?: id
@@ -1019,54 +1018,73 @@ object DeviceScenarioModelFormatter {
             else -> null
         }
 
-        fun collect(statement: IoTStatement) {
+        fun conditionText(expression: IoTExpr): String =
+            expression.render(labels)
+
+        fun actionText(statement: IoTStatement.Assignment): String {
+            val label = labelFor(statement.target)
+            val value = valueText(statement.expression)
+            val lower = label.lowercase()
+
+            val semanticName = when {
+                lower.contains("форточ") && (lower.contains("закрыта") || lower.contains("открыта")) ->
+                    if (value == "1") "Открыть форточку" else if (value == "0") "Закрыть форточку" else null
+                lower.contains("двер") && (lower.contains("закрыта") || lower.contains("открыта")) ->
+                    if (value == "1") "Открыть дверь" else if (value == "0") "Закрыть дверь" else null
+                else -> null
+            }
+
+            val isState = lower.contains("закрыта") || lower.contains("открыта")
+            return when {
+                semanticName != null && isState ->
+                    "$semanticName → установить состояние «$label» = " +
+                        if (value == "1") "открыта" else if (value == "0") "закрыта" else value
+                semanticName != null && value == "1" ->
+                    "$semanticName → включить «$label»"
+                value == "1" ->
+                    "включить «$label»"
+                value == "0" ->
+                    "выключить «$label»"
+                else ->
+                    "установить «$label» = " + statement.expression.render(labels)
+            }
+        }
+
+        fun collectAssignments(
+            statement: IoTStatement,
+            condition: String?,
+            out: MutableList<Pair<String?, String>>
+        ) {
             when (statement) {
                 is IoTStatement.If -> {
-                    collect(statement.thenBranch)
-                    statement.elseBranch?.let(::collect)
-                }
-                is IoTStatement.Block -> statement.statements.forEach(::collect)
-                is IoTStatement.Assignment -> {
-                    val label = labelFor(statement.target)
-                    val value = valueText(statement.expression)
-                    val lower = label.lowercase()
-                    val group =
-                        when {
-                            lower.contains("форточ") && (lower.contains("закрыта") || lower.contains("открыта")) ->
-                                if (value == "1") "Открыть форточку" else if (value == "0") "Закрыть форточку" else null
-                            lower.contains("двер") && (lower.contains("закрыта") || lower.contains("открыта")) ->
-                                if (value == "1") "Открыть дверь" else if (value == "0") "Закрыть дверь" else null
-                            value == "1" && lower.contains("открыть") -> "Открыть: $label"
-                            value == "1" && lower.contains("закрыть") -> "Закрыть: $label"
-                            else -> null
-                        }
-                    if (group != null) {
-                        val isState = lower.contains("закрыта") || lower.contains("открыта")
-                        val detail = when {
-                            isState && value == "1" -> "установить состояние «$label» = открыта"
-                            isState && value == "0" -> "установить состояние «$label» = закрыта"
-                            value == "1" -> "включить «$label»"
-                            value == "0" -> "выключить «$label»"
-                            else -> "установить «$label» = $value"
-                        }
-                        grouped.getOrPut(group) { linkedSetOf() }.add(detail)
+                    val ownCondition = conditionText(statement.condition.expression)
+                    collectAssignments(statement.thenBranch, ownCondition, out)
+                    statement.elseBranch?.let {
+                        collectAssignments(it, "НЕ ($ownCondition)", out)
                     }
+                }
+                is IoTStatement.Block -> statement.statements.forEach {
+                    collectAssignments(it, condition, out)
+                }
+                is IoTStatement.Assignment -> {
+                    out += condition to actionText(statement)
                 }
                 is IoTStatement.ExpressionStatement -> Unit
             }
         }
 
-        model.statements.forEach(::collect)
-        if (grouped.isEmpty()) return ""
+        val entries = mutableListOf<Pair<String?, String>>()
+        model.statements.forEach { collectAssignments(it, null, entries) }
+        if (entries.isEmpty()) return ""
 
         return buildString {
-            grouped.forEach { (action, details) ->
+            entries.forEachIndexed { index, (condition, action) ->
+                if (index > 0) append("\n")
                 append(action)
-                details.forEach { detail ->
-                    append("\n  → ")
-                    append(detail)
+                if (!condition.isNullOrBlank()) {
+                    append("\n  → ЗАВИСИМОСТЬ: ")
+                    append(condition)
                 }
-                append("\n")
             }
         }.trim()
     }
