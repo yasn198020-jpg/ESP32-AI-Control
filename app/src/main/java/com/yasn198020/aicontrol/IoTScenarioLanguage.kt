@@ -1158,14 +1158,26 @@ object IoTScenarioCommandPlanner {
                 wanted: String,
                 visiting: Set<String>
             ): ChainResult? {
-                val widget = resolved[variable]?.second ?: return null
+                /*
+                 * Scenario variables are not always real widgets. Internal
+                 * variables such as value37 may be written by one rule and
+                 * consumed by another. They are graph nodes, not terminal
+                 * MQTT targets, so the resolver must keep traversing them.
+                 */
+                val widget = resolved[variable]?.second
 
-                if (isControllable(widget)) {
+                if (widget != null && isControllable(widget)) {
                     if (currentMatches(variable, wanted)) {
                         return ChainResult(emptyList(), listOf(variable))
                     }
                     return ChainResult(
-                        listOf(LocalCommandActionItem(resolved[variable]!!.first, variable, wanted)),
+                        listOf(
+                            LocalCommandActionItem(
+                                resolved[variable]!!.first,
+                                variable,
+                                wanted
+                            )
+                        ),
                         listOf(variable)
                     )
                 }
