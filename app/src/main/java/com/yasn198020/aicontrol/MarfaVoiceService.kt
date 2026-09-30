@@ -439,7 +439,9 @@ class MarfaVoiceService : Service() {
         tts?.speak(text, TextToSpeech.QUEUE_ADD, null, "marfa-command-" + System.nanoTime())
     }
 
-    override fun onDestroy() {\n        serviceScope.cancel()\n        voiceManager?.stop()
+    override fun onDestroy() {
+        serviceScope.cancel()
+        voiceManager?.stop()
         voiceManager = null
         runtimeListener?.let { listener ->
             runtime?.removeUiListener(listener)
