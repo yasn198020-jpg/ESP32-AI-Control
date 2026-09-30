@@ -906,10 +906,9 @@ object IoTScenarioCommandPlanner {
                                 val stateCondition =
                                     findEquality(rule.condition.expression, effectiveTargetWidgetId)
                                 val stateWritten = rule.actions.any { stateAction ->
+                                    val stateValue = literalValue(stateAction.expression)?.let(::normalizeValue)
                                     stateAction.targetId == effectiveTargetWidgetId &&
-                                        literalValue(stateAction.expression)
-                                            ?.let(::normalizeValue)
-                                            == normalizeValue(effectiveDesiredValue)
+                                        stateValue == normalizeValue(effectiveDesiredValue)
                                 }
                                 val stateMatches = if (stateCondition == null) {
                                     false
