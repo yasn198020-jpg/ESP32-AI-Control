@@ -96,19 +96,52 @@ class MarfaAnalyticalEngineTest {
     }
 
     @Test
-    fun russianTomatoFormsAllResolveTheSameTab() {
-        val engine = MarfaAnalyticalEngine()
+    fun russianTomatoNominativeResolvesTheTab() {
         val devices = listOf(
             Device("d1", "Дом", true, listOf(
                 WidgetState("door1", "дверь", WidgetState.Type.TOGGLE, "0", page = "Огурцы"),
                 WidgetState("door2", "дверь", WidgetState.Type.TOGGLE, "0", page = "Помидоры")
             ))
         )
+                val result = MarfaAnalyticalEngine().resolveControl("открой дверь помидор", devices, "1")
+        assertEquals("door2", result.candidate?.widget?.id)
 
-        listOf("помидор", "помидора", "помидоры", "помидорами").forEach { form ->
-            val result = engine.resolveControl("открой дверь " + form, devices, "1")
-            assertEquals("door2", result.candidate?.widget?.id, "form=" + form)
-        }
+    }
+    @Test
+    fun russianTomatoGenitiveResolvesTheTab() {
+        val devices = listOf(
+            Device("d1", "Дом", true, listOf(
+                WidgetState("door1", "дверь", WidgetState.Type.TOGGLE, "0", page = "Огурцы"),
+                WidgetState("door2", "дверь", WidgetState.Type.TOGGLE, "0", page = "Помидоры")
+            ))
+        )
+                val result = MarfaAnalyticalEngine().resolveControl("открой дверь помидора", devices, "1")
+        assertEquals("door2", result.candidate?.widget?.id)
+
+    }
+    @Test
+    fun russianTomatoPluralResolvesTheTab() {
+        val devices = listOf(
+            Device("d1", "Дом", true, listOf(
+                WidgetState("door1", "дверь", WidgetState.Type.TOGGLE, "0", page = "Огурцы"),
+                WidgetState("door2", "дверь", WidgetState.Type.TOGGLE, "0", page = "Помидоры")
+            ))
+        )
+                val result = MarfaAnalyticalEngine().resolveControl("открой дверь помидоры", devices, "1")
+        assertEquals("door2", result.candidate?.widget?.id)
+
+    }
+    @Test
+    fun russianTomatoInstrumentalResolvesTheTab() {
+        val devices = listOf(
+            Device("d1", "Дом", true, listOf(
+                WidgetState("door1", "дверь", WidgetState.Type.TOGGLE, "0", page = "Огурцы"),
+                WidgetState("door2", "дверь", WidgetState.Type.TOGGLE, "0", page = "Помидоры")
+            ))
+        )
+                val result = MarfaAnalyticalEngine().resolveControl("открой дверь помидорами", devices, "1")
+        assertEquals("door2", result.candidate?.widget?.id)
+
     }
 
     @Test
