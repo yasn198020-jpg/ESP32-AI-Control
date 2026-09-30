@@ -167,8 +167,28 @@ class MarfaAnalyticalEngine {
                 }
         }
 
-        val scoped = if (page == null) all
-        else all.filter { normalize(it.widget.page) == page }
+        val contextPages = if (page == null) matchingContextPages(normalized, devices) else emptyList()
+        val unknownContext = if (page == null && contextPages.isEmpty()) {
+            unknownContextWords(normalized, devices)
+        } else {
+            emptyList()
+        }
+
+        val contextScoped = when {
+            page != null -> all
+            contextPages.isNotEmpty() -> all.filter { normalize(it.widget.page) in contextPages }
+            unknownContext.isNotEmpty() -> {
+                return SensorResolution(
+                    clarification = "Я нашла датчик, но не нашла совпадение контекста «" +
+                        unknownContext.joinToString(", ") +
+                        "». Уточните название вкладки."
+                )
+            }
+            else -> all
+        }
+
+        val scoped = if (page == null) contextScoped
+        else contextScoped.filter { normalize(it.widget.page) == page }
 
         val candidates = scoped.sortedWith(
             compareByDescending<SensorCandidate> { it.score }
