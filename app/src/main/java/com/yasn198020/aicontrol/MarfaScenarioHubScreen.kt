@@ -568,9 +568,6 @@ private fun DeviceScenariosScreen(
                             }
 
 
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
-                            contentPadding = PaddingValues(bottom = 16.dp)
-                        ) {
                             item {
                                 Text(
                                     "Действия устройства",
