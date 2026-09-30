@@ -97,10 +97,10 @@ object DiagnosticTrace {
     }
 
     fun system(message: String) {
-        // Keep lifecycle/background-service diagnostics in the same trace that
-        // is visible while the Activity is backgrounded. Previously these
-        // messages were discarded, making the watchdog impossible to verify.
-        ensureInitialized()
+        // Diagnostics must never break business logic or unit tests.
+        // Production initializes the trace from AppRuntime; tests and
+        // lightweight parser/planner calls may legitimately use it earlier.
+        if (!initialized) return
         BackgroundTrace.event("SYSTEM", message)
     }
 
