@@ -639,15 +639,34 @@ object IoTScenarioCommandPlanner {
             }
             val byId = all.groupBy { it.first }
 
-            if (ids.any { id -> byId[id]?.size != 1 }) {
+            val duplicateIds = ids.filter { id -> (byId[id]?.size ?: 0) > 1 }
+            if (duplicateIds.isNotEmpty()) {
                 DiagnosticTrace.system(
-                    "MARFA scenario binding rejected: element IDs must resolve uniquely: " +
-                        ids.filter { byId[it]?.size != 1 }.joinToString(",")
+                    "MARFA scenario binding rejected: duplicate element IDs: " +
+                        duplicateIds.joinToString(",")
                 )
                 return emptyMap()
             }
 
-            return ids.associateWith { id -> byId.getValue(id).single().second }
+            /*
+             * Scenario language also contains virtual/service identifiers
+             * (for example onStart or internal timers) that may have no WidgetState
+             * representation on the phone. They are left unresolved so runtime
+             * conditions can still be evaluated as unknown; a required
+             * controllable dependency will be rejected later at the exact point
+             * where it would have to be written.
+             */
+            val missingIds = ids.filter { byId[it].isNullOrEmpty() }
+            if (missingIds.isNotEmpty()) {
+                DiagnosticTrace.system(
+                    "MARFA scenario binding: unresolved non-widget identifiers: " +
+                        missingIds.joinToString(",")
+                )
+            }
+
+            return ids
+                .filter { byId[it]?.size == 1 }
+                .associateWith { id -> byId.getValue(id).single().second }
         }
 
         val allModels = models.mapNotNull { (stored, model) ->
