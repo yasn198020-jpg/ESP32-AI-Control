@@ -744,6 +744,12 @@ object IoTScenarioCommandPlanner {
                         valueMatchesDesired(it.expression, effectiveDesiredValue, context)
                 } ?: return@mapNotNull null
 
+                println(
+                    "MARFA_DEBUG scenarioTarget=" + effectiveTargetWidgetId +
+                        " modeIds=" + modeIds.joinToString(",") +
+                        " condition=" + rule.condition.render()
+                )
+
                 val targetResolved = resolved[effectiveTargetWidgetId]
                     ?: return@mapNotNull null
                 if (targetResolved.first != effectiveTargetMatch.first) return@mapNotNull null
