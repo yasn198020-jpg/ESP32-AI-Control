@@ -32,10 +32,20 @@ class MarfaCommandEngine {
     private var lastIntent: LocalCommandAction? = null
     private var lastActionValue = ""
 
+    private sealed class PendingClarification {
+        data class Control(val action: ActionSpec, val candidates: List<Candidate>) : PendingClarification()
+        data class Sensor(val candidates: List<MarfaAnalyticalEngine.SensorCandidate>) : PendingClarification()
+    }
+
+    private var pendingClarification: PendingClarification? = null
+    private var lastControlCandidates: List<Candidate> = emptyList()
+    private var lastActionSpec: ActionSpec? = null
+
     fun parse(command: String, devices: List<Device>): LocalCommandResult {
         val text = normalize(command)
         if (text.isBlank()) return result(LocalCommandAction.NOT_FOUND, "Я не услышала команду")
 
+        resolvePendingClarification(text)?.let { return remember(it) }
         parseFollowUp(text, devices)?.let { return remember(it) }
         parseSmartRule(text, devices)?.let { return remember(it) }
         parseValueQuestion(text, devices)?.let { return remember(it) }
@@ -45,18 +55,30 @@ class MarfaCommandEngine {
             val time = parseTime(text)
             val resolution = analyticalEngine.resolveControl(text, devices, action.value)
             val analyticalTarget = resolution.candidate
-                ?: return remember(
-                    LocalCommandResult(
+                ?: run {
+                    if (resolution.candidates.isNotEmpty()) {
+                        pendingClarification = PendingClarification.Control(
+                            action,
+                            resolution.candidates.map { Candidate(it.device, it.widget, it.score) }
+                        )
+                    } else {
+                        pendingClarification = null
+                    }
+                    return LocalCommandResult(
                         LocalCommandAction.CLARIFY,
-                        reply = resolution.clarification
-                            ?: "Уточните, чем именно управлять."
+                        reply = resolution.clarification ?: "Уточните, чем именно управлять."
                     )
-                )
+                }
             val chosen = Candidate(
                 analyticalTarget.device,
                 analyticalTarget.widget,
                 analyticalTarget.score
             )
+            lastControlCandidates = resolution.candidates
+                .map { Candidate(it.device, it.widget, it.score) }
+                .ifEmpty { listOf(chosen) }
+            lastActionSpec = action
+            pendingClarification = null
 
             val first = LocalCommandActionItem(chosen.device.id, chosen.widget.id, action.value)
             val extra = parseAdditionalActions(text, action, chosen, devices)
@@ -82,10 +104,168 @@ class MarfaCommandEngine {
         ))
     }
 
+    private fun resolvePendingClarification(text: String): LocalCommandResult? {
+        val pending = pendingClarification ?: return null
+        if (containsAny(text, "отмена", "отменяй", "не надо", "не выполняй", "забудь")) {
+            pendingClarification = null
+            return result(LocalCommandAction.NOT_FOUND, "Хорошо, отменяю уточнение")
+        }
+        return when (pending) {
+            is PendingClarification.Control -> {
+                val chosen = chooseClarificationCandidate(text, pending.candidates)
+                    ?: return LocalCommandResult(
+                        LocalCommandAction.CLARIFY,
+                        reply = "Не поняла уточнение. Выберите: " +
+                            pending.candidates.take(5).joinToString(" или ") { candidateLabel(it) }
+                    )
+                pendingClarification = null
+                lastControlCandidates = pending.candidates
+                lastActionSpec = pending.action
+                val item = LocalCommandActionItem(chosen.device.id, chosen.widget.id, pending.action.value)
+                LocalCommandResult(
+                    action = LocalCommandAction.CONTROL,
+                    deviceId = item.deviceId,
+                    widgetId = item.widgetId,
+                    value = item.value,
+                    reply = controlReply(pending.action, chosen.widget.title, 0L, 1),
+                    actionItems = listOf(item),
+                    needsConfirmation = true
+                )
+            }
+            is PendingClarification.Sensor -> {
+                val chosen = chooseSensorCandidate(text, pending.candidates)
+                    ?: return LocalCommandResult(
+                        LocalCommandAction.CLARIFY,
+                        reply = "Не поняла уточнение. Выберите: " +
+                            pending.candidates.take(5).joinToString(" или ") { sensorCandidateLabel(it) }
+                    )
+                pendingClarification = null
+                LocalCommandResult(
+                    action = LocalCommandAction.READ_VALUE,
+                    deviceId = chosen.device.id,
+                    widgetId = chosen.widget.id,
+                    value = chosen.widget.value.trim(),
+                    reply = valueSpeech(chosen.widget)
+                )
+            }
+        }
+    }
+
+    private fun chooseClarificationCandidate(text: String, candidates: List<Candidate>): Candidate? {
+        if (candidates.isEmpty()) return null
+        val normalized = searchable(text)
+        ordinalIndex(normalized)?.let { index -> if (index in candidates.indices) return candidates[index] }
+        candidates.firstOrNull { candidate ->
+            normalized.split(" ").contains(searchable(candidate.widget.id))
+        }?.let { return it }
+        val scored = candidates.map { candidate ->
+            val title = searchable(candidate.widget.title)
+            val page = searchable(candidate.widget.page)
+            val device = searchable(candidate.device.name)
+            var score = 0
+            normalized.split(" ")
+                .filter { it.length >= 3 && it !in REFERENCE_STOP_WORDS }
+                .forEach { token ->
+                    val stemmed = stem(token)
+                    if (title.contains(stemmed)) score += 6
+                    if (page.contains(stemmed)) score += 9
+                    if (device.contains(stemmed)) score += 4
+                }
+            candidate to score
+        }.sortedByDescending { it.second }
+        val best = scored.firstOrNull() ?: return null
+        val second = scored.getOrNull(1)
+        if (best.second <= 0 || (second != null && best.second == second.second)) return null
+        return best.first
+    }
+
+    private fun chooseSensorCandidate(
+        text: String,
+        candidates: List<MarfaAnalyticalEngine.SensorCandidate>
+    ): MarfaAnalyticalEngine.SensorCandidate? {
+        if (candidates.isEmpty()) return null
+        val normalized = searchable(text)
+        ordinalIndex(normalized)?.let { index -> if (index in candidates.indices) return candidates[index] }
+        val scored = candidates.map { candidate ->
+            val title = searchable(candidate.widget.title)
+            val page = searchable(candidate.widget.page)
+            val device = searchable(candidate.device.name)
+            var score = 0
+            normalized.split(" ")
+                .filter { it.length >= 3 && it !in REFERENCE_STOP_WORDS }
+                .forEach { token ->
+                    val stemmed = stem(token)
+                    if (title.contains(stemmed)) score += 6
+                    if (page.contains(stemmed)) score += 9
+                    if (device.contains(stemmed)) score += 4
+                }
+            candidate to score
+        }.sortedByDescending { it.second }
+        val best = scored.firstOrNull() ?: return null
+        val second = scored.getOrNull(1)
+        if (best.second <= 0 || (second != null && best.second == second.second)) return null
+        return best.first
+    }
+
+    private fun refineLastControlTarget(text: String): LocalCommandResult? {
+        if (lastControlCandidates.size < 2 || lastActionValue.isBlank()) return null
+        val chosen = chooseClarificationCandidate(text, lastControlCandidates) ?: return null
+        val action = lastActionSpec ?: ActionSpec(
+            lastActionValue,
+            if (lastActionValue == "1") "Открываю" else "Закрываю",
+            if (lastActionValue == "1") "открыть" else "закрыть"
+        )
+        val item = LocalCommandActionItem(chosen.device.id, chosen.widget.id, action.value)
+        return LocalCommandResult(
+            action = LocalCommandAction.CONTROL,
+            deviceId = item.deviceId,
+            widgetId = item.widgetId,
+            value = item.value,
+            reply = controlReply(action, chosen.widget.title, 0L, 1),
+            actionItems = listOf(item),
+            needsConfirmation = true
+        )
+    }
+
+    private fun ordinalIndex(text: String): Int? {
+        val patterns = listOf(
+            Regex("\\bперва(?:я|ю|ое|ый)\\b") to 0,
+            Regex("\\bвтора(?:я|ю|ое|ой)\\b") to 1,
+            Regex("\\bтреть(?:я|ю|е|ий)\\b") to 2,
+            Regex("\\bчетверт(?:ая|ую|ое|ый)\\b") to 3,
+            Regex("\\bпят(?:ая|ую|ое|ый)\\b") to 4,
+            Regex("\\bномер\\s+один\\b") to 0,
+            Regex("\\bномер\\s+два\\b") to 1,
+            Regex("\\bномер\\s+три\\b") to 2
+        )
+        patterns.firstOrNull { it.first.containsMatchIn(text) }?.let { return it.second }
+        Regex("\\b(?:номер\\s+)?([1-9])\\b").find(text)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let { return it - 1 }
+        return null
+    }
+
+    private fun candidateLabel(candidate: Candidate): String {
+        val title = candidate.widget.title.ifBlank { candidate.widget.id }
+        return if (candidate.widget.page.isBlank()) title else title + " (вкладка " + candidate.widget.page + ")"
+    }
+
+    private fun sensorCandidateLabel(candidate: MarfaAnalyticalEngine.SensorCandidate): String {
+        val title = candidate.widget.title.ifBlank { candidate.widget.id }
+        return if (candidate.widget.page.isBlank()) title else title + " (вкладка " + candidate.widget.page + ")"
+    }
+
+    private val REFERENCE_STOP_WORDS = setOf(
+        "а", "и", "на", "во", "в", "по", "к", "ко", "у", "из", "для", "это", "эта", "этот",
+        "там", "здесь", "нет", "да", "пожалуйста", "марфа"
+    )
+
     private fun parseFollowUp(text: String, devices: List<Device>): LocalCommandResult? {
         val time = parseTime(text)
         val action = detectAction(text)
         val question = containsAny(text, "сколько", "какая", "какое", "покажи", "скажи", "узнай", "что там")
+
+        if (action == null && !question && time == null) {
+            refineLastControlTarget(text)?.let { return it }
+        }
 
         // "Через 20 минут" after "открой форточку" repeats that action later.
         if (action == null && !question && time != null && lastTarget != null && lastActionValue.isNotBlank()) {
