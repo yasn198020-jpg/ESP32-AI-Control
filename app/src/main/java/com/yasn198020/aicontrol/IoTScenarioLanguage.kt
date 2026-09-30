@@ -900,7 +900,11 @@ object IoTScenarioCommandPlanner {
 
                     model.rules.any { rule ->
                         rule.actions.any { action ->
-                            if (!isActuatorAction(action, effectiveDesiredValue, resolved)) {
+                            val actuatorResolved = resolved[action.targetId]
+                            if (actuatorResolved == null ||
+                                actuatorResolved.first != targetDeviceId ||
+                                !isActuatorAction(action, effectiveDesiredValue, resolved)
+                            ) {
                                 false
                             } else {
                                 val stateCondition =
