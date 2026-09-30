@@ -721,23 +721,24 @@ object IoTScenarioCommandPlanner {
             resolveWidgets = ::resolveWidgets
         )
         if (manualPlan != null) {
-            val (modeAction, actuatorAction) = manualPlan
-            val actions = listOf(modeAction, actuatorAction)
-            DiagnosticTrace.system(
-                "MARFA manual scenario plan target=" + targetWidgetId +
-                    " mode=" + modeAction.widgetId + "=" + modeAction.value +
-                    " actuator=" + actuatorAction.widgetId + "=" + actuatorAction.value
-            )
-            return ScenarioCommandPlan(
-                actions = actions,
-                prerequisites = listOf(
+            val prerequisites = manualPlan
+                .filter { it.widgetId != targetWidgetId }
+                .map { action ->
+                    val widget = devices
+                        .flatMap { it.widgets }
+                        .firstOrNull { it.id == action.widgetId }
                     ScenarioPrerequisite(
-                        deviceId = modeAction.deviceId,
-                        widgetId = modeAction.widgetId,
-                        value = modeAction.value,
-                        reason = "Перевод в ручной режим перед выполнением команды"
+                        deviceId = action.deviceId,
+                        widgetId = action.widgetId,
+                        value = action.value,
+                        reason = "Зависимость сценария: " +
+                            (widget?.title?.ifBlank { action.widgetId } ?: action.widgetId) +
+                            " должно быть " + action.value
                     )
-                )
+                }
+            return ScenarioCommandPlan(
+                actions = manualPlan,
+                prerequisites = prerequisites
             )
         }
 
@@ -872,6 +873,17 @@ object IoTScenarioCommandPlanner {
         }
     }
 
+    /**
+     * Resolve a semantic state command backwards from the physical actuator.
+     *
+     * IoTManager may split the chain across several rules:
+     *   vbtn90 == 1 -> value37 = 1
+     *   value37 == 1 & vbtn78 == 1 -> btn43 = 1
+     *
+     * For "open door" Marfa must discover btn43 <- value37 <- vbtn90
+     * and set the logical state vbtn78. The physical relay is left to
+     * IoTManager.
+     */
     private fun buildManualModeActuatorPlan(
         targetDeviceId: String,
         targetWidgetId: String,
@@ -879,86 +891,168 @@ object IoTScenarioCommandPlanner {
         devices: List<com.yasn198020.aicontrol.core.Device>,
         models: List<Pair<StoredDeviceScenario, DeviceScenarioModel>>,
         resolveWidgets: (Set<String>) -> Map<String, Pair<String, com.yasn198020.aicontrol.core.WidgetState>>
-    ): Pair<LocalCommandActionItem, LocalCommandActionItem>? {
+    ): List<LocalCommandActionItem>? {
         val targetDesired = normalizeValue(desiredValue)
         if (targetDesired != "0" && targetDesired != "1") return null
 
-        return models.asSequence().flatMap { (_, model) ->
-            val ids = model.identifiers
-            val resolved = resolveWidgets(ids)
-            val variables = resolved.mapValues { it.value.second.value }
-            val context = IoTScenarioEvaluationContext(variables)
+        data class ChainResult(
+            val actions: List<LocalCommandActionItem>,
+            val controllableDependencies: List<String>
+        )
+
+        return models.asSequence().mapNotNull { (_, model) ->
+            val resolved = resolveWidgets(model.identifiers)
+            val target = resolved[targetWidgetId] ?: return@mapNotNull null
+            if (target.first != targetDeviceId) return@mapNotNull null
+
+            fun currentMatches(id: String, value: String): Boolean {
+                val widget = resolved[id]?.second ?: return false
+                return valuesEquivalent(widget.value, value)
+            }
+
+            fun findWriters(variable: String, wanted: String): List<DeviceScenarioRule> =
+                model.rules.filter { rule ->
+                    rule.actions.any { action ->
+                        action.targetId == variable &&
+                            literalValue(action.expression)?.let { normalizeValue(it) == wanted } == true
+                    }
+                }
+
+            fun resolveVariable(
+                variable: String,
+                wanted: String,
+                visiting: Set<String>
+            ): ChainResult? {
+                val widget = resolved[variable]?.second ?: return null
+
+                if (isControllable(widget)) {
+                    if (currentMatches(variable, wanted)) {
+                        return ChainResult(emptyList(), listOf(variable))
+                    }
+                    return ChainResult(
+                        listOf(LocalCommandActionItem(resolved[variable]!!.first, variable, wanted)),
+                        listOf(variable)
+                    )
+                }
+
+                if (variable in visiting) return null
+
+                val nextVisiting = visiting + variable
+                return findWriters(variable, wanted).asSequence().mapNotNull { writer ->
+                    val context = IoTScenarioEvaluationContext(
+                        resolved.mapValues { it.value.second.value }
+                    )
+                    deriveRequirementCandidates(writer.condition.expression, context)
+                        .asSequence()
+                        .mapNotNull { reqs ->
+                            val actions = mutableListOf<LocalCommandActionItem>()
+                            val dependencies = mutableListOf<String>()
+                            var valid = true
+
+                            reqs.forEach { req ->
+                                if (!valid) return@forEach
+                                val child = resolveVariable(req.widgetName, normalizeValue(req.value), nextVisiting)
+                                if (child == null) {
+                                    val childWidget = resolved[req.widgetName]?.second
+                                    if (childWidget != null && isControllable(childWidget)) valid = false
+                                } else {
+                                    actions += child.actions
+                                    dependencies += child.controllableDependencies
+                                }
+                            }
+
+                            if (!valid) null
+                            else ChainResult(
+                                actions.distinctBy { it.deviceId + "/" + it.widgetId + "/" + it.value },
+                                dependencies.distinct()
+                            )
+                        }
+                        .filter { it.controllableDependencies.isNotEmpty() }
+                        .firstOrNull()
+                }
+            }
 
             model.rules.asSequence().flatMap { rule ->
                 rule.actions.asSequence().mapNotNull { action ->
-                    val value = literalValue(action.expression) ?: return@mapNotNull null
+                    val value = literalValue(action.expression)?.let(::normalizeValue)
+                        ?: return@mapNotNull null
                     if (value != "1") return@mapNotNull null
 
                     val actuator = resolved[action.targetId]?.second ?: return@mapNotNull null
+                    if (resolved[action.targetId]?.first != targetDeviceId) return@mapNotNull null
                     if (!isActuatorWidget(actuator, targetDesired)) return@mapNotNull null
 
-                    val targetCondition = findEquality(rule.condition.expression, targetWidgetId)
-                    val targetIsWrittenToDesiredState = rule.actions.any { targetAction ->
-                        targetAction.targetId == targetWidgetId &&
-                            literalValue(targetAction.expression)?.let { normalizeValue(it) == targetDesired } == true
+                    val stateCondition = findEquality(rule.condition.expression, targetWidgetId)
+                    val stateWritten = rule.actions.any { a ->
+                        a.targetId == targetWidgetId &&
+                            literalValue(a.expression)?.let { normalizeValue(it) == targetDesired } == true
                     }
+                    if (stateCondition == null && !stateWritten) return@mapNotNull null
 
-                    /*
-                     * IoTManager state widgets are often used as a precondition:
-                     *   vbtn78 == 0 -> btn43 = 1; vbtn78 = 1
-                     * for "open", and
-                     *   vbtn78 == 1 -> btn42 = 1; vbtn78 = 0
-                     * for "close".
-                     *
-                     * So the branch may contain either the desired state as a
-                     * condition or the opposite/pre-state when the scenario
-                     * itself writes the requested state.
-                     */
-                    val conditionMatchesRequestedState =
-                        targetCondition != null &&
-                            normalizeValue(targetCondition) == targetDesired
-                    val conditionIsPreStateForRequestedAction =
-                        targetCondition != null &&
-                            normalizeValue(targetCondition) != targetDesired &&
-                            targetIsWrittenToDesiredState
-
-                    if (!conditionMatchesRequestedState && !conditionIsPreStateForRequestedAction) {
-                        return@mapNotNull null
-                    }
-
-                    /*
-                     * Find a controllable mode variable in the same branch
-                     * that is set to 0 (automation). Its inverse value 1 is
-                     * the manual mode.
-                     */
-                    val mode = findModeGate(rule.condition.expression, resolved)
-                        ?: return@mapNotNull null
-
-                    val manualRuleExists = model.rules.any { other ->
-                        other !== rule &&
-                            findEquality(other.condition.expression, mode.first) == mode.second
-                    }
-                    if (!manualRuleExists) return@mapNotNull null
-
-                    val actuatorDeviceId = resolved[action.targetId]?.first ?: return@mapNotNull null
-                    if (actuatorDeviceId != targetDeviceId) return@mapNotNull null
-
-                    val modeWidget = resolved[mode.first]?.second ?: return@mapNotNull null
-                    if (!isControllable(modeWidget)) return@mapNotNull null
-
-                    val modeAction = LocalCommandActionItem(
-                        resolved[mode.first]!!.first,
-                        mode.first,
-                        mode.third
+                    val context = IoTScenarioEvaluationContext(
+                        resolved.mapValues { it.value.second.value }
                     )
-                    val actuatorAction = LocalCommandActionItem(
-                        actuatorDeviceId,
-                        action.targetId,
-                        value
-                    )
-                    modeAction to actuatorAction
+                    deriveRequirementCandidates(rule.condition.expression, context)
+                        .asSequence()
+                        .mapNotNull { reqs ->
+                            val actions = mutableListOf<LocalCommandActionItem>()
+                            val dependencies = mutableListOf<String>()
+                            var valid = true
+
+                            reqs.forEach { req ->
+                                if (!valid) return@forEach
+                                if (req.widgetName == targetWidgetId) {
+                                    if (normalizeValue(req.value) != targetDesired) valid = false
+                                    return@forEach
+                                }
+
+                                val child = resolveVariable(req.widgetName, normalizeValue(req.value), emptySet())
+                                if (child == null) {
+                                    val widget = resolved[req.widgetName]?.second
+                                    if (widget != null && isControllable(widget)) valid = false
+                                } else {
+                                    actions += child.actions
+                                    dependencies += child.controllableDependencies
+                                }
+                            }
+
+                            if (!valid || dependencies.isEmpty()) return@mapNotNull null
+
+                            if (!currentMatches(targetWidgetId, targetDesired)) {
+                                actions += LocalCommandActionItem(
+                                    target.first,
+                                    targetWidgetId,
+                                    targetDesired
+                                )
+                            }
+
+                            ChainResult(
+                                actions.distinctBy { it.deviceId + "/" + it.widgetId + "/" + it.value },
+                                dependencies.distinct()
+                            )
+                        }
+                        .filter { it.controllableDependencies.any { id -> id != targetWidgetId } }
+                        .firstOrNull()
                 }
-            }
+            }.toList()
+                .minByOrNull { it.actions.size }
+                ?.let { chain ->
+                    val dependencyIds = chain.controllableDependencies
+                        .filter { it != targetWidgetId }
+                        .toSet()
+                    val prerequisiteActions = chain.actions.filter { it.widgetId in dependencyIds }
+                    val targetActions = chain.actions.filter { it.widgetId == targetWidgetId }
+                    val actions = (prerequisiteActions + targetActions)
+                        .distinctBy { it.deviceId + "/" + it.widgetId + "/" + it.value }
+
+                    DiagnosticTrace.system(
+                        "MARFA reverse actuator chain target=" + targetWidgetId +
+                            " desired=" + targetDesired +
+                            " dependencies=" + dependencyIds.joinToString(",") +
+                            " actions=" + actions.joinToString(",") { it.widgetId + "=" + it.value }
+                    )
+                    actions
+                }
         }.firstOrNull()
     }
 
