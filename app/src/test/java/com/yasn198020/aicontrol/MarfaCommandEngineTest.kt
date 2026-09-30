@@ -191,4 +191,48 @@ class MarfaCommandEngineTest {
         assertEquals("1", result.value)
     }
 
+    @Test
+    fun explicitPageDisambiguatesIdenticalTitles() {
+        val devices = listOf(
+            Device(
+                id = "greenhouse",
+                name = "Теплица",
+                online = true,
+                widgets = listOf(
+                    WidgetState("door1", "закрыта открыта дверь", WidgetState.Type.TOGGLE, "0", page = "Теплица 1", order = 1),
+                    WidgetState("door2", "закрыта открыта дверь", WidgetState.Type.TOGGLE, "0", page = "Теплица 2", order = 2)
+                )
+            )
+        )
+
+        val result = MarfaCommandEngine().parse(
+            "Открой дверь на вкладке Теплица 2",
+            devices
+        )
+
+        assertEquals(LocalCommandAction.CONTROL, result.action)
+        assertEquals("door2", result.widgetId)
+        assertEquals("1", result.value)
+    }
+
+    @Test
+    fun identicalTitlesWithoutPageRemainAmbiguous() {
+        val devices = listOf(
+            Device(
+                id = "greenhouse",
+                name = "Теплица",
+                online = true,
+                widgets = listOf(
+                    WidgetState("door1", "закрыта открыта дверь", WidgetState.Type.TOGGLE, "0", page = "Теплица 1", order = 1),
+                    WidgetState("door2", "закрыта открыта дверь", WidgetState.Type.TOGGLE, "0", page = "Теплица 2", order = 2)
+                )
+            )
+        )
+
+        val result = MarfaCommandEngine().parse("Открой дверь", devices)
+
+        assertEquals(LocalCommandAction.CLARIFY, result.action)
+    }
+
+
 }
