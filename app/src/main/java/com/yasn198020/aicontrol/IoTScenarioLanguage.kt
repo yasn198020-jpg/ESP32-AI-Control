@@ -747,6 +747,38 @@ object IoTScenarioCommandPlanner {
                     ?: return@mapNotNull null
                 if (targetResolved.first != effectiveTargetMatch.first) return@mapNotNull null
 
+                /*
+                 * A voice command must not execute through the automatic
+                 * branch. When the matching rule is guarded by a semantic
+                 * mode gate (MODE == 0), switch that mode to manual (1)
+                 * instead of copying the automatic requirement.
+                 *
+                 * This also makes a scenario with only an automatic branch
+                 * safe: Marfa can still enter manual mode and then write the
+                 * logical target.
+                 */
+                val modeGate = findModeGate(rule.condition.expression, resolved)
+                if (modeGate != null) {
+                    val modeWidget = resolved[modeGate.first]?.second
+                        ?: return@mapNotNull null
+                    if (!isControllable(modeWidget)) return@mapNotNull null
+
+                    val modeCurrent = normalizeValue(modeWidget.value)
+                    val prerequisites = if (valuesEquivalent(modeCurrent, modeGate.second)) {
+                        emptyList()
+                    } else {
+                        listOf(
+                            ScenarioPrerequisite(
+                                deviceId = resolved[modeGate.first]!!.first,
+                                widgetId = modeGate.first,
+                                value = modeGate.second,
+                                reason = humanRequirement(modeWidget, modeGate.second)
+                            )
+                        )
+                    )
+                    return@mapNotNull prerequisites
+                }
+
                 if (IoTScenarioEvaluator.evaluate(rule.condition.expression, context).isTruthy()) {
                     return@mapNotNull emptyList<ScenarioPrerequisite>()
                 }
@@ -1269,24 +1301,43 @@ object IoTScenarioCommandPlanner {
         expression: IoTExpr,
         resolved: Map<String, Pair<String, com.yasn198020.aicontrol.core.WidgetState>>
     ): Triple<String, String, String>? {
+        fun isModeWidget(widget: com.yasn198020.aicontrol.core.WidgetState): Boolean {
+            val text = (widget.id + " " + widget.title).lowercase()
+            return listOf(
+                "режим",
+                "автомат",
+                "ручн",
+                "управлен",
+                "mode"
+            ).any { text.contains(it) }
+        }
+
         fun visit(e: IoTExpr): Triple<String, String, String>? {
             return when (e) {
                 is IoTExpr.Binary -> {
                     if (e.operator == "==") {
                         val left = e.left as? IoTExpr.Variable
                         val right = literalValue(e.right)
-                        if (left != null && right == "0" &&
-                            resolved[left.name]?.second?.let(::isControllable) == true
-                        ) {
-                            return Triple(left.name, "1", "1")
+                        if (left != null && right == "0") {
+                            val widget = resolved[left.name]?.second
+                            if (widget != null &&
+                                isControllable(widget) &&
+                                isModeWidget(widget)
+                            ) {
+                                return Triple(left.name, "1", "0")
+                            }
                         }
 
                         val rightVar = e.right as? IoTExpr.Variable
                         val leftLiteral = literalValue(e.left)
-                        if (rightVar != null && leftLiteral == "0" &&
-                            resolved[rightVar.name]?.second?.let(::isControllable) == true
-                        ) {
-                            return Triple(rightVar.name, "1", "1")
+                        if (rightVar != null && leftLiteral == "0") {
+                            val widget = resolved[rightVar.name]?.second
+                            if (widget != null &&
+                                isControllable(widget) &&
+                                isModeWidget(widget)
+                            ) {
+                                return Triple(rightVar.name, "1", "0")
+                            }
                         }
                     }
                     visit(e.left) ?: visit(e.right)
@@ -1295,6 +1346,7 @@ object IoTScenarioCommandPlanner {
                 else -> null
             }
         }
+
         return visit(expression)
     }
 
