@@ -473,11 +473,19 @@ private fun DeviceScenariosScreen(
                             val title = widgetLabels[action.widgetId]
                                 ?.takeIf { it.isNotBlank() }
                                 ?: action.widgetId
-                            return when (action.value.trim()) {
+                            val operation = when (action.value.trim()) {
                                 "1" -> "включить «$title»"
                                 "0" -> "выключить «$title»"
                                 else -> "установить «$title» = ${action.value}"
                             }
+                            return operation + " [ID элемента: " + action.widgetId + "]"
+                        }
+
+                        fun prerequisiteDescription(
+                            prerequisite: LocalCommandActionItem
+                        ): String {
+                            return prerequisite.reason +
+                                " [ID элемента: " + prerequisite.widgetId + "]"
                         }
 
                         LazyColumn(
@@ -534,7 +542,7 @@ private fun DeviceScenariosScreen(
                                                             append("\n")
                                                             append(index + 1)
                                                             append(". ")
-                                                            append(prerequisite.reason)
+                                                            append(prerequisiteDescription(prerequisite))
                                                         }
                                                     }
 
@@ -546,6 +554,13 @@ private fun DeviceScenariosScreen(
                                                         append(actionDescription(action))
                                                     }
 
+                                                    append("\n\nID элементов, которые будут использованы:")
+                                                    plan.actions.map { it.widgetId }
+                                                        .distinct()
+                                                        .forEach { id ->
+                                                            append("\n• ")
+                                                            append(id)
+                                                        }
                                                     append("\n\nРезультат: команда будет выполнена в указанном порядке.")
                                                 }
                                             }
