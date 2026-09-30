@@ -336,7 +336,7 @@ class MarfaAnalyticalEngine {
     }
 
     private fun matchingContextPages(text: String, devices: List<Device>): List<String> {
-        val commandTokens = contextTokens(text)
+        val commandTokens = contextTokens(text, devices)
         if (commandTokens.isEmpty()) return emptyList()
 
         return devices.asSequence()
@@ -364,7 +364,7 @@ class MarfaAnalyticalEngine {
     }
 
     private fun unknownContextWords(text: String, devices: List<Device>): List<String> {
-        val tokens = contextTokens(text)
+        val tokens = contextTokens(text, devices)
         if (tokens.isEmpty()) return emptyList()
 
         val pageTokens = devices.asSequence()
@@ -404,7 +404,7 @@ class MarfaAnalyticalEngine {
         val key: String
     )
 
-    private fun contextTokens(text: String): List<ContextToken> {
+    private fun contextTokens(text: String, devices: List<Device>): List<ContextToken> {
         val actionWords = setOf(
             "открой", "открыть", "открывай", "подними", "поднять", "распахни", "раскрой",
             "закрой", "закрыть", "закрывай", "опусти", "опустить", "запечатай",
@@ -413,24 +413,53 @@ class MarfaAnalyticalEngine {
             "установи", "установить", "поставь", "поставить", "задай", "задать",
             "назначь", "назначить"
         )
+
         val grammarWords = setOf(
             "а", "и", "на", "во", "в", "по", "к", "ко", "у", "из", "для", "от", "до",
             "с", "со", "это", "эта", "этот", "этого", "там", "здесь", "нет", "да",
             "пожалуйста", "марфа", "марфу", "марфе", "марфой",
             "сейчас", "сегодня", "завтра", "потом", "позже", "сразу",
             "мне", "меня", "его", "ее", "её", "эту", "сюда", "туда", "тогда",
-            "час", "часа", "часов", "ч", "минут", "минуту", "минуты", "мин",
+            "через", "спустя", "час", "часа", "часов", "ч",
+            "минут", "минуту", "минуты", "мин", "секунд", "секунду", "секунды",
             "градус", "градуса", "градусов",
             "вкладка", "вкладке", "вкладку", "страница", "странице", "страницу",
-            "номер", "значение", "режим"
+            "номер", "значение", "режим",
+            "какая", "какое", "какие", "какую", "какой", "сколько",
+            "покажи", "показать", "показывай", "скажи", "сказать", "узнай", "узнать",
+            "что", "там", "датчик", "датчики",
+            "температура", "температуры", "температур", "темп", "темпа",
+            "влажность", "влажности", "влажн", "давление", "давления", "давлен",
+            "реле", "реле", "выход", "выхода", "выходной", "выходного",
+            "кнопка", "кнопки", "кнопку", "кнопкой", "gpio", "канал", "канала",
+            "исполнитель", "исполнителя"
+        )
+
+        val numberWords = setOf(
+            "ноль", "один", "одна", "одно", "два", "две", "три", "четыре",
+            "пять", "шесть", "семь", "восемь", "девять", "десять",
+            "одиннадцать", "двенадцать", "тринадцать", "четырнадцать",
+            "пятнадцать", "шестнадцать", "семнадцать", "восемнадцать",
+            "девятнадцать", "двадцать", "тридцать", "сорок", "пятьдесят",
+            "шестьдесят", "семьдесят", "восемьдесят", "девяносто", "сто"
         )
 
         val entityAliases = aliases(detectEntityKind(normalize(text))).first.toSet()
-        return tokenized(normalize(text))
+        val knownIds = devices.asSequence()
+            .flatMap { it.widgets.asSequence() }
+            .map { normalize(it.id) }
+            .filter { it.isNotBlank() }
+            .toSet()
+
+        val normalizedText = normalize(text)
+        return tokenized(normalizedText)
             .filterNot { it in actionWords || it in grammarWords }
-            .filterNot { it.length < 2 }
+            .filterNot { it in numberWords && normalizedText.contains(Regex("\\b(it|двадцать)\\s+(?:минут|час)")) }
             .filterNot { it.matches(Regex("\\d+")) }
+            .filterNot { it in knownIds }
             .filterNot { token -> entityAliases.any { alias -> token.startsWith(alias) } }
+            .filterNot { isSelectionToken(it) }
+            .filter { it.length >= 2 }
             .map { token -> ContextToken(token, contextTokenKey(token)) }
             .filter { it.key.isNotBlank() }
     }
