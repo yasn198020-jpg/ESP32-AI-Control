@@ -969,7 +969,7 @@ object IoTScenarioCommandPlanner {
                         }
                         .filter { it.controllableDependencies.isNotEmpty() }
                         .firstOrNull()
-                }
+                }.firstOrNull()
             }
 
             model.rules.asSequence().flatMap { rule ->
