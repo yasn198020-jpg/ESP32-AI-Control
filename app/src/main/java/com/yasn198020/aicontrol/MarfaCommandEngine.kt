@@ -363,12 +363,24 @@ class MarfaCommandEngine {
             (title.contains("открыт") && title.contains("закрыт")) ||
                 containsAny(title, "состояние", "статус", "индикатор", "положение")
 
+        /*
+         * A natural-language command names the logical object, not necessarily
+         * the physical relay. In IoTManager the relay is often only the action
+         * produced by a scenario:
+         *
+         *     "открой дверь" -> vbtn78=1 -> scenario -> btn43=1
+         *
+         * Therefore a widget describing the object's state ("открыта/закрыта",
+         * "состояние", "положение") must outrank an actuator with an "open/close"
+         * title. Direct commands such as "включи реле" still match the actuator
+         * because the state indicator normally does not contain "реле".
+         */
         return when (desiredValue) {
             "1" -> (if (hasOpen) 40 else 0) + (if (hasClose && !hasOpen) -18 else 0) +
-                (if (isStateIndicator) -30 else 0)
+                (if (isStateIndicator) 60 else 0)
             "0" -> (if (hasClose) 40 else 0) + (if (hasOpen && !hasClose) -18 else 0) +
-                (if (isStateIndicator) -30 else 0)
-            else -> if (isStateIndicator) -10 else 0
+                (if (isStateIndicator) 60 else 0)
+            else -> if (isStateIndicator) 10 else 0
         }
     }
 
