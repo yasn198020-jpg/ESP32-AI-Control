@@ -937,41 +937,6 @@ object IoTScenarioCommandPlanner {
             .flatMap { device -> device.widgets.map { it.id to (device.id to it) } }
             .groupBy { it.first }
 
-        // The voice matcher can choose a similarly named state widget (for
-        // example vbtn178) even though the scenario uses another exact element
-        // ID (vbtn78). If the chosen widget has the same visible title as a
-        // scenario-linked logical state, prefer the exact ID referenced by the
-        // actuator rule. This is deliberately based on the scenario graph, not
-        // on ID similarity or substring matching.
-        val targetWidget = resolved[targetWidgetId]?.singleOrNull()?.second?.second
-        val targetTitle = targetWidget?.title?.trim()?.lowercase()
-        if (!targetTitle.isNullOrBlank()) {
-            val linkedLogicalIds = models.flatMap { (_, model) ->
-                model.rules.flatMap { rule ->
-                    val actuatorPresent = rule.actions.any { action ->
-                        literalValue(action.expression)?.let { normalizeValue(it) == desired } == true &&
-                            resolved[action.targetId]?.singleOrNull()?.second?.second?.let {
-                                isActuatorWidget(it, desired)
-                            } == true
-                    }
-                    if (!actuatorPresent) emptyList()
-                    else rule.condition.identifiers.mapNotNull { id ->
-                        val widget = resolved[id]?.singleOrNull()?.second?.second ?: return@mapNotNull null
-                        val title = widget.title.trim().lowercase()
-                        if (isControllable(widget) && title == targetTitle &&
-                            findEquality(rule.condition.expression, id) != null) id else null
-                    }
-                }
-            }.distinct()
-            if (linkedLogicalIds.size == 1 && linkedLogicalIds.single() != targetWidgetId) {
-                return linkedLogicalIds.single() to desired
-            }
-        }
-
-        val candidates = models.flatMap { (_, model) ->
-            .flatMap { device -> device.widgets.map { it.id to (device.id to it) } }
-            .groupBy { it.first }
-
         val candidates = models.flatMap { (_, model) ->
             model.rules.flatMap { rule ->
                 val hasRequestedActuator = rule.actions.any { action ->
@@ -1009,7 +974,39 @@ object IoTScenarioCommandPlanner {
             }
         }.distinct()
 
-        return candidates.singleOrNull()
+        candidates.singleOrNull()?.let { return it }
+
+        // Natural-language matching may select a similarly named widget
+        // (for example vbtn178) while the scenario is linked to vbtn78.
+        // Resolve the exact logical ID from the scenario graph and title,
+        // never by ID similarity.
+        val requestedWidget = devices
+            .flatMap { device -> device.widgets.map { widget -> device.id to widget } }
+            .firstOrNull { it.second.id == targetWidgetId }
+            ?: return null
+        val requestedTitle = requestedWidget.second.title.trim()
+        if (requestedTitle.isBlank()) return null
+
+        val graphCandidates = models.flatMap { (_, model) ->
+            model.rules.flatMap { rule ->
+                val actuatorActions = rule.actions.filter { action ->
+                    literalValue(action.expression)?.let(::normalizeValue) == desired &&
+                        action.targetId != targetWidgetId
+                }
+                if (actuatorActions.isEmpty()) emptyList()
+                else rule.condition.identifiers.mapNotNull { id ->
+                    val entries = resolved[id] ?: return@mapNotNull null
+                    if (entries.size != 1) return@mapNotNull null
+                    val widget = entries.single().second.second
+                    if (!isControllable(widget)) return@mapNotNull null
+                    if (widget.title.trim() != requestedTitle) return@mapNotNull null
+                    if (findEquality(rule.condition.expression, id) == null) return@mapNotNull null
+                    id to entries.single().second.first
+                }
+            }
+        }.distinct()
+
+        return graphCandidates.singleOrNull()
     }
 
     private fun buildReverseActuatorPlans(
