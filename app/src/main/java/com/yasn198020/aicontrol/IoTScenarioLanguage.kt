@@ -1135,6 +1135,12 @@ object IoTScenarioCommandPlanner {
                 rule.actions.forEach { action ->
                     if (!isActuatorAction(action, targetDesired, resolved)) return@forEach
 
+                    // A scenario actuator must belong to the same ESP as the
+                    // requested logical element. Never cross-bind its relay
+                    // through a scenario stored for another device.
+                    val actuatorResolved = resolved[action.targetId] ?: return@forEach
+                    if (actuatorResolved.first != targetDeviceId) return@forEach
+
                     val targetCondition = findEquality(rule.condition.expression, targetWidgetId)
                         ?: return@forEach
 
