@@ -1,15 +1,3 @@
-private fun formatDelayForUi(delayMs: Long): String {
-    val totalMinutes = delayMs / 60_000L
-    if (totalMinutes < 1L) return "менее минуты"
-    val hours = totalMinutes / 60L
-    val minutes = totalMinutes % 60L
-    return when {
-        hours > 0L && minutes > 0L -> "$hours ч $minutes мин"
-        hours > 0L -> "$hours ч"
-        else -> "$minutes мин"
-    }
-}
-
 package com.yasn198020.aicontrol
 
 import android.provider.OpenableColumns
@@ -33,6 +21,19 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.platform.LocalContext
 import com.yasn198020.aicontrol.core.Device
+
+private fun formatDelayForUi(delayMs: Long): String {
+    val totalMinutes = delayMs / 60_000L
+    if (totalMinutes < 1L) return "менее минуты"
+    val hours = totalMinutes / 60L
+    val minutes = totalMinutes % 60L
+    return when {
+        hours > 0L && minutes > 0L -> "$hours ч $minutes мин"
+        hours > 0L -> "$hours ч"
+        else -> "$minutes мин"
+    }
+}
+
 
 @Composable
 fun MarfaScenarioHubScreen(
@@ -421,7 +422,7 @@ private fun DeviceScenariosScreen(
             val model = remember(item.id, item.source) { manager.parseSource(item.source) }
             var previewCommand by remember(item.id) { mutableStateOf("") }
             var previewResult by remember(item.id) { mutableStateOf("") }
-            val previewEngine = remember(item.id) { MarfaCommandEngine() }
+            val previewEngine = remember(item.id) { LocalCommandManager() }
 
             Dialog(
                 onDismissRequest = { showSavedSource = null },
@@ -505,7 +506,7 @@ private fun DeviceScenariosScreen(
                                 Button(
                                     enabled = previewCommand.isNotBlank(),
                                     onClick = {
-                                        val result = previewEngine.parse(previewCommand, devices)
+                                        val result = previewEngine.interpret(previewCommand, devices)
                                         if (result.action != LocalCommandAction.CONTROL ||
                                             result.deviceId.isBlank() ||
                                             result.widgetId.isBlank()
