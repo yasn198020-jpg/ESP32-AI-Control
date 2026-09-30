@@ -222,7 +222,11 @@ class IoTScenarioLanguageTest {
             if vbtn90 == 0 then {
                 if dstmp31 > value22 & vbtn78 == 0 then { btn43 = 1; vbtn78 = 1; }
             }
-            if vbtn90 == 1 then { value27 := 1; }
+            if vbtn90 == 1 then { value37 := 1; }
+            if value37 == 1 then {
+                if vbtn78 == 0 then { btn42 = 1; }
+                if vbtn78 == 1 then { btn43 = 1; }
+            }
         """.trimIndent()
         val model = IoTScenarioSemanticAnalyzer.analyze(IoTScenarioParser.parse(source))
 
