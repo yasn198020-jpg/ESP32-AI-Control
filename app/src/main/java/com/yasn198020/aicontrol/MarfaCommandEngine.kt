@@ -207,7 +207,7 @@ class MarfaCommandEngine {
                     it.type == WidgetState.Type.BUTTON ||
                     it.type == WidgetState.Type.INPUT
             }.map { w ->
-                Candidate(d, w, entityScore(text, d, w) + actionTargetScore(w, desiredValue, text))
+                Candidate(d, w, entityScore(text, d, w, explicitPageText(text, devices)) + actionTargetScore(w, desiredValue, text))
             }
         }.filter { it.score > 0 }
             .sortedWith(compareByDescending<Candidate> { it.score }.thenBy { it.widget.order }.thenBy { it.widget.title })
@@ -327,7 +327,7 @@ class MarfaCommandEngine {
         return score
     }
 
-    private fun entityScore(text: String, device: Device, widget: WidgetState): Int {
+    private fun entityScore(text: String, device: Device, widget: WidgetState, explicitPage: String?): Int {
         val title = searchable(widget.title)
         val page = searchable(widget.page)
         val deviceText = searchable(device.name + " " + device.id)
@@ -367,11 +367,11 @@ class MarfaCommandEngine {
             score += 1000
         }
 
-        // Page is part of widget identity for human-language resolution.
-        // Equal titles on different pages must not be collapsed together.
-        val explicitPage = explicitPageText(text)
-        if (explicitPage != null && page == explicitPage) score += 100
-        else if (explicitPage != null && page.isNotBlank()) score -= 30
+        // Once a page/tab is explicitly named, it is a hard discriminator.
+        if (explicitPage != null) {
+            if (page == explicitPage) score += 500
+            else score -= 500
+        }
 
         return score
     }
@@ -423,11 +423,23 @@ class MarfaCommandEngine {
         }
     }
 
-    private fun explicitPageText(text: String): String? {
-        val match = Regex(
-            """(?:на\s+страниц(?:е|у)|во\s+вкладк(?:е|у)|в\s+вкладк(?:е|у)|страниц(?:а|у)|вкладк(?:а|у))\s+(.+?)(?=\s+(?:и|открой|открыть|закрой|закрыть|включи|выключи|через|сейчас)\b|$)"""
+    private fun explicitPageText(text: String, devices: List<Device>): String? {
+        val marker = Regex(
+            """(?:на\s+страниц(?:е|у)|во\s+вкладк(?:е|у)|в\s+вкладк(?:е|у)|страниц(?:а|у)|вкладк(?:а|у))\s+"""
         ).find(text) ?: return null
-        return searchable(match.groupValues[1]).trim()
+        val tail = text.substring(marker.range.last + 1)
+        val pages = devices.asSequence()
+            .flatMap { it.widgets.asSequence() }
+            .map { searchable(it.page).trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .sortedByDescending { it.length }
+            .toList()
+
+        // Match against real page names from the current device snapshot.
+        return pages.firstOrNull { page ->
+            Regex("""(?:^|\s)${Regex.escape(page)}(?:$|\s)""").containsMatchIn(tail)
+        }
     }
 
     private fun contextScore(text: String, title: String, page: String, deviceText: String): Int {
