@@ -155,11 +155,12 @@ class MarfaAnalyticalEngineTest {
         )
         val engine = MarfaCommandEngine()
 
-        // First command is already resolved to the only semantic target in the
-        // engine snapshot, but the alternatives are retained for conversational correction.
-        val first = engine.parse("открой дверь на вкладке Теплица 2", devices)
-        assertEquals(LocalCommandAction.CONTROL, first.action)
-        assertEquals("door2", first.widgetId)
+        val first = engine.parse("открой дверь", devices)
+        assertEquals(LocalCommandAction.CLARIFY, first.action)
+
+        val selected = engine.parse("вторую", devices)
+        assertEquals(LocalCommandAction.CONTROL, selected.action)
+        assertEquals("door2", selected.widgetId)
 
         val corrected = engine.parse("нет, первую", devices)
         assertEquals(LocalCommandAction.CONTROL, corrected.action)
