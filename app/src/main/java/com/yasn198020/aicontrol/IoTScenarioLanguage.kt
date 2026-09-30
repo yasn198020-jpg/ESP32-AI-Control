@@ -602,6 +602,29 @@ object IoTScenarioCommandPlanner {
         }
 
         /*
+         * Element IDs are the identity Marfa reasons about. Device ID is used
+         * only later for MQTT transport. A duplicated or missing target element
+         * ID is unsafe: never fall back to a direct write in that case.
+         */
+        val targetMatches = devices.flatMap { device ->
+            device.widgets
+                .filter { it.id == targetWidgetId }
+                .map { device.id to it }
+        }
+        if (targetMatches.size != 1) {
+            return ScenarioCommandPlan(
+                actions = base,
+                blockedReason = when {
+                    targetMatches.isEmpty() ->
+                        "Элемент с ID «$targetWidgetId» не найден."
+                    else ->
+                        "ID элемента «$targetWidgetId» найден на нескольких ESP. " +
+                            "ID элементов должны быть уникальными."
+                }
+            )
+        }
+
+        /*
          * Scenario identifiers are resolved by ELEMENT ID only.
          *
          * Device ID is transport metadata, not a scenario selector.
