@@ -22,6 +22,7 @@ import java.util.Locale
  * MQTT is deliberately outside this class.
  */
 class MarfaCommandEngine {
+    private val analyticalEngine = MarfaAnalyticalEngine()
     private data class Candidate(val device: Device, val widget: WidgetState, val score: Int)
     private data class ActionSpec(val value: String, val reply: String, val infinitive: String)
     private data class TimeSpec(val delayMs: Long)
@@ -151,7 +152,11 @@ class MarfaCommandEngine {
         val threshold = match.groupValues[1].replace(',', '.').toDoubleOrNull() ?: return null
         val operator = if (lower != null && lower.range == match.range) "<" else ">"
 
-        val sensor = chooseSensor(rankSensors(text, devices)) ?: return null
+        val sensorResolution = analyticalEngine.resolveSensor(text, devices)
+        val sensor = sensorResolution.candidate ?: return LocalCommandResult(
+            action = LocalCommandAction.CLARIFY,
+            reply = sensorResolution.clarification ?: "Уточните, какой датчик использовать."
+        )
         val tail = text.substring((match.range.last + 1).coerceAtMost(text.length))
             .replaceFirst(Regex("""^\s*(?:градусов?|градуса?|град)?\s*(?:тогда|то|и)?\s*"""), "")
             .trim(' ', ',', '.', ':', ';', '-')
@@ -179,7 +184,11 @@ class MarfaCommandEngine {
 
     private fun parseValueQuestion(text: String, devices: List<Device>): LocalCommandResult? {
         if (!containsAny(text, "сколько", "какая", "какое", "покажи", "скажи", "узнай", "что там")) return null
-        val sensor = chooseSensor(rankSensors(text, devices)) ?: return null
+        val resolution = analyticalEngine.resolveSensor(text, devices)
+        val sensor = resolution.candidate ?: return LocalCommandResult(
+            action = LocalCommandAction.CLARIFY,
+            reply = resolution.clarification ?: "Уточните, какой датчик использовать."
+        )
         return LocalCommandResult(
             LocalCommandAction.READ_VALUE,
             sensor.device.id,
