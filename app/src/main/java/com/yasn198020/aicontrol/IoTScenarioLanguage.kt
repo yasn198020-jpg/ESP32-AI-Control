@@ -736,7 +736,6 @@ object IoTScenarioCommandPlanner {
 
             val variables = resolved.mapValues { it.value.second.value }
             val context = IoTScenarioEvaluationContext(variables)
-            val modeIds = scenarioModeIds(model, resolved)
 
             model.rules.mapNotNull { rule ->
                 val matchingAction = rule.actions.firstOrNull {
@@ -744,17 +743,11 @@ object IoTScenarioCommandPlanner {
                         valueMatchesDesired(it.expression, effectiveDesiredValue, context)
                 } ?: return@mapNotNull null
 
-                println(
-                    "MARFA_DEBUG modeIds=" + modeIds.joinToString(",") +
-                        " target=" + effectiveTargetWidgetId +
-                        " condition=" + rule.condition.rendered
-                )
-
                 val targetResolved = resolved[effectiveTargetWidgetId]
                     ?: return@mapNotNull null
                 if (targetResolved.first != effectiveTargetMatch.first) return@mapNotNull null
 
-                val modeGate = findModeGate(rule.condition.expression, resolved, modeIds)
+                val modeGate = findModeGate(rule.condition.expression, resolved)
                 if (modeGate != null) {
                     val modeWidget = resolved[modeGate.first]?.second
                         ?: return@mapNotNull null
@@ -1112,8 +1105,8 @@ object IoTScenarioCommandPlanner {
         return models.asSequence().mapNotNull { (_, model) ->
             val resolved = resolveWidgets(model.identifiers)
             val target = resolved[targetWidgetId] ?: return@mapNotNull null
-            if (target.first != targetDeviceId) return@mapNotNull null
-            val modeIds = scenarioModeIds(model, resolved)
+            if (target.first != targetDeviceId)
+                return@mapNotNull null
 
             fun currentMatches(id: String, value: String): Boolean {
                 val widget = resolved[id]?.second ?: return false
@@ -1216,7 +1209,7 @@ object IoTScenarioCommandPlanner {
                              * logical state. Do not copy the scenario's
                              * automatic prerequisite MODE = 0 into Marfa.
                              */
-                            val modeGate = findModeGate(rule.condition.expression, resolved, modeIds)
+                            val modeGate = findModeGate(rule.condition.expression, resolved)
 
                             reqs.forEach { req ->
                                 if (!valid) return@forEach
@@ -1303,79 +1296,61 @@ object IoTScenarioCommandPlanner {
         }.firstOrNull()
     }
 
-    private fun scenarioModeIds(
-        model: DeviceScenarioModel,
-        resolved: Map<String, Pair<String, com.yasn198020.aicontrol.core.WidgetState>>
-    ): Set<String> {
-        val valuesById = mutableMapOf<String, MutableSet<String>>()
-
-        fun visit(expression: IoTExpr) {
-            when (expression) {
-                is IoTExpr.Binary -> {
-                    if (expression.operator == "==") {
-                        val left = expression.left as? IoTExpr.Variable
-                        val right = literalValue(expression.right)
-                        if (left != null && (right == "0" || right == "1")) {
-                            valuesById.getOrPut(left.name) { mutableSetOf() }.add(right)
-                        }
-
-                        val rightVar = expression.right as? IoTExpr.Variable
-                        val leftLiteral = literalValue(expression.left)
-                        if (rightVar != null && (leftLiteral == "0" || leftLiteral == "1")) {
-                            valuesById.getOrPut(rightVar.name) { mutableSetOf() }.add(leftLiteral)
-                        }
-                    }
-                    visit(expression.left)
-                    visit(expression.right)
-                }
-                is IoTExpr.Unary -> visit(expression.expression)
-                else -> Unit
-            }
-        }
-
-        model.rules.forEach { rule -> visit(rule.condition.expression) }
-
-        return valuesById
-            .filter { (_, values) -> values.contains("0") && values.contains("1") }
-            .keys
-            .filter { resolved[it]?.second?.let(::isControllable) == true }
-            .toSet()
+    private fun isModeWidget(
+        widget: com.yasn198020.aicontrol.core.WidgetState
+    ): Boolean {
+        val text = (widget.id + " " + widget.title).lowercase()
+        return listOf(
+            "режим",
+            "автомат",
+            "ручн",
+            "управлен",
+            "mode"
+        ).any { text.contains(it) }
     }
 
     private fun findModeGate(
         expression: IoTExpr,
-        resolved: Map<String, Pair<String, com.yasn198020.aicontrol.core.WidgetState>>,
-        modeIds: Set<String>
+        resolved: Map<String, Pair<String, com.yasn198020.aicontrol.core.WidgetState>>
     ): Triple<String, String, String>? {
-        fun visit(e: IoTExpr): Triple<String, String, String>? {
-            return when (e) {
+        val candidates = linkedSetOf<String>()
+
+        fun visit(e: IoTExpr) {
+            when (e) {
                 is IoTExpr.Binary -> {
                     if (e.operator == "==") {
                         val left = e.left as? IoTExpr.Variable
                         val right = literalValue(e.right)
-                        if (left != null && right == "0" &&
-                            left.name in modeIds &&
-                            resolved[left.name]?.second?.let(::isControllable) == true
-                        ) {
-                            return Triple(left.name, "1", "0")
+                        if (left != null && right == "0") {
+                            val widget = resolved[left.name]?.second
+                            if (widget != null && isControllable(widget) && isModeWidget(widget)) {
+                                candidates += left.name
+                            }
                         }
 
                         val rightVar = e.right as? IoTExpr.Variable
                         val leftLiteral = literalValue(e.left)
-                        if (rightVar != null && leftLiteral == "0" &&
-                            rightVar.name in modeIds &&
-                            resolved[rightVar.name]?.second?.let(::isControllable) == true
-                        ) {
-                            return Triple(rightVar.name, "1", "0")
+                        if (rightVar != null && leftLiteral == "0") {
+                            val widget = resolved[rightVar.name]?.second
+                            if (widget != null && isControllable(widget) && isModeWidget(widget)) {
+                                candidates += rightVar.name
+                            }
                         }
                     }
-                    visit(e.left) ?: visit(e.right)
+                    visit(e.left)
+                    visit(e.right)
                 }
                 is IoTExpr.Unary -> visit(e.expression)
-                else -> null
+                else -> Unit
             }
         }
-        return visit(expression)
+
+        visit(expression)
+        return if (candidates.size == 1) {
+            Triple(candidates.first(), "1", "0")
+        } else {
+            null
+        }
     }
 
     private fun chooseUniquePlan(candidates: List<List<ScenarioPrerequisite>>): List<ScenarioPrerequisite>? {
