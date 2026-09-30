@@ -2,6 +2,7 @@ name: Android APK
 # Test build trigger
 # Manual verification build
 # Cleanup pass 2
+# Local Gemma integration build
 
 on:
   push:
