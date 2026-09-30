@@ -47,6 +47,25 @@ class MarfaAnalyticalEngineTest {
         assertEquals(LocalCommandAction.CLARIFY, result.action)
     }
     @Test
+    fun spokenDoorDoesNotSelectGenericCloseButtons() {
+        val result = MarfaAnalyticalEngine().resolveControl(
+            "закрой дверь",
+            listOf(
+                Device("d1", "Дом", true, listOf(
+                    WidgetState("close1", "закрыть", WidgetState.Type.BUTTON, "0", page = "Теплица 1"),
+                    WidgetState("door1", "дверь", WidgetState.Type.TOGGLE, "1", page = "Теплица 1"),
+                    WidgetState("close2", "закрыть", WidgetState.Type.BUTTON, "0", page = "Теплица 2"),
+                    WidgetState("door2", "дверь", WidgetState.Type.TOGGLE, "1", page = "Теплица 2")
+                ))
+            ),
+            "0"
+        )
+        assertEquals(null, result.candidate)
+        assertTrue(result.candidates.all { it.widget.title.contains("дверь", ignoreCase = true) })
+        assertTrue(result.clarification!!.contains("дверь", ignoreCase = true))
+    }
+
+    @Test
     fun duplicateControlsRequireClarificationWithoutPage() {
         val result = MarfaAnalyticalEngine().resolveControl(
             "открой дверь",
