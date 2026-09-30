@@ -43,24 +43,20 @@ class MarfaCommandEngine {
         val action = detectAction(text)
         if (action != null) {
             val time = parseTime(text)
-            val candidates = rankControllable(text, devices, action.value)
-            if (candidates.isEmpty()) {
-                return remember(LocalCommandResult(
-                    LocalCommandAction.CLARIFY,
-                    reply = "Я не нашла управляемый элемент. Назовите устройство или элемент."
-                ))
-            }
-
-            val chosen = chooseCandidate(candidates)
-            if (chosen == null) {
-                val names = candidates.take(3)
-                    .map { it.widget.title.ifBlank { it.widget.id } }
-                    .distinct()
-                return remember(LocalCommandResult(
-                    LocalCommandAction.CLARIFY,
-                    reply = "Уточните, что именно ${action.infinitive}: " + names.joinToString(" или ")
-                ))
-            }
+            val resolution = analyticalEngine.resolveControl(text, devices, action.value)
+            val analyticalTarget = resolution.candidate
+                ?: return remember(
+                    LocalCommandResult(
+                        LocalCommandAction.CLARIFY,
+                        reply = resolution.clarification
+                            ?: "Уточните, чем именно управлять."
+                    )
+                )
+            val chosen = Candidate(
+                analyticalTarget.device,
+                analyticalTarget.widget,
+                analyticalTarget.score
+            )
 
             val first = LocalCommandActionItem(chosen.device.id, chosen.widget.id, action.value)
             val extra = parseAdditionalActions(text, action, chosen, devices)
@@ -162,7 +158,20 @@ class MarfaCommandEngine {
             .trim(' ', ',', '.', ':', ';', '-')
 
         val action = detectAction(tail) ?: detectAction(text) ?: return null
-        val target = chooseCandidate(rankControllable(tail.ifBlank { text }, devices, action.value)) ?: return null
+        val resolution = analyticalEngine.resolveControl(
+            tail.ifBlank { text },
+            devices,
+            action.value
+        )
+        val analyticalTarget = resolution.candidate ?: return LocalCommandResult(
+            action = LocalCommandAction.CLARIFY,
+            reply = resolution.clarification ?: "Уточните, чем выполнять действие."
+        )
+        val target = Candidate(
+            analyticalTarget.device,
+            analyticalTarget.widget,
+            analyticalTarget.score
+        )
 
         val sensorTitle = sensor.widget.title.ifBlank { sensor.widget.id }
         val targetTitle = target.widget.title.ifBlank { target.widget.id }
@@ -196,56 +205,6 @@ class MarfaCommandEngine {
             sensor.widget.value.trim(),
             valueSpeech(sensor.widget)
         )
-    }
-
-    private fun rankSensors(text: String, devices: List<Device>): List<Candidate> =
-        devices.flatMap { d ->
-            d.widgets.filter { it.type == WidgetState.Type.VALUE || it.type == WidgetState.Type.STATUS }
-                .map { w -> Candidate(d, w, sensorScore(text, d, w)) }
-        }.filter { it.score > 0 }
-            .sortedWith(compareByDescending<Candidate> { it.score }.thenBy { it.widget.order }.thenBy { it.widget.title })
-
-    private fun rankControllable(
-        text: String,
-        devices: List<Device>,
-        desiredValue: String? = null
-    ): List<Candidate> =
-        devices.flatMap { d ->
-            d.widgets.filter {
-                it.type == WidgetState.Type.TOGGLE ||
-                    it.type == WidgetState.Type.BUTTON ||
-                    it.type == WidgetState.Type.INPUT
-            }.map { w ->
-                Candidate(d, w, entityScore(text, d, w, explicitPageText(text, devices)) + actionTargetScore(w, desiredValue, text))
-            }
-        }.filter { it.score > 0 }
-            .sortedWith(compareByDescending<Candidate> { it.score }.thenBy { it.widget.order }.thenBy { it.widget.title })
-
-    private fun chooseCandidate(candidates: List<Candidate>): Candidate? {
-        if (candidates.isEmpty()) return null
-        val best = candidates.first()
-        val second = candidates.getOrNull(1) ?: return best
-
-        // Never resolve two otherwise equivalent elements by list order.
-        // Element IDs are the real identity; page is the human-visible
-        // discriminator. If the command did not identify the page (and did
-        // not name the exact ID), equal-name elements remain ambiguous.
-        if (sameEntity(best.widget, second.widget)) return null
-
-        return if (best.score == second.score && best.score < 24) null else best
-    }
-
-    private fun sameEntity(a: WidgetState, b: WidgetState): Boolean {
-        if (a.id == b.id) return true
-        return searchable(a.title) == searchable(b.title) &&
-            searchable(a.page) == searchable(b.page)
-    }
-
-    private fun chooseSensor(candidates: List<Candidate>): Candidate? {
-        if (candidates.isEmpty()) return null
-        val best = candidates.first()
-        val second = candidates.getOrNull(1)
-        return if (second != null && best.score == second.score && best.score < 20) null else best
     }
 
     private fun resolveReference(text: String, devices: List<Device>): Candidate? {
@@ -288,7 +247,13 @@ class MarfaCommandEngine {
         if (!containsAny(second, "форточ", "окн", "двер", "ворот", "насос", "помп",
                 "вент", "обогрев", "отоп", "нагрев", "клапан", "кран", "свет", "ламп", "полив")) return emptyList()
 
-        val target = chooseCandidate(rankControllable(second, devices)) ?: return emptyList()
+        val resolution = analyticalEngine.resolveControl(second, devices, action.value)
+        val analyticalTarget = resolution.candidate ?: return emptyList()
+        val target = Candidate(
+            analyticalTarget.device,
+            analyticalTarget.widget,
+            analyticalTarget.score
+        )
         if (target.device.id == chosen.device.id && target.widget.id == chosen.widget.id) return emptyList()
         return listOf(LocalCommandActionItem(target.device.id, target.widget.id, action.value))
     }
