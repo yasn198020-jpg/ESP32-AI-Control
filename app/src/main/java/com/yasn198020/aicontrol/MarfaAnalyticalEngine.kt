@@ -441,14 +441,6 @@ class MarfaAnalyticalEngine {
             "установи", "установить", "поставь", "поставить", "задай", "задать",
             "назначь", "назначить"
         )
-        val controlWords = setOf(
-            "дверь", "двери", "дверью", "форточка", "форточки", "форточку", "форточкой",
-            "фрамуга", "фрамуги", "фрамугу", "окно", "окна", "окном", "окну",
-            "ворота", "ворот", "насос", "насоса", "насосом", "вентилятор",
-            "вентиляторе", "вентилятором", "обогрев", "отопление", "отоплением",
-            "нагрев", "клапан", "кран", "свет", "лампа", "лампу", "лампой",
-            "полив", "орошение"
-        )
         val grammarWords = REFERENCE_STOP_WORDS + setOf(
             "сейчас", "сегодня", "завтра", "потом", "позже", "сразу",
             "мне", "меня", "его", "ее", "её", "это", "этот", "эта", "эту",
@@ -461,7 +453,7 @@ class MarfaAnalyticalEngine {
 
         val entityAliases = aliases(detectEntityKind(normalize(text))).first.toSet()
         return tokenized(normalize(text))
-            .filterNot { it in actionWords || it in controlWords || it in grammarWords }
+            .filterNot { it in actionWords || it in grammarWords }
             .filterNot { it.length < 2 }
             .filterNot { it.matches(Regex("\\d+")) }
             .filterNot { token -> entityAliases.any { alias -> token.startsWith(alias) } }
