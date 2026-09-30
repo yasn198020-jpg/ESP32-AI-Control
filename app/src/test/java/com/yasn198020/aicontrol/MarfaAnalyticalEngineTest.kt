@@ -96,6 +96,22 @@ class MarfaAnalyticalEngineTest {
     }
 
     @Test
+    fun russianTomatoFormsAllResolveTheSameTab() {
+        val engine = MarfaAnalyticalEngine()
+        val devices = listOf(
+            Device("d1", "Дом", true, listOf(
+                WidgetState("door1", "дверь", WidgetState.Type.TOGGLE, "0", page = "Огурцы"),
+                WidgetState("door2", "дверь", WidgetState.Type.TOGGLE, "0", page = "Помидоры")
+            ))
+        )
+
+        listOf("помидор", "помидора", "помидоры", "помидорами").forEach { form ->
+            val result = engine.resolveControl("открой дверь " + form, devices, "1")
+            assertEquals("door2", result.candidate?.widget?.id, "form=" + form)
+        }
+    }
+
+    @Test
     fun unknownSpokenContextDoesNotFallBackToAnotherDoor() {
         val result = MarfaAnalyticalEngine().resolveControl(
             "открой дверь помидоры",
