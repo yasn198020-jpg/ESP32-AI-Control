@@ -552,7 +552,9 @@ private fun DeviceScenariosScreen(
                                         }
                                     },
                                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
-                                )
+                                ) {
+                                    Text("Проверить команду")
+                                }
                                 if (previewResult.isNotBlank()) {
                                     Card(
                                         Modifier.fillMaxWidth().padding(top = 8.dp)
