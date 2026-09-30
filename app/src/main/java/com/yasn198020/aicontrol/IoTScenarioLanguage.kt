@@ -601,16 +601,30 @@ object IoTScenarioCommandPlanner {
             listOf(LocalCommandActionItem(targetDeviceId, targetWidgetId, desiredValue))
         }
 
+        /*
+         * Scenario identifiers are resolved by ELEMENT ID only.
+         *
+         * Device ID is transport metadata, not a scenario selector.
+         * If an element ID is absent or appears on more than one device,
+         * the scenario is ambiguous and must not be used for execution.
+         */
         fun resolveWidgets(ids: Set<String>): Map<String, Pair<String, com.yasn198020.aicontrol.core.WidgetState>> {
+            if (ids.isEmpty()) return emptyMap()
+
             val all = devices.flatMap { device ->
                 device.widgets.map { widget -> widget.id to (device.id to widget) }
             }
-            return ids.mapNotNull { id ->
-                val matches = all.filter { it.first == id }.map { it.second }
-                val preferred = matches.firstOrNull { it.first == targetDeviceId }
-                val selected = preferred ?: matches.singleOrNull()
-                selected?.let { id to it }
-            }.toMap()
+            val byId = all.groupBy { it.first }
+
+            if (ids.any { id -> byId[id]?.size != 1 }) {
+                DiagnosticTrace.system(
+                    "MARFA scenario binding rejected: element IDs must resolve uniquely: " +
+                        ids.filter { byId[it]?.size != 1 }.joinToString(",")
+                )
+                return emptyMap()
+            }
+
+            return ids.associateWith { id -> byId.getValue(id).single().second }
         }
 
         val allModels = models.mapNotNull { (stored, model) ->
