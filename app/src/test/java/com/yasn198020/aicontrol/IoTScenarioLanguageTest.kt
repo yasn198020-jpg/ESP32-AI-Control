@@ -164,7 +164,6 @@ class IoTScenarioLanguageTest {
             listOf(StoredDeviceScenario(title = "OR", source = source) to model)
         )
 
-        println("DEBUG OR plan=$plan")
         assertEquals(2, plan.actions.size)
         assertTrue(
             plan.prerequisites.single().widgetId == "MODE_A" ||
@@ -241,7 +240,6 @@ class IoTScenarioLanguageTest {
             listOf(StoredDeviceScenario(title = "Door", source = source) to model)
         )
 
-        println("DEBUG manualModeUsesScenarioDiscoveredActuator plan=$plan")
         assertEquals(listOf("vbtn90", "vbtn78"), plan.actions.map { it.widgetId })
         assertEquals(listOf("1", "1"), plan.actions.map { it.value })
         assertEquals("vbtn90", plan.prerequisites.first().widgetId)
@@ -365,7 +363,6 @@ class IoTScenarioLanguageTest {
             models = listOf(StoredDeviceScenario(title = "Дверь", source = source) to model)
         )
 
-        println("DEBUG realDoorScenario plan=$plan")
         assertEquals(
             listOf("vbtn90", "vbtn78"),
             plan.actions.map { it.widgetId }
