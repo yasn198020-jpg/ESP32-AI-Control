@@ -160,7 +160,7 @@ class IoTScenarioLanguageTest {
             "1",
             listOf(LocalCommandActionItem("dev-a", "TARGET", "1")),
             devices,
-            listOf(StoredDeviceScenario("OR", source) to model)
+            listOf(StoredDeviceScenario(title = "OR", source = source) to model)
         )
 
         assertEquals(2, plan.actions.size)
@@ -193,7 +193,7 @@ class IoTScenarioLanguageTest {
             "1",
             listOf(LocalCommandActionItem("dev-a", "TARGET", "1")),
             devices,
-            listOf(StoredDeviceScenario("NOT", source) to model)
+            listOf(StoredDeviceScenario(title = "NOT", source = source) to model)
         )
 
         assertEquals("AUTO", plan.prerequisites.single().widgetId)
@@ -224,7 +224,7 @@ class IoTScenarioLanguageTest {
             "1",
             listOf(LocalCommandActionItem("g", "DOOR", "1")),
             devices,
-            listOf("g" to model)
+            listOf(StoredDeviceScenario(title = "Sensor", source = "if TEMP > 28 then DOOR = 1;") to model)
         )
 
         assertEquals(1, plan.actions.size)
@@ -315,7 +315,7 @@ class IoTScenarioLanguageTest {
             desiredValue = "1",
             baseActions = listOf(LocalCommandActionItem("greenhouse", "vbtn78", "1")),
             devices = devices,
-            models = listOf(StoredDeviceScenario("Дверь", source) to model)
+            models = listOf(StoredDeviceScenario(title = "Дверь", source = source) to model)
         )
 
         assertEquals(
