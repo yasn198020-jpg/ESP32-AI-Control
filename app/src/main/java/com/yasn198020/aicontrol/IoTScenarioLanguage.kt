@@ -1239,13 +1239,18 @@ object IoTScenarioCommandPlanner {
 
                             if (!valid || dependencies.isEmpty()) return@mapNotNull null
 
-                            if (!currentMatches(targetWidgetId, targetDesired)) {
-                                actions += LocalCommandActionItem(
-                                    target.first,
-                                    targetWidgetId,
-                                    targetDesired
-                                )
-                            }
+                            /*
+                             * Always write the requested logical state in a
+                             * voice command. When automatic mode is being
+                             * disabled, the ESP scenario may need this write
+                             * to enter its manual action branch even when the
+                             * state value was already equal to the request.
+                             */
+                            actions += LocalCommandActionItem(
+                                target.first,
+                                targetWidgetId,
+                                targetDesired
+                            )
 
                             /*
                              * If the scenario has an automatic gate, the gate
