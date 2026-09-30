@@ -169,4 +169,26 @@ class MarfaCommandEngineTest {
         assertEquals("Закрываю: дверь", close.reply)
     }
 
+
+    @Test
+    fun directRelayCommandStillSelectsActuator() {
+        val devices = listOf(
+            Device(
+                id = "greenhouse",
+                name = "Теплица",
+                online = true,
+                widgets = listOf(
+                    WidgetState("vbtn78", "закрыта открыта дверь", WidgetState.Type.TOGGLE, "0", order = 1),
+                    WidgetState("btn43", "реле двери", WidgetState.Type.BUTTON, "0", order = 2)
+                )
+            )
+        )
+
+        val result = MarfaCommandEngine().parse("Включи реле двери", devices)
+
+        assertEquals(LocalCommandAction.CONTROL, result.action)
+        assertEquals("btn43", result.widgetId)
+        assertEquals("1", result.value)
+    }
+
 }
