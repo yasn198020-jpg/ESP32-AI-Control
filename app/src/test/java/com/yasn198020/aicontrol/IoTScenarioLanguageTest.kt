@@ -553,7 +553,7 @@ class IoTScenarioLanguageTest {
             desiredValue = "1",
             baseActions = listOf(LocalCommandActionItem("door-esp", "btn43", "1")),
             devices = devices,
-            models = listOf(StoredDeviceScenario("Дверь", source) to model)
+            models = listOf(StoredDeviceScenario(title = "Дверь", source = source) to model)
         )
 
         assertEquals(
