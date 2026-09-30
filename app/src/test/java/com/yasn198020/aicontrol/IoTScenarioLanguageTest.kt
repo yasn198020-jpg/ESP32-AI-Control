@@ -385,4 +385,88 @@ class IoTScenarioLanguageTest {
         )
     }
 
+
+    @Test
+    fun plannerDoesNotUseTargetDeviceToDisambiguateDuplicateElementIds() {
+        val devices = listOf(
+            Device(
+                "device-a",
+                "Первая ESP",
+                true,
+                listOf(
+                    WidgetState("vbtn90", "Ручной режим", WidgetState.Type.TOGGLE, "0"),
+                    WidgetState("DOOR", "закрыта открыта дверь", WidgetState.Type.TOGGLE, "0"),
+                    WidgetState("btn43", "открыть дверь", WidgetState.Type.BUTTON, "0")
+                )
+            ),
+            Device(
+                "device-b",
+                "Вторая ESP",
+                true,
+                listOf(
+                    WidgetState("DOOR", "другая дверь", WidgetState.Type.TOGGLE, "0")
+                )
+            )
+        )
+
+        val source = "if vbtn90 == 1 then { if DOOR == 1 then { btn43 = 1; } }"
+        val model = IoTScenarioSemanticAnalyzer.analyze(IoTScenarioParser.parse(source))
+        assertTrue(model.parserErrors.isEmpty())
+
+        val plan = IoTScenarioCommandPlanner.plan(
+            targetDeviceId = "device-b",
+            targetWidgetId = "DOOR",
+            desiredValue = "1",
+            baseActions = listOf(LocalCommandActionItem("device-b", "DOOR", "1")),
+            devices = devices,
+            models = listOf(
+                StoredDeviceScenario(title = "Чужой сценарий", source = source) to model
+            )
+        )
+
+        assertTrue(plan.blockedReason != null || plan.actions.isEmpty(),
+            "Duplicate element ID must never be resolved by targetDeviceId: " + plan)
+    }
+
+    @Test
+    fun plannerDoesNotCrossBindScenarioActuatorToAnotherDevice() {
+        val devices = listOf(
+            Device(
+                "door-device",
+                "Дверь",
+                true,
+                listOf(
+                    WidgetState("DOOR", "закрыта открыта дверь", WidgetState.Type.TOGGLE, "0"),
+                    WidgetState("vbtn90", "Ручной режим", WidgetState.Type.TOGGLE, "0")
+                )
+            ),
+            Device(
+                "other-device",
+                "Другая ESP",
+                true,
+                listOf(
+                    WidgetState("btn43", "открыть дверь", WidgetState.Type.BUTTON, "0")
+                )
+            )
+        )
+
+        val source = "if DOOR == 1 then btn43 = 1;"
+        val model = IoTScenarioSemanticAnalyzer.analyze(IoTScenarioParser.parse(source))
+        assertTrue(model.parserErrors.isEmpty())
+
+        val plan = IoTScenarioCommandPlanner.plan(
+            targetDeviceId = "door-device",
+            targetWidgetId = "DOOR",
+            desiredValue = "1",
+            baseActions = listOf(LocalCommandActionItem("door-device", "DOOR", "1")),
+            devices = devices,
+            models = listOf(
+                StoredDeviceScenario(title = "Перекрёстная привязка", source = source) to model
+            )
+        )
+
+        assertEquals(listOf("DOOR"), plan.actions.map { it.widgetId },
+            "An actuator on another ESP must not become Marfa's command")
+    }
+
 }
