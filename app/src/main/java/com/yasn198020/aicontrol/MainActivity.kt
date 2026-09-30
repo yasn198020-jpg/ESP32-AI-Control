@@ -611,7 +611,16 @@ private fun App(
 
         // Parse once only to detect smart rules. Existing trained phrases keep
         // priority for all ordinary commands, as they did in the stable build.
-        val result = marfaIntelligence.interpret(command, devices)
+        // Never leave the UI stuck on "Анализ" when the local model reports
+        // an ordinary Kotlin/Java error.
+        val result = try {
+            marfaIntelligence.interpret(command, devices)
+        } catch (e: Throwable) {
+            android.util.Log.e("MARFA_ENGINE", "interpret failed", e)
+            voiceStatus = "Ошибка анализа: " + (e.message ?: "неизвестная ошибка")
+            speech.speak(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "marfa-analysis-error")
+            return@LaunchedEffect
+        }
         android.util.Log.d(
             "MARFA_ENGINE",
             "command=" + command +
