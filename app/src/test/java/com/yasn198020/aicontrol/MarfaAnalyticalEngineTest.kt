@@ -108,4 +108,64 @@ class MarfaAnalyticalEngineTest {
         assertEquals("door2", result.widgetId)
     }
 
+    @Test
+    fun clarificationReplyByOrdinalResolvesThePreviouslyPresentedCandidate() {
+        val devices = listOf(
+            Device("d1", "Теплица", true, listOf(
+                WidgetState("door1", "закрыта открыта дверь", WidgetState.Type.TOGGLE, "0", page = "Теплица 1", order = 1),
+                WidgetState("door2", "закрыта открыта дверь", WidgetState.Type.TOGGLE, "0", page = "Теплица 2", order = 2)
+            ))
+        )
+        val engine = MarfaCommandEngine()
+
+        val first = engine.parse("открой дверь", devices)
+        assertEquals(LocalCommandAction.CLARIFY, first.action)
+
+        val clarified = engine.parse("вторую", devices)
+        assertEquals(LocalCommandAction.CONTROL, clarified.action)
+        assertEquals("door2", clarified.widgetId)
+        assertEquals("1", clarified.value)
+    }
+
+    @Test
+    fun clarificationCanUseAContextualPagePhraseAndKeepTheOriginalAction() {
+        val devices = listOf(
+            Device("d1", "Дом", true, listOf(
+                WidgetState("door1", "дверь", WidgetState.Type.TOGGLE, "0", page = "Первый этаж", order = 1),
+                WidgetState("door2", "дверь", WidgetState.Type.TOGGLE, "0", page = "Второй этаж", order = 2)
+            ))
+        )
+        val engine = MarfaCommandEngine()
+
+        assertEquals(LocalCommandAction.CLARIFY, engine.parse("открой дверь", devices).action)
+
+        val clarified = engine.parse("на второй этаж", devices)
+        assertEquals(LocalCommandAction.CONTROL, clarified.action)
+        assertEquals("door2", clarified.widgetId)
+        assertEquals("1", clarified.value)
+    }
+
+    @Test
+    fun correctionCanSelectAnotherPreviouslyResolvedAlternative() {
+        val devices = listOf(
+            Device("d1", "Теплица", true, listOf(
+                WidgetState("door1", "дверь", WidgetState.Type.TOGGLE, "0", page = "Теплица 1", order = 1),
+                WidgetState("door2", "дверь", WidgetState.Type.TOGGLE, "0", page = "Теплица 2", order = 2)
+            ))
+        )
+        val engine = MarfaCommandEngine()
+
+        // First command is already resolved to the only semantic target in the
+        // engine snapshot, but the alternatives are retained for conversational correction.
+        val first = engine.parse("открой дверь на вкладке Теплица 2", devices)
+        assertEquals(LocalCommandAction.CONTROL, first.action)
+        assertEquals("door2", first.widgetId)
+
+        val corrected = engine.parse("нет, первую", devices)
+        assertEquals(LocalCommandAction.CONTROL, corrected.action)
+        assertEquals("door1", corrected.widgetId)
+        assertEquals("1", corrected.value)
+    }
+
+
 }
