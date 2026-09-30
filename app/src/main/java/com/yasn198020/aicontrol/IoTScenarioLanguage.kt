@@ -700,6 +700,47 @@ object IoTScenarioCommandPlanner {
             resolveWidgets = ::resolveWidgets
         )
 
+        /*
+         * Some IoTManager scenarios have an explicit manual mode:
+         *
+         *   if vbtn90 == 0 then { ... btn43 = 1 ... }   // automation
+         *   if vbtn90 == 1 then { ... }                  // manual mode
+         *
+         * In that layout the logical state widget (vbtn78) is an automation
+         * state/result, not a manual command. For a voice command we must
+         * switch to manual mode and then operate the actuator directly.
+         * This is still scenario-aware: the actuator is discovered from the
+         * scenario branch, never from a hard-coded btn43/btn42 mapping.
+         */
+        val manualPlan = buildManualModeActuatorPlan(
+            targetDeviceId = targetDeviceId,
+            targetWidgetId = targetWidgetId,
+            desiredValue = desiredValue,
+            devices = devices,
+            models = allModels,
+            resolveWidgets = ::resolveWidgets
+        )
+        if (manualPlan != null) {
+            val (modeAction, actuatorAction) = manualPlan
+            val actions = listOf(modeAction, actuatorAction)
+            DiagnosticTrace.system(
+                "MARFA manual scenario plan target=" + targetWidgetId +
+                    " mode=" + modeAction.widgetId + "=" + modeAction.value +
+                    " actuator=" + actuatorAction.widgetId + "=" + actuatorAction.value
+            )
+            return ScenarioCommandPlan(
+                actions = actions,
+                prerequisites = listOf(
+                    ScenarioPrerequisite(
+                        deviceId = modeAction.deviceId,
+                        widgetId = modeAction.widgetId,
+                        value = modeAction.value,
+                        reason = "Перевод в ручной режим перед выполнением команды"
+                    )
+                )
+            )
+        }
+
         val selectedPrerequisites = chooseUniquePlan(directCandidates + reverseCandidates)
         if (selectedPrerequisites == null && directCandidates.isEmpty() && reverseCandidates.isEmpty()) {
             return ScenarioCommandPlan(base)
@@ -743,6 +784,96 @@ object IoTScenarioCommandPlanner {
     }
 
     private fun buildReverseActuatorPlans(
+    private fun buildManualModeActuatorPlan(
+        targetDeviceId: String,
+        targetWidgetId: String,
+        desiredValue: String,
+        devices: List<com.yasn198020.aicontrol.core.Device>,
+        models: List<Pair<StoredDeviceScenario, DeviceScenarioModel>>,
+        resolveWidgets: (Set<String>) -> Map<String, Pair<String, com.yasn198020.aicontrol.core.WidgetState>>
+    ): Pair<LocalCommandActionItem, LocalCommandActionItem>? {
+        val targetDesired = normalizeValue(desiredValue)
+        if (targetDesired != "0" && targetDesired != "1") return null
+
+        return models.asSequence().flatMap { (_, model) ->
+            val ids = model.identifiers
+            val resolved = resolveWidgets(ids)
+            val variables = resolved.mapValues { it.value.second.value }
+            val context = IoTScenarioEvaluationContext(variables)
+
+            model.rules.asSequence().flatMap { rule ->
+                rule.actions.asSequence().mapNotNull { action ->
+                    val value = literalValue(action.expression) ?: return@mapNotNull null
+                    if (value != "1") return@mapNotNull null
+
+                    val actuator = resolved[action.targetId]?.second ?: return@mapNotNull null
+                    if (!isActuatorWidget(actuator, targetDesired)) return@mapNotNull null
+
+                    val targetCondition = findEquality(rule.condition.expression, targetWidgetId)
+                    if (targetCondition != targetDesired) return@mapNotNull null
+
+                    /*
+                     * Find a controllable mode variable in the same branch
+                     * that is set to 0 (automation). Its inverse value 1 is
+                     * the manual mode.
+                     */
+                    val mode = findModeGate(rule.condition.expression, resolved)
+                        ?: return@mapNotNull null
+
+                    val manualRuleExists = model.rules.any { other ->
+                        other !== rule &&
+                            findEquality(other.condition.expression, mode.first) == mode.second
+                    }
+                    if (!manualRuleExists) return@mapNotNull null
+
+                    val actuatorDeviceId = resolved[action.targetId]?.first ?: return@mapNotNull null
+                    if (actuatorDeviceId != targetDeviceId) return@mapNotNull null
+
+                    val modeWidget = resolved[mode.first]?.second ?: return@mapNotNull null
+                    if (!isControllable(modeWidget)) return@mapNotNull null
+
+                    val modeAction = LocalCommandActionItem(
+                        resolved[mode.first]!!.first,
+                        mode.first,
+                        mode.third
+                    )
+                    val actuatorAction = LocalCommandActionItem(
+                        actuatorDeviceId,
+                        action.targetId,
+                        value
+                    )
+                    modeAction to actuatorAction
+                }
+            }
+        }.firstOrNull()
+    }
+
+    private fun findModeGate(
+        expression: IoTExpr,
+        resolved: Map<String, Pair<String, com.yasn198020.aicontrol.core.WidgetState>>
+    ): Triple<String, String, String>? {
+        fun visit(e: IoTExpr): Triple<String, String, String>? = when (e) {
+            is IoTExpr.Binary -> {
+                if (e.operator == "==" ) {
+                    val left = e.left as? IoTExpr.Variable
+                    val right = literalValue(e.right)
+                    if (left != null && right == "0" && resolved[left.name]?.second?.let(::isControllable) == true) {
+                        return Triple(left.name, "1", "1")
+                    }
+                    val rightVar = e.right as? IoTExpr.Variable
+                    val leftLiteral = literalValue(e.left)
+                    if (rightVar != null && leftLiteral == "0" && resolved[rightVar.name]?.second?.let(::isControllable) == true) {
+                        return Triple(rightVar.name, "1", "1")
+                    }
+                }
+                visit(e.left) ?: visit(e.right)
+            }
+            is IoTExpr.Unary -> visit(e.expression)
+            else -> null
+        }
+        return visit(expression)
+    }
+
         targetDeviceId: String,
         targetWidgetId: String,
         desiredValue: String,
