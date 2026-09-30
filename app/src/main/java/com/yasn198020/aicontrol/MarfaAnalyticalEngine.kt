@@ -108,7 +108,19 @@ class MarfaAnalyticalEngine {
         val scoped = if (page == null) contextScoped
         else contextScoped.filter { normalize(it.widget.page) == page }
 
-        val candidates = scoped
+        val explicitEntity = detectEntityKind(normalized)
+        val entityScoped = if (explicitEntity == EntityKind.GENERIC) {
+            scoped
+        } else {
+            val matching = scoped.filter { candidate ->
+                entityMatches(explicitEntity, candidate.widget)
+            }
+            // An explicitly spoken object is a hard semantic constraint.
+            // Never fall back to an unrelated "close/open" control.
+            matching
+        }
+
+        val candidates = entityScoped
             .filter { it.score > 0 }
             .sortedWith(
                 compareByDescending<ControlCandidate> { it.score }
@@ -264,6 +276,36 @@ class MarfaAnalyticalEngine {
             .distinct()
             .sortedByDescending { it.length }
             .firstOrNull { id -> tokens.any { it.equals(id, ignoreCase = true) } }
+    }
+
+    private fun entityMatches(kind: EntityKind, widget: WidgetState): Boolean {
+        val searchable = normalize(
+            listOf(
+                widget.title,
+                widget.page,
+                widget.definitionName,
+                widget.configJson
+            ).joinToString(" ")
+        )
+
+        val aliases = aliases(kind).second
+        if (aliases.any { searchable.contains(it) }) return true
+
+        return when (kind) {
+            EntityKind.DOOR -> searchable.contains("двер") || searchable.contains("вход")
+            EntityKind.VENT -> searchable.contains("форточ") ||
+                searchable.contains("фрамуг") || searchable.contains("вент")
+            EntityKind.WINDOW -> searchable.contains("окн") || searchable.contains("форточ")
+            EntityKind.GATE -> searchable.contains("ворот")
+            EntityKind.PUMP -> searchable.contains("насос") || searchable.contains("помп")
+            EntityKind.FAN -> searchable.contains("вентил")
+            EntityKind.HEATER -> searchable.contains("обогрев") ||
+                searchable.contains("отоп") || searchable.contains("нагрев")
+            EntityKind.VALVE -> searchable.contains("клапан") || searchable.contains("кран")
+            EntityKind.LIGHT -> searchable.contains("свет") || searchable.contains("ламп")
+            EntityKind.IRRIGATION -> searchable.contains("полив") || searchable.contains("орош")
+            EntityKind.GENERIC -> true
+        }
     }
 
     private fun controlScore(
