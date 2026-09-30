@@ -309,19 +309,30 @@ class MarfaAnalyticalEngine {
     }
 
     private fun spokenContext(text: String): List<String> {
-        val known = listOf(
-            "помидор", "томат", "огурец", "теплиц", "парник",
+        // Use lexical stems, not exact word forms:
+        // помидор / помидора / помидоры / помидорами -> помидор.
+        val stems = listOf(
+            "помидор", "томат", "огур", "теплиц", "парник",
             "сад", "огород", "гараж", "дом"
         )
-        return known.filter { text.contains(it) }.distinct()
+        return stems.filter { text.contains(it) }.distinct()
     }
 
     private fun contextMatches(device: Device, widget: WidgetState, context: List<String>): Boolean {
         val title = normalize(widget.title)
         val page = normalize(widget.page)
         val deviceName = normalize(device.name)
-        return context.any { word ->
-            title.contains(word) || page.contains(word) || deviceName.contains(word)
+        return context.any { stem ->
+            containsStem(title, stem) ||
+                containsStem(page, stem) ||
+                containsStem(deviceName, stem)
+        }
+    }
+
+    private fun containsStem(text: String, stem: String): Boolean {
+        if (text.contains(stem)) return true
+        return text.split(Regex("\\s+")).any { token ->
+            token.startsWith(stem)
         }
     }
 
