@@ -132,10 +132,10 @@ class IoTScenarioLanguageTest {
             )
         )
 
-        // MODE is already 1, so Marfa does not publish a redundant
-        // mode write. The logical target remains the only command.
-        assertEquals(listOf("TARGET"), plan.actions.map { it.widgetId })
-        assertTrue(plan.prerequisites.isEmpty())
+        assertEquals(listOf("MODE", "TARGET"), plan.actions.map { it.widgetId })
+        assertEquals("0", plan.actions.first().value)
+        assertEquals("MODE", plan.prerequisites.single().widgetId)
+        assertEquals("0", plan.prerequisites.single().value)
     }
 
     @Test
