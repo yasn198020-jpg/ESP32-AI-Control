@@ -34,6 +34,13 @@ jobs:
           gradle testDebugUnitTest assembleDebug --no-daemon --stacktrace
           test -s app/build/outputs/apk/debug/app-debug.apk
 
+      - name: Print JUnit report on failure
+        if: failure()
+        run: |
+          if test -f app/build/test-results/testDebugUnitTest/TEST-com.yasn198020.aicontrol.IoTScenarioLanguageTest.xml; then
+            cat app/build/test-results/testDebugUnitTest/TEST-com.yasn198020.aicontrol.IoTScenarioLanguageTest.xml
+          fi
+
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
