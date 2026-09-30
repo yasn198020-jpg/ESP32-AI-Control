@@ -112,8 +112,8 @@ class MarfaAnalyticalEngine {
             .filter { it.score > 0 }
             .sortedWith(
                 compareByDescending<ControlCandidate> { it.score }
-                    .thenBy { normalize(it.widget.page) }
                     .thenBy { it.widget.order }
+                    .thenBy { normalize(it.widget.page) }
                     .thenBy { it.widget.id }
             )
 
