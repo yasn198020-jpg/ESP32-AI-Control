@@ -734,7 +734,7 @@ object IoTScenarioCommandPlanner {
                 " actions=" + actions.joinToString(",") { it.widgetId + "=" + it.value }
         )
 
-        return ScenarioCommandPlan(actions, prerequisites)
+        return ScenarioCommandPlan(actions, realPrerequisites)
     }
 
     private fun buildReverseActuatorPlans(
