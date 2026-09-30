@@ -406,10 +406,25 @@ class MarfaAnalyticalEngine {
             .toSet()
 
         return tokens
+            .filterNot { isSelectionToken(it.original) }
             .filter { token -> pageTokens.none { lexicalMatch(token, it) } }
             .distinct()
             .map { it.original }
             .toList()
+    }
+
+    private fun isSelectionToken(token: String): Boolean {
+        val normalized = normalize(token)
+        if (normalized.matches(Regex("\\d+"))) return true
+        return normalized in setOf(
+            "ноль", "один", "одна", "одно", "два", "две", "три", "четыре",
+            "пять", "шесть", "семь", "восемь", "девять", "десять",
+            "первый", "первая", "первое", "первую", "первого", "первом",
+            "второй", "вторая", "второе", "вторую", "второго", "втором",
+            "третий", "третья", "третье", "третью", "третьего", "третьем",
+            "четвертый", "четвертая", "четвертую", "четвертого", "четвертом",
+            "пятый", "пятая", "пятое", "пятую", "пятого", "пятом"
+        )
     }
 
     private data class ContextToken(
