@@ -482,7 +482,7 @@ private fun DeviceScenariosScreen(
                         }
 
                         fun prerequisiteDescription(
-                            prerequisite: LocalCommandActionItem
+                            prerequisite: ScenarioPrerequisite
                         ): String {
                             return prerequisite.reason +
                                 " [ID элемента: " + prerequisite.widgetId + "]"
