@@ -202,6 +202,46 @@ class IoTScenarioLanguageTest {
     }
 
     @Test
+    fun manualModeUsesScenarioDiscoveredActuator() {
+        val devices = listOf(
+            Device(
+                "door",
+                "Дверь",
+                true,
+                listOf(
+                    WidgetState("vbtn90", "Ручной режим", WidgetState.Type.TOGGLE, "0"),
+                    WidgetState("vbtn78", "закрыта открыта дверь", WidgetState.Type.TOGGLE, "0"),
+                    WidgetState("btn43", "открыть дверь", WidgetState.Type.BUTTON, "0"),
+                    WidgetState("btn42", "закрыть дверь", WidgetState.Type.BUTTON, "0"),
+                    WidgetState("dstmp31", "Температура", WidgetState.Type.VALUE, "20"),
+                    WidgetState("value22", "Порог", WidgetState.Type.VALUE, "25")
+                )
+            )
+        )
+        val source = """
+            if vbtn90 == 0 then {
+                if dstmp31 > value22 & vbtn78 == 0 then { btn43 = 1; vbtn78 = 1; }
+            }
+            if vbtn90 == 1 then { value27 := 1; }
+        """.trimIndent()
+        val model = IoTScenarioSemanticAnalyzer.analyze(IoTScenarioParser.parse(source))
+
+        val plan = IoTScenarioCommandPlanner.plan(
+            "door",
+            "vbtn78",
+            "1",
+            listOf(LocalCommandActionItem("door", "vbtn78", "1")),
+            devices,
+            listOf(StoredDeviceScenario(title = "Door", source = source) to model)
+        )
+
+        assertEquals(listOf("vbtn90", "btn43"), plan.actions.map { it.widgetId })
+        assertEquals("1", plan.actions[0].value)
+        assertEquals("1", plan.actions[1].value)
+        assertEquals("vbtn90", plan.prerequisites.single().widgetId)
+    }
+
+    @Test
     fun sensorConditionIsNotTurnedIntoAWriteAction() {
         val devices = listOf(
             Device(
