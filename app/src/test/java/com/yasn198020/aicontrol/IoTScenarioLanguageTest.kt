@@ -85,7 +85,12 @@ class IoTScenarioLanguageTest {
             desiredValue = "1",
             baseActions = listOf(LocalCommandActionItem("greenhouse", "DOOR", "1")),
             devices = devices,
-            models = listOf("greenhouse" to model)
+            models = listOf(
+                StoredDeviceScenario(
+                    title = "Тест",
+                    source = "if MODE == 1 then DOOR = 1;"
+                ) to model
+            )
         )
 
         assertEquals("Unexpected planned actions: " + plan.actions, 2, plan.actions.size)
@@ -93,6 +98,107 @@ class IoTScenarioLanguageTest {
         assertEquals("1", plan.actions[0].value)
         assertEquals("DOOR", plan.actions[1].widgetId)
         assertEquals("Unexpected prerequisites: " + plan.prerequisites, 1, plan.prerequisites.size)
+    }
+
+
+    @Test
+    fun plannerUsesModelIdentifiersWhenSensorMetadataIsEmpty() {
+        val devices = listOf(
+            Device(
+                "dev-a",
+                "Устройство",
+                true,
+                listOf(
+                    WidgetState("MODE", "Автоматический режим", WidgetState.Type.TOGGLE, "1"),
+                    WidgetState("TARGET", "Привод", WidgetState.Type.TOGGLE, "0")
+                )
+            )
+        )
+        val source = "if MODE == 0 then TARGET = 1;"
+        val model = IoTScenarioSemanticAnalyzer.analyze(IoTScenarioParser.parse(source))
+
+        val plan = IoTScenarioCommandPlanner.plan(
+            "dev-a",
+            "TARGET",
+            "1",
+            listOf(LocalCommandActionItem("dev-a", "TARGET", "1")),
+            devices,
+            listOf(
+                StoredDeviceScenario(
+                    title = "Без списка датчиков",
+                    source = source,
+                    sensorIds = emptyList()
+                ) to model
+            )
+        )
+
+        assertEquals(listOf("MODE", "TARGET"), plan.actions.map { it.widgetId })
+        assertEquals("0", plan.actions.first().value)
+        assertEquals("«Автоматический режим» должно быть 0", plan.prerequisites.single().reason)
+    }
+
+    @Test
+    fun plannerCanChooseCheaperBranchOfOrCondition() {
+        val devices = listOf(
+            Device(
+                "dev-a",
+                "Устройство",
+                true,
+                listOf(
+                    WidgetState("MODE_A", "Режим A", WidgetState.Type.TOGGLE, "1"),
+                    WidgetState("MODE_B", "Режим B", WidgetState.Type.TOGGLE, "1"),
+                    WidgetState("TARGET", "Привод", WidgetState.Type.TOGGLE, "0")
+                )
+            )
+        )
+        val source = "if MODE_A == 0 | MODE_B == 0 then TARGET = 1;"
+        val model = IoTScenarioSemanticAnalyzer.analyze(IoTScenarioParser.parse(source))
+
+        val plan = IoTScenarioCommandPlanner.plan(
+            "dev-a",
+            "TARGET",
+            "1",
+            listOf(LocalCommandActionItem("dev-a", "TARGET", "1")),
+            devices,
+            listOf(StoredDeviceScenario("OR", source) to model)
+        )
+
+        assertEquals(2, plan.actions.size)
+        assertTrue(
+            plan.prerequisites.single().widgetId == "MODE_A" ||
+                plan.prerequisites.single().widgetId == "MODE_B"
+        )
+        assertEquals("0", plan.prerequisites.single().value)
+    }
+
+    @Test
+    fun plannerHandlesNegatedBooleanDependency() {
+        val devices = listOf(
+            Device(
+                "dev-a",
+                "Устройство",
+                true,
+                listOf(
+                    WidgetState("AUTO", "Автоматика", WidgetState.Type.TOGGLE, "1"),
+                    WidgetState("TARGET", "Привод", WidgetState.Type.TOGGLE, "0")
+                )
+            )
+        )
+        val source = "if !AUTO then TARGET = 1;"
+        val model = IoTScenarioSemanticAnalyzer.analyze(IoTScenarioParser.parse(source))
+
+        val plan = IoTScenarioCommandPlanner.plan(
+            "dev-a",
+            "TARGET",
+            "1",
+            listOf(LocalCommandActionItem("dev-a", "TARGET", "1")),
+            devices,
+            listOf(StoredDeviceScenario("NOT", source) to model)
+        )
+
+        assertEquals("AUTO", plan.prerequisites.single().widgetId)
+        assertEquals("0", plan.prerequisites.single().value)
+        assertEquals("TARGET", plan.actions.last().widgetId)
     }
 
     @Test
