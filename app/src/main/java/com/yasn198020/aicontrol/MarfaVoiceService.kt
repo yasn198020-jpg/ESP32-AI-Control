@@ -133,6 +133,23 @@ class MarfaVoiceService : Service() {
                         return
                     }
                     else -> {
+                        // Do not treat a natural-language correction as a rejection.
+                        // For example, after "открой дверь" -> "вторую", the engine
+                        // asks for confirmation; "нет, первую" must refine that
+                        // same task rather than cancel it.
+                        val refinement = commandEngine.interpret(
+                            command,
+                            synchronizedCopyDevices()
+                        )
+                        if (refinement.action == LocalCommandAction.CONTROL && refinement.needsConfirmation) {
+                            pendingControl = refinement
+                            speak("Поняла уточнение. " + refinement.reply + ". Выполнить? Скажите да или нет")
+                            return
+                        }
+                        if (refinement.action == LocalCommandAction.CLARIFY) {
+                            speak(refinement.reply)
+                            return
+                        }
                         speak("Выполнить это? Скажите да или нет")
                         return
                     }
