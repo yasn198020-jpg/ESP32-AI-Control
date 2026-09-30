@@ -81,9 +81,25 @@ class MarfaAnalyticalEngine {
             }
         }
 
+        // An ordinary spoken context word (for example "помидоры") is also
+        // a discriminator. First resolve the object ("дверь"), then restrict
+        // the candidates to the matching tab/page/context before deciding.
+        val context = spokenContext(normalized)
+        val contextScoped = if (page != null || context.isEmpty()) {
+            all
+        } else {
+            val matches = all.filter { candidate -> contextMatches(candidate.device, candidate.widget, context) }
+            if (matches.isEmpty()) {
+                return ControlResolution(
+                    clarification = "Я нашла объект «${entityName(detectEntityKind(normalized))}», но не нашла его в указанном контексте «${context.joinToString(", ")}». Уточните вкладку."
+                )
+            }
+            matches
+        }
+
         // Explicit page/tab is a hard constraint.
-        val scoped = if (page == null) all
-        else all.filter { normalize(it.widget.page) == page }
+        val scoped = if (page == null) contextScoped
+        else contextScoped.filter { normalize(it.widget.page) == page }
 
         val candidates = scoped
             .filter { it.score > 0 }
@@ -290,6 +306,37 @@ class MarfaAnalyticalEngine {
         if (page != null && widgetPage != page) return -100000
         if (page != null) score += 500
         return score
+    }
+
+    private fun spokenContext(text: String): List<String> {
+        val known = listOf(
+            "помидор", "томат", "огурец", "теплиц", "парник",
+            "сад", "огород", "гараж", "дом"
+        )
+        return known.filter { text.contains(it) }.distinct()
+    }
+
+    private fun contextMatches(device: Device, widget: WidgetState, context: List<String>): Boolean {
+        val title = normalize(widget.title)
+        val page = normalize(widget.page)
+        val deviceName = normalize(device.name)
+        return context.any { word ->
+            title.contains(word) || page.contains(word) || deviceName.contains(word)
+        }
+    }
+
+    private fun entityName(kind: EntityKind): String = when (kind) {
+        EntityKind.DOOR -> "дверь"
+        EntityKind.VENT -> "форточку"
+        EntityKind.WINDOW -> "окно"
+        EntityKind.GATE -> "ворота"
+        EntityKind.PUMP -> "насос"
+        EntityKind.FAN -> "вентилятор"
+        EntityKind.HEATER -> "обогрев"
+        EntityKind.VALVE -> "клапан"
+        EntityKind.LIGHT -> "свет"
+        EntityKind.IRRIGATION -> "полив"
+        EntityKind.GENERIC -> "объект"
     }
 
     private fun controlReasons(
