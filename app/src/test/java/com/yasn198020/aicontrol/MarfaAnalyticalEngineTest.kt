@@ -78,6 +78,38 @@ class MarfaAnalyticalEngineTest {
         assertEquals("door2", result.candidate!!.widget.id)
     }
 
+
+    @Test
+    fun spokenContextSelectsDoorOnMatchingTomatoTab() {
+        val result = MarfaAnalyticalEngine().resolveControl(
+            "открой дверь помидоры",
+            listOf(
+                Device("d1", "Дом", true, listOf(
+                    WidgetState("door1", "дверь", WidgetState.Type.TOGGLE, "0", page = "Огурцы"),
+                    WidgetState("door2", "дверь", WidgetState.Type.TOGGLE, "0", page = "Помидоры")
+                ))
+            ),
+            "1"
+        )
+        assertEquals("door2", result.candidate!!.widget.id)
+        assertEquals("Помидоры", result.candidate!!.widget.page)
+    }
+
+    @Test
+    fun unknownSpokenContextDoesNotFallBackToAnotherDoor() {
+        val result = MarfaAnalyticalEngine().resolveControl(
+            "открой дверь помидоры",
+            listOf(
+                Device("d1", "Дом", true, listOf(
+                    WidgetState("door1", "дверь", WidgetState.Type.TOGGLE, "0", page = "Огурцы")
+                ))
+            ),
+            "1"
+        )
+        assertEquals(null, result.candidate)
+        assertTrue(result.clarification!!.contains("помидоры"))
+    }
+
     @Test
     fun exactElementIdOverridesTitle() {
         val result = MarfaAnalyticalEngine().resolveControl(
