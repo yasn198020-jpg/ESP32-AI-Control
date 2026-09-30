@@ -210,7 +210,7 @@ class GemmaLocalEngine private constructor(private val appContext: Context) {
                         reply = safeControlReply(originalCommand, widget.title, value, delay),
                         delayMs = delay,
                         actionItems = listOf(LocalCommandActionItem(device.id, widget.id, value)),
-                        needsConfirmation = true
+                        needsConfirmation = false
                     ))
                 }
             }
