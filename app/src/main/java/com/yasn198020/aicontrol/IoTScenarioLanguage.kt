@@ -601,11 +601,6 @@ object IoTScenarioCommandPlanner {
             listOf(LocalCommandActionItem(targetDeviceId, targetWidgetId, desiredValue))
         }
 
-        /*
-         * A stored scenario is a semantic model, not a binding to one physical device.
-         * Resolve every identifier mentioned by the scenario and prefer the target
-         * device when an identifier exists on several devices.
-         */
         fun resolveWidgets(ids: Set<String>): Map<String, Pair<String, com.yasn198020.aicontrol.core.WidgetState>> {
             val all = devices.flatMap { device ->
                 device.widgets.map { widget -> widget.id to (device.id to widget) }
@@ -618,10 +613,15 @@ object IoTScenarioCommandPlanner {
             }.toMap()
         }
 
-        val candidates = models.flatMap { (stored, model) ->
-            if (model.parserErrors.isNotEmpty()) return@flatMap emptyList<List<ScenarioPrerequisite>>()
+        val allModels = models.mapNotNull { (stored, model) ->
+            if (model.parserErrors.isNotEmpty()) null else stored to model
+        }
 
-            // sensorIds is legacy/optional metadata. The parsed model is authoritative.
+        /*
+         * First try the generic dependency planner. This remains the fallback
+         * for ordinary scenarios such as: if MODE == 1 then DOOR = 1.
+         */
+        val directCandidates = allModels.flatMap { (stored, model) ->
             val ids = (stored.sensorIds + model.identifiers).toSet()
             val resolved = resolveWidgets(ids)
             if (resolved.isEmpty()) return@flatMap emptyList<List<ScenarioPrerequisite>>()
@@ -639,83 +639,278 @@ object IoTScenarioCommandPlanner {
                     ?: return@mapNotNull null
                 if (targetResolved.first != targetDeviceId) return@mapNotNull null
 
-                val conditionNow = IoTScenarioEvaluator.evaluate(rule.condition.expression, context)
-                if (conditionNow.isTruthy()) {
+                if (IoTScenarioEvaluator.evaluate(rule.condition.expression, context).isTruthy()) {
                     return@mapNotNull emptyList<ScenarioPrerequisite>()
                 }
 
-                val requirementCandidates = deriveRequirementCandidates(
-                    rule.condition.expression,
-                    context
-                )
-
-                requirementCandidates.mapNotNull { requirements ->
-                    requirements.mapNotNull { requirement ->
-                        val resolvedWidget = resolved[requirement.widgetName] ?: return@mapNotNull null
-                        val widget = resolvedWidget.second
-                        if (!isControllable(widget)) return@mapNotNull null
-
-                        val current = normalizeValue(widget.value)
-                        if (valuesEquivalent(current, normalizeValue(requirement.value))) {
-                            null
-                        } else {
-                            ScenarioPrerequisite(
-                                deviceId = resolvedWidget.first,
-                                widgetId = widget.id,
-                                value = requirement.value,
-                                reason = humanRequirement(widget, requirement.value)
-                            )
-                        }
-                    }.distinctBy { it.deviceId + "/" + it.widgetId + "/" + it.value }
-                }.mapNotNull { prerequisites ->
-                    val simulated = variables.toMutableMap()
-                    prerequisites.forEach { simulated[it.widgetId] = it.value }
-
-                    val after = IoTScenarioEvaluator.evaluate(
-                        rule.condition.expression,
-                        IoTScenarioEvaluationContext(simulated)
-                    )
-                    if (after.isTruthy()) prerequisites else null
-                }.minByOrNull { it.size }
+                deriveRequirementCandidates(rule.condition.expression, context)
+                    .mapNotNull { requirements ->
+                        requirements.mapNotNull { requirement ->
+                            val resolvedWidget = resolved[requirement.widgetName] ?: return@mapNotNull null
+                            val widget = resolvedWidget.second
+                            if (!isControllable(widget)) return@mapNotNull null
+                            val current = normalizeValue(widget.value)
+                            if (valuesEquivalent(current, normalizeValue(requirement.value))) {
+                                null
+                            } else {
+                                ScenarioPrerequisite(
+                                    deviceId = resolvedWidget.first,
+                                    widgetId = widget.id,
+                                    value = requirement.value,
+                                    reason = humanRequirement(widget, requirement.value)
+                                )
+                            }
+                        }.distinctBy { it.deviceId + "/" + it.widgetId + "/" + it.value }
+                    }
+                    .mapNotNull { prerequisites ->
+                        val simulated = variables.toMutableMap()
+                        prerequisites.forEach { simulated[it.widgetId] = it.value }
+                        val after = IoTScenarioEvaluator.evaluate(
+                            rule.condition.expression,
+                            IoTScenarioEvaluationContext(simulated)
+                        )
+                        if (after.isTruthy()) prerequisites else null
+                    }
+                    .minByOrNull { it.size }
             }
         }
 
-        if (candidates.isEmpty()) return ScenarioCommandPlan(base)
+        /*
+         * IoTManager control widgets are often state variables, while the real
+         * actuator is a different ButtonOut. In that case the command must be
+         * resolved backwards:
+         *
+         *     state command -> scenario condition -> real relay
+         *
+         * For the door in export.json this gives:
+         *     vbtn78=1 -> btn43=1
+         *     vbtn78=0 -> btn42=1
+         *
+         * A temperature comparison is deliberately not converted into a write.
+         * A controllable mode variable such as vbtn90 is, however, a real
+         * prerequisite when the manual branch requires it.
+         */
+        val reverseCandidates = buildReverseActuatorPlans(
+            targetDeviceId = targetDeviceId,
+            targetWidgetId = targetWidgetId,
+            desiredValue = desiredValue,
+            base = base,
+            devices = devices,
+            models = allModels,
+            resolveWidgets = ::resolveWidgets
+        )
 
-        val uniquePlans = candidates
-            .map { it.distinctBy { p -> p.deviceId + "/" + p.widgetId + "/" + p.value } }
-            .distinctBy { plan ->
-                plan.joinToString("|") { p ->
-                    p.deviceId + "/" + p.widgetId + "=" + p.value
-                }
-            }
+        val selectedPrerequisites = chooseUniquePlan(directCandidates + reverseCandidates)
+        if (selectedPrerequisites == null && directCandidates.isEmpty() && reverseCandidates.isEmpty()) {
+            return ScenarioCommandPlan(base)
+        }
 
-        val minCount = uniquePlans.minOf { it.size }
-        val bestPlans = uniquePlans.filter { it.size == minCount }
-
-        if (bestPlans.size > 1) {
+        if (selectedPrerequisites == null) {
             return ScenarioCommandPlan(
                 actions = base,
                 blockedReason = "Не удалось однозначно определить зависимость команды: найдено несколько подходящих условий."
             )
         }
 
-        val prerequisites = bestPlans.singleOrNull().orEmpty()
-        val actions = (prerequisites.map {
-            LocalCommandActionItem(it.deviceId, it.widgetId, it.value)
-        } + base).distinctBy {
-            it.deviceId + "/" + it.widgetId + "/" + it.value
-        }
+        val prerequisites = selectedPrerequisites
+        val actions = buildList {
+            addAll(prerequisites.map { LocalCommandActionItem(it.deviceId, it.widgetId, it.value) })
+            addAll(base)
+            reverseCandidates.firstOrNull { candidate -> candidate.containsActuatorFor(targetDeviceId, desiredValue, devices) }
+                ?.let { candidate ->
+                    val actuator = candidate.firstOrNull { p ->
+                        p.widgetId != targetWidgetId && p.widgetId !in prerequisites.map { it.widgetId }
+                    }
+                    if (actuator != null) add(LocalCommandActionItem(actuator.deviceId, actuator.widgetId, actuator.value))
+                }
+        }.distinctBy { it.deviceId + "/" + it.widgetId + "/" + it.value }
 
         DiagnosticTrace.system(
             "MARFA dependency plan target=" + targetWidgetId +
-                " prerequisites=" + prerequisites.joinToString(",") {
-                    it.widgetId + "=" + it.value
-                }
+                " prerequisites=" + prerequisites.joinToString(",") { it.widgetId + "=" + it.value } +
+                " actions=" + actions.joinToString(",") { it.widgetId + "=" + it.value }
         )
 
         return ScenarioCommandPlan(actions, prerequisites)
     }
+
+    private fun buildReverseActuatorPlans(
+        targetDeviceId: String,
+        targetWidgetId: String,
+        desiredValue: String,
+        base: List<LocalCommandActionItem>,
+        devices: List<com.yasn198020.aicontrol.core.Device>,
+        models: List<Pair<StoredDeviceScenario, DeviceScenarioModel>>,
+        resolveWidgets: (Set<String>) -> Map<String, Pair<String, com.yasn198020.aicontrol.core.WidgetState>>
+    ): List<List<ScenarioPrerequisite>> {
+        val targetDesired = normalizeValue(desiredValue)
+        if (targetDesired != "0" && targetDesired != "1") return emptyList()
+
+        return models.flatMap { (stored, model) ->
+            val ids = (stored.sensorIds + model.identifiers).toSet()
+            val resolved = resolveWidgets(ids)
+            val target = resolved[targetWidgetId] ?: return@flatMap emptyList<List<ScenarioPrerequisite>>()
+            if (target.first != targetDeviceId) return@flatMap emptyList<List<ScenarioPrerequisite>>()
+
+            val variables = resolved.mapValues { it.value.second.value }
+            val context = IoTScenarioEvaluationContext(variables)
+            val result = mutableListOf<List<ScenarioPrerequisite>>()
+
+            model.rules.forEach { rule ->
+                rule.actions.forEach { action ->
+                    if (!isActuatorAction(action, targetDesired, resolved)) return@forEach
+
+                    val targetCondition = findEquality(rule.condition.expression, targetWidgetId)
+                        ?: return@forEach
+
+                    /*
+                     * We need the post-state branch for a state widget:
+                     *   vbtn78 == 1 -> btn43 = 1
+                     * and
+                     *   vbtn78 == 0 -> btn42 = 1.
+                     *
+                     * The opposite/pre-state branch is not useful after the
+                     * requested state has already been written.
+                     */
+                    if (normalizeValue(targetCondition) != targetDesired) return@forEach
+
+                    val requirements = deriveRequirementCandidates(
+                        removeEquality(rule.condition.expression, targetWidgetId),
+                        context
+                    )
+
+                    requirements.forEach { candidate ->
+                        val filtered = candidate.mapNotNull { req ->
+                            val resolvedWidget = resolved[req.widgetName] ?: return@mapNotNull null
+                            val widget = resolvedWidget.second
+                            if (!isControllable(widget)) return@mapNotNull null
+
+                            val current = normalizeValue(widget.value)
+                            if (valuesEquivalent(current, normalizeValue(req.value))) {
+                                null
+                            } else {
+                                ScenarioPrerequisite(
+                                    deviceId = resolvedWidget.first,
+                                    widgetId = widget.id,
+                                    value = req.value,
+                                    reason = humanRequirement(widget, req.value)
+                                )
+                            }
+                        }.distinctBy { it.deviceId + "/" + it.widgetId + "/" + it.value }
+
+                        /*
+                         * Validate only the explicitly requested state and
+                         * controllable prerequisites. Sensor expressions are
+                         * observed conditions, not commands.
+                         */
+                        val simulated = variables.toMutableMap()
+                        filtered.forEach { simulated[it.widgetId] = it.value }
+                        simulated[targetWidgetId] = targetDesired
+
+                        val conditionAfter = IoTScenarioEvaluator.evaluate(
+                            rule.condition.expression,
+                            IoTScenarioEvaluationContext(simulated)
+                        )
+
+                        if (conditionAfter.isTruthy()) {
+                            result += filtered + ScenarioPrerequisite(
+                                deviceId = actionTargetDeviceId(action, resolved, targetDeviceId),
+                                widgetId = action.targetId,
+                                value = literalValue(action.expression) ?: targetDesired,
+                                reason = "Сценарий: после установки «" +
+                                    (resolved[targetWidgetId]?.second?.title?.ifBlank { targetWidgetId } ?: targetWidgetId) +
+                                    "» срабатывает «" +
+                                    (resolved[action.targetId]?.second?.title?.ifBlank { action.targetId } ?: action.targetId) +
+                                    "»"
+                            )
+                        }
+                    }
+                }
+            }
+            result
+        }
+    }
+
+    private fun chooseUniquePlan(candidates: List<List<ScenarioPrerequisite>>): List<ScenarioPrerequisite>? {
+        if (candidates.isEmpty()) return null
+        val unique = candidates
+            .map { it.distinctBy { p -> p.deviceId + "/" + p.widgetId + "/" + p.value } }
+            .distinctBy { it.joinToString("|") { p -> p.deviceId + "/" + p.widgetId + "=" + p.value } }
+
+        val minCount = unique.minOf { it.size }
+        val best = unique.filter { it.size == minCount }
+        return if (best.size == 1) best.single() else null
+    }
+
+    private fun List<ScenarioPrerequisite>.containsActuatorFor(
+        targetDeviceId: String,
+        desiredValue: String,
+        devices: List<com.yasn198020.aicontrol.core.Device>
+    ): Boolean =
+        any { it.deviceId == targetDeviceId && it.value == "1" && isActuatorWidget(it.widgetId, desiredValue, devices) }
+
+    private fun isActuatorAction(
+        action: DeviceScenarioAction,
+        desiredValue: String,
+        resolved: Map<String, Pair<String, com.yasn198020.aicontrol.core.WidgetState>>
+    ): Boolean {
+        val value = literalValue(action.expression) ?: return false
+        if (value != "1") return false
+        val widget = resolved[action.targetId]?.second ?: return false
+        return isActuatorWidget(widget, desiredValue)
+    }
+
+    private fun isActuatorWidget(
+        widget: com.yasn198020.aicontrol.core.WidgetState,
+        desiredValue: String
+    ): Boolean {
+        val title = widget.title.lowercase()
+        val isOutput = widget.type == com.yasn198020.aicontrol.core.WidgetState.Type.TOGGLE ||
+            widget.type == com.yasn198020.aicontrol.core.WidgetState.Type.BUTTON
+        if (!isOutput) return false
+        val open = listOf("откры", "open", "подним", "распах", "отпер").any { title.contains(it) }
+        val close = listOf("закры", "close", "опуст", "запер").any { title.contains(it) }
+        return if (desiredValue == "1") open && !close else close && !open
+    }
+
+    private fun actionTargetDeviceId(
+        action: DeviceScenarioAction,
+        resolved: Map<String, Pair<String, com.yasn198020.aicontrol.core.WidgetState>>,
+        fallback: String
+    ): String = resolved[action.targetId]?.first ?: fallback
+
+    private fun findEquality(expression: IoTExpr, variable: String): String? = when (expression) {
+        is IoTExpr.Binary -> {
+            if (expression.operator == "==" ) {
+                when {
+                    expression.left is IoTExpr.Variable && (expression.left as IoTExpr.Variable).name == variable ->
+                        literalValue(expression.right)
+                    expression.right is IoTExpr.Variable && (expression.right as IoTExpr.Variable).name == variable ->
+                        literalValue(expression.left)
+                    else -> findEquality(expression.left, variable) ?: findEquality(expression.right, variable)
+                }
+            } else findEquality(expression.left, variable) ?: findEquality(expression.right, variable)
+        }
+        is IoTExpr.Unary -> findEquality(expression.expression, variable)
+        else -> null
+    }
+
+    private fun removeEquality(expression: IoTExpr, variable: String): IoTExpr =
+        when (expression) {
+            is IoTExpr.Binary -> {
+                if (expression.operator == "&") {
+                    val leftHas = findEquality(expression.left, variable) != null
+                    val rightHas = findEquality(expression.right, variable) != null
+                    when {
+                        leftHas && !rightHas -> expression.right
+                        !leftHas && rightHas -> expression.left
+                        leftHas && rightHas -> IoTExpr.NumberLiteral(1.0)
+                        else -> IoTExpr.Binary("&", removeEquality(expression.left, variable), removeEquality(expression.right, variable))
+                    }
+                } else expression
+            }
+            else -> IoTExpr.NumberLiteral(1.0)
+        }
 
     private fun isControllable(
         widget: com.yasn198020.aicontrol.core.WidgetState
@@ -745,19 +940,6 @@ object IoTScenarioCommandPlanner {
         }
     }
 
-    /**
-     * Produces alternative sets of writes that can make a currently-false condition true.
-     *
-     * Only deterministic requirements are returned:
-     *  - A == literal
-     *  - A != literal when A is currently equal to that literal and the opposite 0/1
-     *    value is unambiguous
-     *  - !A for boolean/numeric A
-     *  - AND combines both sides
-     *  - OR keeps both alternatives and the caller chooses the cheapest valid one
-     *
-     * Sensors are still prevented from becoming write actions later by isControllable().
-     */
     private fun deriveRequirementCandidates(
         expression: IoTExpr,
         context: IoTScenarioEvaluationContext
@@ -766,10 +948,7 @@ object IoTScenarioCommandPlanner {
             return listOf(emptyList())
         }
 
-        fun variableAndLiteral(
-            left: IoTExpr,
-            right: IoTExpr
-        ): Pair<String, String>? {
+        fun variableAndLiteral(left: IoTExpr, right: IoTExpr): Pair<String, String>? {
             val variable = left as? IoTExpr.Variable ?: return null
             val literal = literalValue(right) ?: return null
             return variable.name to literal
@@ -783,9 +962,7 @@ object IoTScenarioCommandPlanner {
                     if (left.isEmpty() || right.isEmpty()) emptyList()
                     else left.flatMap { l -> right.map { r -> (l + r).distinctBy { it.widgetName + "=" + it.value } } }
                 }
-                "|" -> {
-                    visit(expr.left) + visit(expr.right)
-                }
+                "|" -> visit(expr.left) + visit(expr.right)
                 "==" -> {
                     val pair = variableAndLiteral(expr.left, expr.right)
                         ?: variableAndLiteral(expr.right, expr.left)
@@ -798,9 +975,8 @@ object IoTScenarioCommandPlanner {
                     else {
                         val current = context.variables[pair.first]?.trim()?.replace(',', '.')
                         val required = pair.second.trim().replace(',', '.')
-                        if (current == null || !valuesEquivalent(current, required)) {
-                            listOf(emptyList())
-                        } else {
+                        if (current == null || !valuesEquivalent(current, required)) listOf(emptyList())
+                        else {
                             val opposite = when (required.toDoubleOrNull()) {
                                 0.0 -> "1"
                                 1.0 -> "0"
@@ -821,21 +997,7 @@ object IoTScenarioCommandPlanner {
                         else if (isFalseValue(current)) listOf(emptyList())
                         else listOf(listOf(Requirement(inner.name, "0")))
                     }
-                    else -> {
-                        // !(A == 1) is equivalent to A != 1 only when the literal is usable.
-                        val innerCandidates = visit(inner)
-                        innerCandidates
-                            .filter { it.size == 1 }
-                            .mapNotNull { reqs ->
-                                val req = reqs.singleOrNull() ?: return@mapNotNull null
-                                val number = req.value.toDoubleOrNull() ?: return@mapNotNull null
-                                when (number) {
-                                    0.0 -> listOf(Requirement(req.widgetName, "1"))
-                                    1.0 -> listOf(Requirement(req.widgetName, "0"))
-                                    else -> null
-                                }
-                            }
-                    }
+                    else -> emptyList()
                 }
             }
             else -> emptyList()
