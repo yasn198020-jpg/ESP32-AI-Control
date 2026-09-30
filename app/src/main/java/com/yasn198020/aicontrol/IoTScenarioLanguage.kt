@@ -713,16 +713,19 @@ object IoTScenarioCommandPlanner {
         }
 
         val prerequisites = selectedPrerequisites
+        val actuator = prerequisites.firstOrNull {
+            it.deviceId == targetDeviceId &&
+                it.value == "1" &&
+                isActuatorId(it.widgetId, desiredValue, devices)
+        }
+        val realPrerequisites = prerequisites.filterNot { it === actuator }
+
         val actions = buildList {
-            addAll(prerequisites.map { LocalCommandActionItem(it.deviceId, it.widgetId, it.value) })
+            addAll(realPrerequisites.map { LocalCommandActionItem(it.deviceId, it.widgetId, it.value) })
             addAll(base)
-            reverseCandidates.firstOrNull { candidate -> candidate.containsActuatorFor(targetDeviceId, desiredValue, devices) }
-                ?.let { candidate ->
-                    val actuator = candidate.firstOrNull { p ->
-                        p.widgetId != targetWidgetId && p.widgetId !in prerequisites.map { it.widgetId }
-                    }
-                    if (actuator != null) add(LocalCommandActionItem(actuator.deviceId, actuator.widgetId, actuator.value))
-                }
+            actuator?.let {
+                add(LocalCommandActionItem(it.deviceId, it.widgetId, it.value))
+            }
         }.distinctBy { it.deviceId + "/" + it.widgetId + "/" + it.value }
 
         DiagnosticTrace.system(
@@ -859,6 +862,17 @@ object IoTScenarioCommandPlanner {
         val widget = resolved[action.targetId]?.second ?: return false
         return isActuatorWidget(widget, desiredValue)
     }
+
+    private fun isActuatorId(
+        widgetId: String,
+        desiredValue: String,
+        devices: List<com.yasn198020.aicontrol.core.Device>
+    ): Boolean =
+        devices.asSequence()
+            .flatMap { it.widgets.asSequence() }
+            .firstOrNull { it.id == widgetId }
+            ?.let { isActuatorWidget(it, desiredValue) }
+            ?: false
 
     private fun isActuatorWidget(
         widget: com.yasn198020.aicontrol.core.WidgetState,
