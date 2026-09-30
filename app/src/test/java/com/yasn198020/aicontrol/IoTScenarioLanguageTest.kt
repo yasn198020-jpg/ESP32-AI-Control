@@ -508,4 +508,58 @@ class IoTScenarioLanguageTest {
         assertEquals("1", plan.prerequisites.single().value)
     }
 
+
+    @Test
+    fun plannerReversesPhysicalDoorButtonToLogicalState() {
+        val devices = listOf(
+            Device(
+                "door-esp",
+                "Теплица",
+                true,
+                listOf(
+                    WidgetState("vbtn90", "автоматическое управление", WidgetState.Type.TOGGLE, "0"),
+                    WidgetState("vbtn78", "закрыта открыта дверь", WidgetState.Type.TOGGLE, "0"),
+                    WidgetState("btn43", "открыть дверь", WidgetState.Type.BUTTON, "0"),
+                    WidgetState("btn42", "закрыть дверь", WidgetState.Type.BUTTON, "0")
+                )
+            )
+        )
+
+        val source = """
+            if vbtn90 == 0 then {
+                if vbtn78 == 0 then { btn43 = 1; vbtn78 = 1; }
+                if vbtn78 == 1 then { btn42 = 1; vbtn78 = 0; }
+            }
+            if vbtn90 == 1 then {
+                if vbtn78 == 0 then { btn42 = 1; }
+                if vbtn78 == 1 then { btn43 = 1; }
+            }
+        """.trimIndent()
+
+        val model = IoTScenarioSemanticAnalyzer.analyze(IoTScenarioParser.parse(source))
+        assertTrue(model.parserErrors.isEmpty())
+
+        // Simulate the natural-language engine having selected the physical
+        // "open door" button by its title. The planner must undo that early
+        // choice using the scenario and issue the logical state command.
+        val result = IoTScenarioCommandPlanner.plan(
+            targetDeviceId = "door-esp",
+            targetWidgetId = "btn43",
+            desiredValue = "1",
+            baseActions = listOf(LocalCommandActionItem("door-esp", "btn43", "1")),
+            devices = devices,
+            models = listOf(StoredDeviceScenario("Дверь", source) to model)
+        )
+
+        assertEquals(
+            listOf("vbtn90", "vbtn78"),
+            result.actions.map { it.widgetId },
+            "Physical btn43 must never become Marfa's direct command"
+        )
+        assertEquals(listOf("1", "1"), result.actions.map { it.value })
+        assertEquals("vbtn90", result.prerequisites[0].widgetId)
+        assertEquals("1", result.prerequisites[0].value)
+    }
+
+
 }
