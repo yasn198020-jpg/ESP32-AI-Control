@@ -726,7 +726,7 @@ object IoTScenarioCommandPlanner {
 
                 val targetResolved = resolved[effectiveTargetWidgetId]
                     ?: return@mapNotNull null
-                if (targetResolved.first != targetDeviceId) return@mapNotNull null
+                if (targetResolved.first != effectiveTargetMatch.first) return@mapNotNull null
 
                 if (IoTScenarioEvaluator.evaluate(rule.condition.expression, context).isTruthy()) {
                     return@mapNotNull emptyList<ScenarioPrerequisite>()
@@ -780,7 +780,7 @@ object IoTScenarioCommandPlanner {
          * prerequisite when the manual branch requires it.
          */
         val reverseCandidates = buildReverseActuatorPlans(
-            targetDeviceId = targetDeviceId,
+            targetDeviceId = effectiveTargetMatch.first,
             targetWidgetId = effectiveTargetWidgetId,
             desiredValue = effectiveDesiredValue,
             base = effectiveBase,
@@ -802,7 +802,7 @@ object IoTScenarioCommandPlanner {
          * scenario branch, never from a hard-coded btn43/btn42 mapping.
          */
         val manualPlan = buildManualModeActuatorPlan(
-            targetDeviceId = targetDeviceId,
+            targetDeviceId = effectiveTargetMatch.first,
             targetWidgetId = effectiveTargetWidgetId,
             desiredValue = effectiveDesiredValue,
             devices = devices,
@@ -811,7 +811,7 @@ object IoTScenarioCommandPlanner {
         )
         if (manualPlan != null) {
             val prerequisites = manualPlan
-                .filter { it.widgetId != targetWidgetId }
+                .filter { it.widgetId != effectiveTargetWidgetId }
                 .map { action ->
                     val widget = devices
                         .flatMap { it.widgets }
