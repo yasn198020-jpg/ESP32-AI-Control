@@ -729,51 +729,6 @@ object IoTScenarioCommandPlanner {
          * First try the generic dependency planner. This remains the fallback
          * for ordinary scenarios such as: if MODE == 1 then DOOR = 1.
          */
-        /*
-         * The natural-language layer can initially choose a physical button
-         * by title (for example "открыть дверь" -> btn43). Scenario analysis
-         * must reverse that choice to the logical state element.
-         */
-        val semanticTarget = resolveLogicalTargetFromActuator(
-            targetWidgetId = targetWidgetId,
-            desiredValue = desiredValue,
-            devices = devices,
-            models = allModels
-        )
-        val effectiveTargetWidgetId = semanticTarget?.first ?: targetWidgetId
-        val effectiveDesiredValue = semanticTarget?.second ?: desiredValue
-
-        val effectiveTargetMatch = devices
-            .flatMap { device ->
-                device.widgets
-                    .filter { it.id == effectiveTargetWidgetId }
-                    .map { device.id to it }
-            }
-            .singleOrNull()
-            ?: return ScenarioCommandPlan(
-                actions = base,
-                blockedReason = "Не удалось однозначно определить элемент команды."
-            )
-
-        val effectiveBase = if (semanticTarget != null) {
-            listOf(
-                LocalCommandActionItem(
-                    effectiveTargetMatch.first,
-                    effectiveTargetWidgetId,
-                    effectiveDesiredValue
-                )
-            )
-        } else {
-            base
-        }
-
-        DiagnosticTrace.system(
-            "MARFA semantic target original=" + targetWidgetId +
-                "=" + normalizeValue(desiredValue) +
-                " resolved=" + effectiveTargetWidgetId +
-                "=" + normalizeValue(effectiveDesiredValue)
-        )
-
         val directCandidates = allModels.flatMap { (stored, model) ->
             val ids = (stored.sensorIds + model.identifiers).toSet()
             val resolved = resolveWidgets(ids)
@@ -791,6 +746,27 @@ object IoTScenarioCommandPlanner {
                 val targetResolved = resolved[effectiveTargetWidgetId]
                     ?: return@mapNotNull null
                 if (targetResolved.first != effectiveTargetMatch.first) return@mapNotNull null
+
+                val modeGate = findModeGate(rule.condition.expression, resolved)
+                if (modeGate != null) {
+                    val modeWidget = resolved[modeGate.first]?.second
+                        ?: return@mapNotNull null
+                    if (!isControllable(modeWidget)) return@mapNotNull null
+
+                    val currentMode = normalizeValue(modeWidget.value)
+                    return@mapNotNull if (valuesEquivalent(currentMode, modeGate.second)) {
+                        emptyList<ScenarioPrerequisite>()
+                    } else {
+                        listOf(
+                            ScenarioPrerequisite(
+                                deviceId = resolved[modeGate.first]!!.first,
+                                widgetId = modeGate.first,
+                                value = modeGate.second,
+                                reason = humanRequirement(modeWidget, modeGate.second)
+                            )
+                        )
+                    }
+                }
 
                 if (IoTScenarioEvaluator.evaluate(rule.condition.expression, context).isTruthy()) {
                     return@mapNotNull emptyList<ScenarioPrerequisite>()
@@ -993,54 +969,6 @@ object IoTScenarioCommandPlanner {
                         if (isActuatorWidget(widget, stateValue)) return@mapNotNull null
 
                         stateAction.targetId to stateValue
-                    }
-                }
-            }
-        }.distinct()
-
-        return candidates.singleOrNull()
-    }
-
-    private fun resolveLogicalTargetFromActuator(
-        targetWidgetId: String,
-        desiredValue: String,
-        devices: List<com.yasn198020.aicontrol.core.Device>,
-        models: List<Pair<StoredDeviceScenario, DeviceScenarioModel>>
-    ): Pair<String, String>? {
-        if (normalizeValue(desiredValue) != "1") return null
-
-        val byId = devices
-            .flatMap { device -> device.widgets.map { it.id to (device.id to it) } }
-            .groupBy { it.first }
-
-        val candidates = models.flatMap { (_, model) ->
-            model.rules.flatMap { rule ->
-                val actuatorWritten = rule.actions.any { action ->
-                    action.targetId == targetWidgetId &&
-                        literalValue(action.expression)?.let { normalizeValue(it) == "1" } == true
-                }
-                if (!actuatorWritten) {
-                    emptyList<Pair<String, String>>()
-                } else {
-                    rule.actions.mapNotNull { stateAction ->
-                        if (stateAction.targetId == targetWidgetId) return@mapNotNull null
-
-                        val value = literalValue(stateAction.expression)?.let(::normalizeValue)
-                            ?: return@mapNotNull null
-                        if (value != "0" && value != "1") return@mapNotNull null
-
-                        val resolved = byId[stateAction.targetId]
-                        if (resolved == null || resolved.size != 1) return@mapNotNull null
-
-                        val widget = resolved.single().second.second
-                        if (!isControllable(widget)) return@mapNotNull null
-                        if (isActuatorWidget(widget, value)) return@mapNotNull null
-
-                        if (findEquality(rule.condition.expression, stateAction.targetId) == null) {
-                            return@mapNotNull null
-                        }
-
-                        stateAction.targetId to value
                     }
                 }
             }
@@ -1362,24 +1290,31 @@ object IoTScenarioCommandPlanner {
         expression: IoTExpr,
         resolved: Map<String, Pair<String, com.yasn198020.aicontrol.core.WidgetState>>
     ): Triple<String, String, String>? {
+        fun isModeWidget(widget: com.yasn198020.aicontrol.core.WidgetState): Boolean {
+            val text = (widget.id + " " + widget.title).lowercase()
+            return listOf("режим", "автомат", "ручн", "управлен", "mode").any { text.contains(it) }
+        }
+
         fun visit(e: IoTExpr): Triple<String, String, String>? {
             return when (e) {
                 is IoTExpr.Binary -> {
                     if (e.operator == "==") {
                         val left = e.left as? IoTExpr.Variable
                         val right = literalValue(e.right)
-                        if (left != null && right == "0" &&
-                            resolved[left.name]?.second?.let(::isControllable) == true
-                        ) {
-                            return Triple(left.name, "1", "1")
+                        if (left != null && right == "0") {
+                            val widget = resolved[left.name]?.second
+                            if (widget != null && isControllable(widget) && isModeWidget(widget)) {
+                                return Triple(left.name, "1", "0")
+                            }
                         }
 
                         val rightVar = e.right as? IoTExpr.Variable
                         val leftLiteral = literalValue(e.left)
-                        if (rightVar != null && leftLiteral == "0" &&
-                            resolved[rightVar.name]?.second?.let(::isControllable) == true
-                        ) {
-                            return Triple(rightVar.name, "1", "1")
+                        if (rightVar != null && leftLiteral == "0") {
+                            val widget = resolved[rightVar.name]?.second
+                            if (widget != null && isControllable(widget) && isModeWidget(widget)) {
+                                return Triple(rightVar.name, "1", "0")
+                            }
                         }
                     }
                     visit(e.left) ?: visit(e.right)
