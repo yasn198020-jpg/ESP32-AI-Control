@@ -453,11 +453,15 @@ class MarfaCommandEngine {
     }
 
     private fun controlReply(action: ActionSpec, title: String, delay: Long, count: Int): String {
+        val cleanTitle = title
+            .replace(Regex("""(?i)\b(?:закрыта|закрыто|закрыт|открыта|открыто|открыт)\b"""), " ")
+            .replace(Regex("""\s+"""), " ")
+            .trim()
+            .ifBlank { title }
         val base = if (count > 1) "${action.reply}: выполняю $count элемента"
-        else "${action.reply}: ${title}"
+        else "${action.reply}: ${cleanTitle}"
         return if (delay > 0L) "${base} через ${formatDelay(delay)}" else base
     }
-
     private fun valueSpeech(widget: WidgetState): String {
         val title = widget.title.ifBlank { widget.id }
         val raw = widget.value.trim()
