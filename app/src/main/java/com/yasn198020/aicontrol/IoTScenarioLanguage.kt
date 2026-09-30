@@ -584,6 +584,11 @@ data class ScenarioCommandPlan(
 )
 
 object IoTScenarioCommandPlanner {
+    private data class Requirement(
+        val widgetName: String,
+        val value: String
+    )
+
     fun plan(
         targetDeviceId: String,
         targetWidgetId: String,
@@ -596,24 +601,36 @@ object IoTScenarioCommandPlanner {
             listOf(LocalCommandActionItem(targetDeviceId, targetWidgetId, desiredValue))
         }
 
-        fun widgetsFor(ids: List<String>): Map<String, Pair<String, com.yasn198020.aicontrol.core.WidgetState>> {
+        /*
+         * A stored scenario is a semantic model, not a binding to one physical device.
+         * Resolve every identifier mentioned by the scenario and prefer the target
+         * device when an identifier exists on several devices.
+         */
+        fun resolveWidgets(ids: Set<String>): Map<String, Pair<String, com.yasn198020.aicontrol.core.WidgetState>> {
+            val all = devices.flatMap { device ->
+                device.widgets.map { widget -> widget.id to (device.id to widget) }
+            }
             return ids.mapNotNull { id ->
-                val matches = devices.flatMap { device ->
-                    device.widgets.filter { it.id == id }.map { device.id to it }
-                }
-                if (matches.size == 1) id to matches.first() else null
+                val matches = all.filter { it.first == id }.map { it.second }
+                val preferred = matches.firstOrNull { it.first == targetDeviceId }
+                val selected = preferred ?: matches.singleOrNull()
+                selected?.let { id to it }
             }.toMap()
         }
 
         val candidates = models.flatMap { (stored, model) ->
-            val resolved = widgetsFor(stored.sensorIds)
-            if (resolved.isEmpty()) return@flatMap emptyList<Pair<String, Pair<DeviceScenarioRule, List<ScenarioPrerequisite>>>>()
+            if (model.parserErrors.isNotEmpty()) return@flatMap emptyList<List<ScenarioPrerequisite>>()
+
+            // sensorIds is legacy/optional metadata. The parsed model is authoritative.
+            val ids = (stored.sensorIds + model.identifiers).toSet()
+            val resolved = resolveWidgets(ids)
+            if (resolved.isEmpty()) return@flatMap emptyList<List<ScenarioPrerequisite>>()
 
             val variables = resolved.mapValues { it.value.second.value }
             val context = IoTScenarioEvaluationContext(variables)
 
             model.rules.mapNotNull { rule ->
-                val action = rule.actions.firstOrNull {
+                val matchingAction = rule.actions.firstOrNull {
                     it.targetId == targetWidgetId &&
                         valueMatchesDesired(it.expression, desiredValue, context)
                 } ?: return@mapNotNull null
@@ -624,70 +641,227 @@ object IoTScenarioCommandPlanner {
 
                 val conditionNow = IoTScenarioEvaluator.evaluate(rule.condition.expression, context)
                 if (conditionNow.isTruthy()) {
-                    return@mapNotNull targetDeviceId to (rule to emptyList())
+                    return@mapNotNull emptyList<ScenarioPrerequisite>()
                 }
 
-                val prerequisites = extractEqualityPrerequisites(rule.condition.expression)
-                    .mapNotNull { (name, value) ->
-                        val resolvedWidget = resolved[name] ?: return@mapNotNull null
-                        val widget = resolvedWidget.second
-                        val controllable =
-                            widget.type == com.yasn198020.aicontrol.core.WidgetState.Type.TOGGLE ||
-                                widget.type == com.yasn198020.aicontrol.core.WidgetState.Type.BUTTON ||
-                                widget.type == com.yasn198020.aicontrol.core.WidgetState.Type.INPUT
-                        if (!controllable) return@mapNotNull null
+                val requirementCandidates = deriveRequirementCandidates(
+                    rule.condition.expression,
+                    context
+                )
 
-                        val current = widget.value.replace(',', '.').toDoubleOrNull()
-                        if (current != null && kotlin.math.abs(current - value.toDouble()) < 0.000001) {
+                requirementCandidates.mapNotNull { requirements ->
+                    requirements.mapNotNull { requirement ->
+                        val resolvedWidget = resolved[requirement.widgetName] ?: return@mapNotNull null
+                        val widget = resolvedWidget.second
+                        if (!isControllable(widget)) return@mapNotNull null
+
+                        val current = normalizeValue(widget.value)
+                        if (valuesEquivalent(current, normalizeValue(requirement.value))) {
                             null
                         } else {
                             ScenarioPrerequisite(
-                                resolvedWidget.first,
-                                widget.id,
-                                value.stripTrailingZeros().toPlainString(),
-                                name + " должно быть " + value.toPlainString()
+                                deviceId = resolvedWidget.first,
+                                widgetId = widget.id,
+                                value = requirement.value,
+                                reason = humanRequirement(widget, requirement.value)
                             )
                         }
-                    }
+                    }.distinctBy { it.deviceId + "/" + it.widgetId + "/" + it.value }
+                }.mapNotNull { prerequisites ->
+                    val simulated = variables.toMutableMap()
+                    prerequisites.forEach { simulated[it.widgetId] = it.value }
 
-                if (prerequisites.isEmpty()) return@mapNotNull null
-
-                val simulated = variables.toMutableMap()
-                prerequisites.forEach { simulated[it.widgetId] = it.value }
-                val after = IoTScenarioEvaluator.evaluate(
-                    rule.condition.expression,
-                    IoTScenarioEvaluationContext(simulated)
-                )
-                if (!after.isTruthy()) return@mapNotNull null
-
-                targetDeviceId to (rule to prerequisites)
+                    val after = IoTScenarioEvaluator.evaluate(
+                        rule.condition.expression,
+                        IoTScenarioEvaluationContext(simulated)
+                    )
+                    if (after.isTruthy()) prerequisites else null
+                }.minByOrNull { it.size }
             }
         }
 
         if (candidates.isEmpty()) return ScenarioCommandPlan(base)
 
-        val minCount = candidates.minOf { it.second.second.size }
-        val bestPlans = candidates
-            .filter { it.second.second.size == minCount }
-            .map { it.second.second.distinctBy { p -> p.deviceId + "/" + p.widgetId + "/" + p.value } }
+        val uniquePlans = candidates
+            .map { it.distinctBy { p -> p.deviceId + "/" + p.widgetId + "/" + p.value } }
             .distinctBy { plan ->
-                plan.joinToString("|") { p -> p.deviceId + "/" + p.widgetId + "=" + p.value }
+                plan.joinToString("|") { p ->
+                    p.deviceId + "/" + p.widgetId + "=" + p.value
+                }
             }
+
+        val minCount = uniquePlans.minOf { it.size }
+        val bestPlans = uniquePlans.filter { it.size == minCount }
 
         if (bestPlans.size > 1) {
             return ScenarioCommandPlan(
                 actions = base,
-                blockedReason = "В импортированных сценариях есть несколько одинаково подходящих вариантов для этой команды."
+                blockedReason = "Не удалось однозначно определить зависимость команды: найдено несколько подходящих условий."
             )
         }
 
-        val prerequisites = bestPlans.firstOrNull().orEmpty()
+        val prerequisites = bestPlans.singleOrNull().orEmpty()
         val actions = (prerequisites.map {
             LocalCommandActionItem(it.deviceId, it.widgetId, it.value)
         } + base).distinctBy {
             it.deviceId + "/" + it.widgetId + "/" + it.value
         }
+
+        DiagnosticTrace.system(
+            "MARFA dependency plan target=" + targetWidgetId +
+                " prerequisites=" + prerequisites.joinToString(",") {
+                    it.widgetId + "=" + it.value
+                }
+        )
+
         return ScenarioCommandPlan(actions, prerequisites)
+    }
+
+    private fun isControllable(
+        widget: com.yasn198020.aicontrol.core.WidgetState
+    ): Boolean =
+        widget.type == com.yasn198020.aicontrol.core.WidgetState.Type.TOGGLE ||
+            widget.type == com.yasn198020.aicontrol.core.WidgetState.Type.BUTTON ||
+            widget.type == com.yasn198020.aicontrol.core.WidgetState.Type.INPUT
+
+    private fun humanRequirement(
+        widget: com.yasn198020.aicontrol.core.WidgetState,
+        value: String
+    ): String {
+        val title = widget.title.trim().ifBlank { widget.id }
+        return "«" + title + "» должно быть " + value
+    }
+
+    private fun normalizeValue(value: String): String =
+        value.trim().replace(',', '.')
+
+    private fun valuesEquivalent(actual: String, expected: String): Boolean {
+        val a = normalizeValue(actual).toDoubleOrNull()
+        val e = normalizeValue(expected).toDoubleOrNull()
+        return if (a != null && e != null) {
+            kotlin.math.abs(a - e) < 0.000001
+        } else {
+            actual.trim() == expected.trim()
+        }
+    }
+
+    /**
+     * Produces alternative sets of writes that can make a currently-false condition true.
+     *
+     * Only deterministic requirements are returned:
+     *  - A == literal
+     *  - A != literal when A is currently equal to that literal and the opposite 0/1
+     *    value is unambiguous
+     *  - !A for boolean/numeric A
+     *  - AND combines both sides
+     *  - OR keeps both alternatives and the caller chooses the cheapest valid one
+     *
+     * Sensors are still prevented from becoming write actions later by isControllable().
+     */
+    private fun deriveRequirementCandidates(
+        expression: IoTExpr,
+        context: IoTScenarioEvaluationContext
+    ): List<List<Requirement>> {
+        if (IoTScenarioEvaluator.evaluate(expression, context).isTruthy()) {
+            return listOf(emptyList())
+        }
+
+        fun variableAndLiteral(
+            left: IoTExpr,
+            right: IoTExpr
+        ): Pair<String, String>? {
+            val variable = left as? IoTExpr.Variable ?: return null
+            val literal = literalValue(right) ?: return null
+            return variable.name to literal
+        }
+
+        fun visit(expr: IoTExpr): List<List<Requirement>> = when (expr) {
+            is IoTExpr.Binary -> when (expr.operator) {
+                "&" -> {
+                    val left = visit(expr.left)
+                    val right = visit(expr.right)
+                    if (left.isEmpty() || right.isEmpty()) emptyList()
+                    else left.flatMap { l -> right.map { r -> (l + r).distinctBy { it.widgetName + "=" + it.value } } }
+                }
+                "|" -> {
+                    visit(expr.left) + visit(expr.right)
+                }
+                "==" -> {
+                    val pair = variableAndLiteral(expr.left, expr.right)
+                        ?: variableAndLiteral(expr.right, expr.left)
+                    pair?.let { listOf(listOf(Requirement(it.first, it.second))) }.orEmpty()
+                }
+                "!=" -> {
+                    val pair = variableAndLiteral(expr.left, expr.right)
+                        ?: variableAndLiteral(expr.right, expr.left)
+                    if (pair == null) emptyList()
+                    else {
+                        val current = context.variables[pair.first]?.trim()?.replace(',', '.')
+                        val required = pair.second.trim().replace(',', '.')
+                        if (current == null || !valuesEquivalent(current, required)) {
+                            listOf(emptyList())
+                        } else {
+                            val opposite = when (required.toDoubleOrNull()) {
+                                0.0 -> "1"
+                                1.0 -> "0"
+                                else -> null
+                            }
+                            opposite?.let { listOf(listOf(Requirement(pair.first, it))) }.orEmpty()
+                        }
+                    }
+                }
+                else -> emptyList()
+            }
+            is IoTExpr.Unary -> {
+                if (expr.operator != "!") emptyList()
+                else when (val inner = expr.expression) {
+                    is IoTExpr.Variable -> {
+                        val current = context.variables[inner.name]?.trim()?.replace(',', '.')
+                        if (current.isNullOrBlank()) emptyList()
+                        else if (isFalseValue(current)) listOf(emptyList())
+                        else listOf(listOf(Requirement(inner.name, "0")))
+                    }
+                    else -> {
+                        // !(A == 1) is equivalent to A != 1 only when the literal is usable.
+                        val innerCandidates = visit(inner)
+                        innerCandidates
+                            .filter { it.size == 1 }
+                            .mapNotNull { reqs ->
+                                val req = reqs.singleOrNull() ?: return@mapNotNull null
+                                val number = req.value.toDoubleOrNull() ?: return@mapNotNull null
+                                when (number) {
+                                    0.0 -> listOf(Requirement(req.widgetName, "1"))
+                                    1.0 -> listOf(Requirement(req.widgetName, "0"))
+                                    else -> null
+                                }
+                            }
+                    }
+                }
+            }
+            else -> emptyList()
+        }
+
+        return visit(expression)
+            .map { it.distinctBy { req -> req.widgetName + "=" + req.value } }
+            .distinctBy { it.joinToString("|") { req -> req.widgetName + "=" + req.value } }
+    }
+
+    private fun isFalseValue(value: String): Boolean {
+        val numeric = value.toDoubleOrNull()
+        return numeric != null && kotlin.math.abs(numeric) < 0.000001 ||
+            value.equals("false", ignoreCase = true) ||
+            value.isBlank()
+    }
+
+    private fun literalValue(expression: IoTExpr): String? = when (expression) {
+        is IoTExpr.NumberLiteral ->
+            java.math.BigDecimal.valueOf(expression.value).stripTrailingZeros().toPlainString()
+        is IoTExpr.StringLiteral -> expression.value
+        is IoTExpr.Unary ->
+            if (expression.operator == "-") {
+                literalValue(expression.expression)?.toBigDecimalOrNull()?.negate()?.stripTrailingZeros()?.toPlainString()
+            } else null
+        else -> null
     }
 
     private fun valueMatchesDesired(
@@ -700,35 +874,6 @@ object IoTScenarioCommandPlanner {
         val d = desired.replace(',', '.').toDoubleOrNull()
         return if (e != null && d != null) kotlin.math.abs(e - d) < 0.000001
         else (expected as? IoTValue.Text)?.value == desired
-    }
-
-    private fun extractEqualityPrerequisites(
-        expr: IoTExpr
-    ): List<Pair<String, java.math.BigDecimal>> {
-        val out = mutableListOf<Pair<String, java.math.BigDecimal>>()
-        fun visit(e: IoTExpr) {
-            when (e) {
-                is IoTExpr.Binary -> {
-                    if (e.operator == "&") {
-                        visit(e.left)
-                        visit(e.right)
-                    } else if (e.operator == "==") {
-                        val name = (e.left as? IoTExpr.Variable)?.name
-                        val value = literalNumber(e.right)
-                        if (name != null && value != null) out += name to value
-                    }
-                }
-                else -> Unit
-            }
-        }
-        visit(expr)
-        return out
-    }
-
-    private fun literalNumber(expr: IoTExpr): java.math.BigDecimal? = when (expr) {
-        is IoTExpr.NumberLiteral -> expr.value.toString().toBigDecimalOrNull()
-        is IoTExpr.Unary -> if (expr.operator == "-") literalNumber(expr.expression)?.negate() else null
-        else -> null
     }
 }
 
