@@ -376,7 +376,7 @@ class IoTScenarioLanguageTest {
             desiredValue = "0",
             baseActions = listOf(LocalCommandActionItem("greenhouse", "vbtn78", "0")),
             devices = devices,
-            models = listOf(StoredDeviceScenario("Дверь", source) to model)
+            models = listOf(StoredDeviceScenario(title = "Дверь", source = source) to model)
         )
 
         assertEquals(
@@ -424,8 +424,10 @@ class IoTScenarioLanguageTest {
             )
         )
 
-        assertTrue(plan.blockedReason != null || plan.actions.isEmpty(),
-            "Duplicate element ID must never be resolved by targetDeviceId: " + plan)
+        assertTrue(
+            "Duplicate element ID must never be resolved by targetDeviceId: " + plan,
+            plan.blockedReason != null || plan.actions.isEmpty()
+        )
     }
 
     @Test
@@ -465,8 +467,11 @@ class IoTScenarioLanguageTest {
             )
         )
 
-        assertEquals(listOf("DOOR"), plan.actions.map { it.widgetId },
-            "An actuator on another ESP must not become Marfa's command")
+        assertEquals(
+            "An actuator on another ESP must not become Marfa's command",
+            listOf("DOOR"),
+            plan.actions.map { it.widgetId }
+        )
     }
 
 
@@ -499,7 +504,7 @@ class IoTScenarioLanguageTest {
             "1",
             listOf(LocalCommandActionItem("door-esp", "vbtn78", "1")),
             devices,
-            listOf(StoredDeviceScenario("Дверь", source) to model)
+            listOf(StoredDeviceScenario(title = "Дверь", source = source) to model)
         )
 
         assertEquals(listOf("vbtn90", "vbtn78"), plan.actions.map { it.widgetId })
@@ -552,9 +557,9 @@ class IoTScenarioLanguageTest {
         )
 
         assertEquals(
+            "Physical btn43 must never become Marfa's direct command",
             listOf("vbtn90", "vbtn78"),
-            result.actions.map { it.widgetId },
-            "Physical btn43 must never become Marfa's direct command"
+            result.actions.map { it.widgetId }
         )
         assertEquals(listOf("1", "1"), result.actions.map { it.value })
         assertEquals("vbtn90", result.prerequisites[0].widgetId)
