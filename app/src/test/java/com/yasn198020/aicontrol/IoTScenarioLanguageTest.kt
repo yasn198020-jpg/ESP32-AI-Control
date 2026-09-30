@@ -133,8 +133,8 @@ class IoTScenarioLanguageTest {
         )
 
         assertEquals(listOf("MODE", "TARGET"), plan.actions.map { it.widgetId })
-        assertEquals("0", plan.actions.first().value)
-        assertEquals("«Автоматический режим» должно быть 0", plan.prerequisites.single().reason)
+        assertEquals("1", plan.actions.first().value)
+        assertEquals("MODE", plan.prerequisites.single().widgetId)
     }
 
     @Test
@@ -467,6 +467,45 @@ class IoTScenarioLanguageTest {
 
         assertEquals(listOf("DOOR"), plan.actions.map { it.widgetId },
             "An actuator on another ESP must not become Marfa's command")
+    }
+
+
+    @Test
+    fun plannerSwitchesAutomaticGateToManualBeforeActuatorCommand() {
+        val devices = listOf(
+            Device(
+                "door-esp",
+                "Дверь",
+                true,
+                listOf(
+                    WidgetState("vbtn90", "Ручной режим", WidgetState.Type.TOGGLE, "0"),
+                    WidgetState("vbtn78", "закрыта открыта дверь", WidgetState.Type.TOGGLE, "0"),
+                    WidgetState("btn43", "открыть дверь", WidgetState.Type.BUTTON, "0"),
+                    WidgetState("btn42", "закрыть дверь", WidgetState.Type.BUTTON, "0")
+                )
+            )
+        )
+        val source = """
+            if vbtn90 == 0 then {
+                if vbtn78 == 0 then { btn43 = 1; vbtn78 = 1; }
+                if vbtn78 == 1 then { btn42 = 1; vbtn78 = 0; }
+            }
+        """.trimIndent()
+        val model = IoTScenarioSemanticAnalyzer.analyze(IoTScenarioParser.parse(source))
+
+        val plan = IoTScenarioCommandPlanner.plan(
+            "door-esp",
+            "vbtn78",
+            "1",
+            listOf(LocalCommandActionItem("door-esp", "vbtn78", "1")),
+            devices,
+            listOf(StoredDeviceScenario("Дверь", source) to model)
+        )
+
+        assertEquals(listOf("vbtn90", "vbtn78"), plan.actions.map { it.widgetId })
+        assertEquals(listOf("1", "1"), plan.actions.map { it.value })
+        assertEquals("vbtn90", plan.prerequisites.single().widgetId)
+        assertEquals("1", plan.prerequisites.single().value)
     }
 
 }
