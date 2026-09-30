@@ -174,6 +174,20 @@ class MarfaAnalyticalEngineTest {
     }
 
     @Test
+    fun arbitraryContextWordAlsoResolvesSensor() {
+        val result = MarfaAnalyticalEngine().resolveSensor(
+            "какая температура баклажана",
+            listOf(
+                Device("d1", "Дом", true, listOf(
+                    WidgetState("t1", "Температура", WidgetState.Type.VALUE, "24", page = "Огурцы", unit = "°C"),
+                    WidgetState("t2", "Температура", WidgetState.Type.VALUE, "25", page = "Баклажаны", unit = "°C")
+                ))
+            )
+        )
+        assertEquals("t2", result.candidate!!.widget.id)
+    }
+
+    @Test
     fun exactElementIdOverridesTitle() {
         val result = MarfaAnalyticalEngine().resolveControl(
             "открой дверь id door2",
