@@ -1057,7 +1057,7 @@ object DeviceScenarioModelFormatter {
         ) {
             when (statement) {
                 is IoTStatement.If -> {
-                    val ownCondition = conditionText(statement.condition.expression)
+                    val ownCondition = conditionText(statement.condition)
                     collectAssignments(statement.thenBranch, ownCondition, out)
                     statement.elseBranch?.let {
                         collectAssignments(it, "НЕ ($ownCondition)", out)
