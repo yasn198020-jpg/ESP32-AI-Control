@@ -33,6 +33,7 @@ import androidx.compose.material3.*
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -167,7 +168,9 @@ private fun App(
     var voiceStatus by remember { mutableStateOf("Нажмите 🎤 и скажите команду") }
     var pendingSmartRule by remember { mutableStateOf<LocalCommandResult?>(null) }
     var pendingControl by remember { mutableStateOf<LocalCommandResult?>(null) }
-    val localCommandManager = remember { LocalCommandManager() }
+    val marfaIntelligence = remember { MarfaIntelligence.get(context.applicationContext) }
+    val gemmaScope = rememberCoroutineScope()
+    var gemmaStatus by remember { mutableStateOf(marfaIntelligence.gemmaStatus()) }
     val speech = remember { TextToSpeech(context, null) }
     val trainedStore = remember { TrainedCommandStore(prefs) }
     val trainedMatcher = remember { TrainedCommandMatcher(trainedStore) }
@@ -286,6 +289,18 @@ private fun App(
     }
 
     fun addLog(message: String) { log = (log + message).takeLast(100) }
+
+    val pickGemmaModel = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            gemmaScope.launch {
+                gemmaStatus = "Импортирую Gemma…"
+                val imported = marfaIntelligence.importGemmaModel(uri)
+                gemmaStatus = imported.getOrElse { "Ошибка Gemma: " + (it.message ?: "не удалось импортировать") }
+            }
+        }
+    }
 
     val requestMicPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -596,7 +611,7 @@ private fun App(
 
         // Parse once only to detect smart rules. Existing trained phrases keep
         // priority for all ordinary commands, as they did in the stable build.
-        val result = localCommandManager.interpret(command, devices)
+        val result = marfaIntelligence.interpret(command, devices)
         android.util.Log.d(
             "MARFA_ENGINE",
             "command=" + command +
@@ -1144,6 +1159,8 @@ private fun App(
             else -> VoiceSettingsScreen(
                 Modifier.padding(padding), voicePreset, voiceRate, voicePitch,
                 availableVoices, selectedVoiceName,
+                gemmaStatus,
+                { pickGemmaModel.launch(arrayOf("*/*")) },
                 ::selectVoicePreset,
                 { voiceRate = it; voicePreset = "custom" },
                 { voicePitch = it; voicePreset = "custom" },
@@ -1469,6 +1486,8 @@ private fun VoiceSettingsScreen(
     pitch: Float,
     voices: List<android.speech.tts.Voice>,
     selectedVoiceName: String,
+    gemmaStatus: String,
+    onImportGemma: () -> Unit,
     onPreset: (String) -> Unit,
     onRate: (Float) -> Unit,
     onPitch: (Float) -> Unit,
@@ -1497,6 +1516,17 @@ private fun VoiceSettingsScreen(
     ) {
         Text("Голос", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
         Text("Выберите голос из установленных на телефоне.")
+
+        HorizontalDivider()
+        Text("Марфа — локальная Gemma", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Text(
+            "Gemma понимает естественную речь и контекст. Модель работает на телефоне и не управляет MQTT напрямую.",
+            style = MaterialTheme.typography.bodySmall
+        )
+        Text(gemmaStatus, style = MaterialTheme.typography.bodySmall)
+        Button(onClick = onImportGemma, modifier = Modifier.fillMaxWidth()) {
+            Text("Импортировать модель GGUF")
+        }
 
         Text("Установленный голос", fontWeight = FontWeight.Medium)
         Box(Modifier.fillMaxWidth()) {
