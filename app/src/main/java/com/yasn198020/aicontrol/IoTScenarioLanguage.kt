@@ -802,31 +802,22 @@ object IoTScenarioCommandPlanner {
                         }.distinctBy { it.deviceId + "/" + it.widgetId + "/" + it.value }
 
                         /*
-                         * Validate only the explicitly requested state and
-                         * controllable prerequisites. Sensor expressions are
-                         * observed conditions, not commands.
+                         * Validate the commandable part of the branch only.
+                         * IoTManager may also contain sensor/internal predicates
+                         * (temperature, helper variables, timers). Those are
+                         * runtime conditions and must never block the voice plan
+                         * or become MQTT writes.
                          */
-                        val simulated = variables.toMutableMap()
-                        filtered.forEach { simulated[it.widgetId] = it.value }
-                        simulated[targetWidgetId] = targetDesired
-
-                        val conditionAfter = IoTScenarioEvaluator.evaluate(
-                            rule.condition.expression,
-                            IoTScenarioEvaluationContext(simulated)
+                        result += filtered + ScenarioPrerequisite(
+                            deviceId = actionTargetDeviceId(action, resolved, targetDeviceId),
+                            widgetId = action.targetId,
+                            value = literalValue(action.expression) ?: targetDesired,
+                            reason = "Сценарий: после установки «" +
+                                (resolved[targetWidgetId]?.second?.title?.ifBlank { targetWidgetId } ?: targetWidgetId) +
+                                "» срабатывает «" +
+                                (resolved[action.targetId]?.second?.title?.ifBlank { action.targetId } ?: action.targetId) +
+                                "»"
                         )
-
-                        if (conditionAfter.isTruthy()) {
-                            result += filtered + ScenarioPrerequisite(
-                                deviceId = actionTargetDeviceId(action, resolved, targetDeviceId),
-                                widgetId = action.targetId,
-                                value = literalValue(action.expression) ?: targetDesired,
-                                reason = "Сценарий: после установки «" +
-                                    (resolved[targetWidgetId]?.second?.title?.ifBlank { targetWidgetId } ?: targetWidgetId) +
-                                    "» срабатывает «" +
-                                    (resolved[action.targetId]?.second?.title?.ifBlank { action.targetId } ?: action.targetId) +
-                                    "»"
-                            )
-                        }
                     }
                 }
             }
