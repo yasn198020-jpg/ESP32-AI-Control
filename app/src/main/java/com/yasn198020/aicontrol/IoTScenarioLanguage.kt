@@ -1250,10 +1250,29 @@ object IoTScenarioCommandPlanner {
                              * A branch guarded by MODE == 0 is the automatic
                              * branch. A voice command must explicitly enter
                              * manual mode (MODE = 1) before changing the
-                             * logical state. Do not copy the scenario's
-                             * automatic prerequisite MODE = 0 into Marfa.
+                             * logical state. Even when the automatic branch
+                             * is already true right now, MODE = 0 is not a
+                             * valid voice-command prerequisite: Marfa must
+                             * switch the gate to the manual value first.
                              */
                             val modeGate = findModeGate(rule.condition.expression, resolved)
+
+                            if (modeGate != null) {
+                                val modeResolved = resolved[modeGate.first]
+                                if (modeResolved == null || modeResolved.first != targetDeviceId) {
+                                    return@mapNotNull null
+                                }
+                                val modeWidget = modeResolved.second
+                                if (!isControllable(modeWidget)) return@mapNotNull null
+                                if (!currentMatches(modeGate.first, modeGate.second)) {
+                                    actions += LocalCommandActionItem(
+                                        modeResolved.first,
+                                        modeGate.first,
+                                        modeGate.second
+                                    )
+                                }
+                                dependencies += modeGate.first
+                            }
 
                             reqs.forEach { req ->
                                 if (!valid) return@forEach
@@ -1262,15 +1281,16 @@ object IoTScenarioCommandPlanner {
                                     return@forEach
                                 }
 
-                                val requestedValue = if (
-                                    modeGate != null && req.widgetName == modeGate.first &&
-                                    normalizeValue(req.value) == "0"
-                                ) {
-                                    modeGate.second
-                                } else {
-                                    normalizeValue(req.value)
+                                /*
+                                 * The mode gate has already been converted to
+                                 * the manual value above. Never reintroduce the
+                                 * automatic value from the branch condition.
+                                 */
+                                if (modeGate != null && req.widgetName == modeGate.first) {
+                                    return@forEach
                                 }
 
+                                val requestedValue = normalizeValue(req.value)
                                 val child = resolveVariable(req.widgetName, requestedValue, emptySet())
                                 if (child == null) {
                                     val widget = resolved[req.widgetName]?.second
@@ -1284,36 +1304,15 @@ object IoTScenarioCommandPlanner {
                             if (!valid || dependencies.isEmpty()) return@mapNotNull null
 
                             /*
-                             * Always write the requested logical state in a
-                             * voice command. When automatic mode is being
-                             * disabled, the ESP scenario may need this write
-                             * to enter its manual action branch even when the
-                             * state value was already equal to the request.
+                             * Always write the requested logical state. This
+                             * follows all controllable prerequisites, so the
+                             * ESP scenario receives MODE=1 before STATE=1/0.
                              */
                             actions += LocalCommandActionItem(
                                 target.first,
                                 targetWidgetId,
                                 targetDesired
                             )
-
-                            /*
-                             * If the scenario has an automatic gate, the gate
-                             * itself is part of the executable manual chain.
-                             * This is what actually disables the automatic
-                             * branch on the ESP.
-                             */
-                            if (modeGate != null) {
-                                val modeWidget = resolved[modeGate.first]
-                                if (modeWidget != null && modeWidget.first == targetDeviceId) {
-                                    val modeAction = LocalCommandActionItem(
-                                        modeWidget.first,
-                                        modeGate.first,
-                                        modeGate.second
-                                    )
-                                    actions += modeAction
-                                    dependencies += modeGate.first
-                                }
-                            }
 
                             ChainResult(
                                 actions.distinctBy { it.deviceId + "/" + it.widgetId + "/" + it.value },
