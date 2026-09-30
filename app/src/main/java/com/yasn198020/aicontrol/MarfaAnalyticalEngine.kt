@@ -427,10 +427,10 @@ class MarfaAnalyticalEngine {
             "номер", "значение", "режим",
             "какая", "какое", "какие", "какую", "какой", "сколько",
             "покажи", "показать", "показывай", "скажи", "сказать", "узнай", "узнать",
-            "что", "там", "датчик", "датчики",
+            "что", "датчик", "датчики",
             "температура", "температуры", "температур", "темп", "темпа",
             "влажность", "влажности", "влажн", "давление", "давления", "давлен",
-            "реле", "реле", "выход", "выхода", "выходной", "выходного",
+            "реле", "выход", "выхода", "выходной", "выходного",
             "кнопка", "кнопки", "кнопку", "кнопкой", "gpio", "канал", "канала",
             "исполнитель", "исполнителя"
         )
@@ -444,6 +444,12 @@ class MarfaAnalyticalEngine {
             "шестьдесят", "семьдесят", "восемьдесят", "девяносто", "сто"
         )
 
+        val timeUnits = setOf(
+            "секунда", "секунды", "секунду", "секунд",
+            "минута", "минуты", "минуту", "минут", "мин",
+            "час", "часа", "часов", "ч"
+        )
+
         val entityAliases = aliases(detectEntityKind(normalize(text))).first.toSet()
         val knownIds = devices.asSequence()
             .flatMap { it.widgets.asSequence() }
@@ -451,16 +457,31 @@ class MarfaAnalyticalEngine {
             .filter { it.isNotBlank() }
             .toSet()
 
-        val normalizedText = normalize(text)
-        return tokenized(normalizedText)
-            .filterNot { it in actionWords || it in grammarWords }
-            .filterNot { it in numberWords && normalizedText.contains(Regex("\\b(it|двадцать)\\s+(?:минут|час)")) }
-            .filterNot { it.matches(Regex("\\d+")) }
-            .filterNot { it in knownIds }
+        val tokens = tokenized(normalize(text))
+        val durationNumberIndexes = buildSet {
+            tokens.indices.forEach { index ->
+                if (tokens[index] !in numberWords) return@forEach
+                var j = index + 1
+                var numberCount = 0
+                while (j < tokens.size && numberCount < 3 && tokens[j] in numberWords) {
+                    numberCount++
+                    j++
+                }
+                if (j < tokens.size && tokens[j] in timeUnits) {
+                    add(index)
+                    for (k in index + 1 until j) add(k)
+                }
+            }
+        }
+
+        return tokens.withIndex()
+            .filterNot { it.value in actionWords || it.value in grammarWords }
+            .filterNot { it.value.matches(Regex("\\d+")) }
+            .filterNot { it.index in durationNumberIndexes }
+            .filterNot { it.value in knownIds }
             .filterNot { token -> entityAliases.any { alias -> token.startsWith(alias) } }
-            .filterNot { isSelectionToken(it) }
-            .filter { it.length >= 2 }
-            .map { token -> ContextToken(token, contextTokenKey(token)) }
+            .filter { it.value.length >= 2 }
+            .map { token -> ContextToken(token.value, contextTokenKey(token.value)) }
             .filter { it.key.isNotBlank() }
     }
 
