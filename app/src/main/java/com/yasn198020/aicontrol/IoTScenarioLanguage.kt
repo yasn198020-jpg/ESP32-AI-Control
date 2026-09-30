@@ -940,24 +940,31 @@ object IoTScenarioCommandPlanner {
         expression: IoTExpr,
         resolved: Map<String, Pair<String, com.yasn198020.aicontrol.core.WidgetState>>
     ): Triple<String, String, String>? {
-        fun visit(e: IoTExpr): Triple<String, String, String>? = when (e) {
-            is IoTExpr.Binary -> {
-                if (e.operator == "==" ) {
-                    val left = e.left as? IoTExpr.Variable
-                    val right = literalValue(e.right)
-                    if (left != null && right == "0" && resolved[left.name]?.second?.let(::isControllable) == true) {
-                        return Triple(left.name, "1", "1")
+        fun visit(e: IoTExpr): Triple<String, String, String>? {
+            return when (e) {
+                is IoTExpr.Binary -> {
+                    if (e.operator == "==") {
+                        val left = e.left as? IoTExpr.Variable
+                        val right = literalValue(e.right)
+                        if (left != null && right == "0" &&
+                            resolved[left.name]?.second?.let(::isControllable) == true
+                        ) {
+                            return Triple(left.name, "1", "1")
+                        }
+
+                        val rightVar = e.right as? IoTExpr.Variable
+                        val leftLiteral = literalValue(e.left)
+                        if (rightVar != null && leftLiteral == "0" &&
+                            resolved[rightVar.name]?.second?.let(::isControllable) == true
+                        ) {
+                            return Triple(rightVar.name, "1", "1")
+                        }
                     }
-                    val rightVar = e.right as? IoTExpr.Variable
-                    val leftLiteral = literalValue(e.left)
-                    if (rightVar != null && leftLiteral == "0" && resolved[rightVar.name]?.second?.let(::isControllable) == true) {
-                        return Triple(rightVar.name, "1", "1")
-                    }
+                    visit(e.left) ?: visit(e.right)
                 }
-                visit(e.left) ?: visit(e.right)
+                is IoTExpr.Unary -> visit(e.expression)
+                else -> null
             }
-            is IoTExpr.Unary -> visit(e.expression)
-            else -> null
         }
         return visit(expression)
     }
