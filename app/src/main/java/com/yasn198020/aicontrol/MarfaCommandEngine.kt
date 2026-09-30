@@ -216,8 +216,20 @@ class MarfaCommandEngine {
         if (candidates.isEmpty()) return null
         val best = candidates.first()
         val second = candidates.getOrNull(1) ?: return best
-        // Generic equal matches are ambiguous; strong exact-title matches are safe.
+
+        // Never resolve two otherwise equivalent elements by list order.
+        // Element IDs are the real identity; page is the human-visible
+        // discriminator. If the command did not identify the page (and did
+        // not name the exact ID), equal-name elements remain ambiguous.
+        if (sameEntity(best.widget, second.widget)) return null
+
         return if (best.score == second.score && best.score < 24) null else best
+    }
+
+    private fun sameEntity(a: WidgetState, b: WidgetState): Boolean {
+        if (a.id == b.id) return true
+        return searchable(a.title) == searchable(b.title) &&
+            searchable(a.page) == searchable(b.page)
     }
 
     private fun chooseSensor(candidates: List<Candidate>): Candidate? {
@@ -349,7 +361,18 @@ class MarfaCommandEngine {
             if (s.length >= 4 && deviceText.contains(s)) score += 3
         }
 
-        if (text.contains(searchable(widget.id))) score += 35
+        // An explicitly spoken element ID is authoritative.
+        val normalizedId = searchable(widget.id)
+        if (normalizedId.isNotBlank() && text.split(" ").any { searchable(it) == normalizedId }) {
+            score += 1000
+        }
+
+        // Page is part of widget identity for human-language resolution.
+        // Equal titles on different pages must not be collapsed together.
+        val explicitPage = explicitPageText(text)
+        if (explicitPage != null && page == explicitPage) score += 100
+        else if (explicitPage != null && page.isNotBlank()) score -= 30
+
         return score
     }
 
@@ -398,6 +421,13 @@ class MarfaCommandEngine {
                 (if (explicitPhysical && !isStateIndicator) 45 else 0)
             else -> if (isStateIndicator && !explicitPhysical) 10 else 0
         }
+    }
+
+    private fun explicitPageText(text: String): String? {
+        val match = Regex(
+            """(?:на\s+страниц(?:е|у)|во\s+вкладк(?:е|у)|в\s+вкладк(?:е|у)|страниц(?:а|у)|вкладк(?:а|у))\s+(.+?)(?=\s+(?:и|открой|открыть|закрой|закрыть|включи|выключи|через|сейчас)\\b|$)"""
+        ).find(text) ?: return null
+        return searchable(match.groupValues[1]).trim()
     }
 
     private fun contextScore(text: String, title: String, page: String, deviceText: String): Int {
