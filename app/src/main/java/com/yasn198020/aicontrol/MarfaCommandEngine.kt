@@ -42,7 +42,7 @@ class MarfaCommandEngine {
         val action = detectAction(text)
         if (action != null) {
             val time = parseTime(text)
-            val candidates = rankControllable(text, devices)
+            val candidates = rankControllable(text, devices, action.value)
             if (candidates.isEmpty()) {
                 return remember(LocalCommandResult(
                     LocalCommandAction.CLARIFY,
@@ -157,7 +157,7 @@ class MarfaCommandEngine {
             .trim(' ', ',', '.', ':', ';', '-')
 
         val action = detectAction(tail) ?: detectAction(text) ?: return null
-        val target = chooseCandidate(rankControllable(tail.ifBlank { text }, devices)) ?: return null
+        val target = chooseCandidate(rankControllable(tail.ifBlank { text }, devices, action.value)) ?: return null
 
         val sensorTitle = sensor.widget.title.ifBlank { sensor.widget.id }
         val targetTitle = target.widget.title.ifBlank { target.widget.id }
@@ -196,13 +196,19 @@ class MarfaCommandEngine {
         }.filter { it.score > 0 }
             .sortedWith(compareByDescending<Candidate> { it.score }.thenBy { it.widget.order }.thenBy { it.widget.title })
 
-    private fun rankControllable(text: String, devices: List<Device>): List<Candidate> =
+    private fun rankControllable(
+        text: String,
+        devices: List<Device>,
+        desiredValue: String? = null
+    ): List<Candidate> =
         devices.flatMap { d ->
             d.widgets.filter {
                 it.type == WidgetState.Type.TOGGLE ||
                     it.type == WidgetState.Type.BUTTON ||
                     it.type == WidgetState.Type.INPUT
-            }.map { w -> Candidate(d, w, entityScore(text, d, w)) }
+            }.map { w ->
+                Candidate(d, w, entityScore(text, d, w) + actionTargetScore(w, desiredValue))
+            }
         }.filter { it.score > 0 }
             .sortedWith(compareByDescending<Candidate> { it.score }.thenBy { it.widget.order }.thenBy { it.widget.title })
 
@@ -345,6 +351,25 @@ class MarfaCommandEngine {
 
         if (text.contains(searchable(widget.id))) score += 35
         return score
+    }
+
+    private fun actionTargetScore(widget: WidgetState, desiredValue: String?): Int {
+        if (desiredValue == null) return 0
+
+        val title = searchable(widget.title)
+        val hasOpen = containsAny(title, "открыть", "открой", "открыва", "распах", "поднять", "подъем")
+        val hasClose = containsAny(title, "закрыть", "закрой", "закрыва", "опустить", "опуск")
+        val isStateIndicator =
+            (title.contains("открыт") && title.contains("закрыт")) ||
+                containsAny(title, "состояние", "статус", "индикатор", "положение")
+
+        return when (desiredValue) {
+            "1" -> (if (hasOpen) 40 else 0) + (if (hasClose && !hasOpen) -18 else 0) +
+                (if (isStateIndicator) -30 else 0)
+            "0" -> (if (hasClose) 40 else 0) + (if (hasOpen && !hasClose) -18 else 0) +
+                (if (isStateIndicator) -30 else 0)
+            else -> if (isStateIndicator) -10 else 0
+        }
     }
 
     private fun contextScore(text: String, title: String, page: String, deviceText: String): Int {
