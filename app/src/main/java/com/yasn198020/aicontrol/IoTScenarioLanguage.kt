@@ -713,28 +713,33 @@ object IoTScenarioCommandPlanner {
         }
 
         val prerequisites = selectedPrerequisites
-        val actuator = prerequisites.firstOrNull {
-            it.deviceId == targetDeviceId &&
-                it.value == "1" &&
-                isActuatorId(it.widgetId, desiredValue, devices)
-        }
-        val realPrerequisites = prerequisites.filterNot { it === actuator }
 
+        /*
+         * The physical actuator is NOT part of Marfa's MQTT command.
+         * IoTManager owns the scenario execution:
+         *
+         *     vbtn78=1 -> scenario condition -> btn43=1
+         *
+         * Publishing btn43 here would make Marfa and IoTManager drive the
+         * same relay independently. That can cause duplicate actions and
+         * bypass the uploaded scenario's own conditions.
+         *
+         * Marfa therefore writes only controllable prerequisites and the
+         * requested logical state. The relay is discovered as the result
+         * of the scenario, not emitted as a second command.
+         */
         val actions = buildList {
-            addAll(realPrerequisites.map { LocalCommandActionItem(it.deviceId, it.widgetId, it.value) })
+            addAll(prerequisites.map { LocalCommandActionItem(it.deviceId, it.widgetId, it.value) })
             addAll(base)
-            actuator?.let {
-                add(LocalCommandActionItem(it.deviceId, it.widgetId, it.value))
-            }
         }.distinctBy { it.deviceId + "/" + it.widgetId + "/" + it.value }
 
         DiagnosticTrace.system(
             "MARFA dependency plan target=" + targetWidgetId +
                 " prerequisites=" + prerequisites.joinToString(",") { it.widgetId + "=" + it.value } +
-                " actions=" + actions.joinToString(",") { it.widgetId + "=" + it.value }
+                " commandActions=" + actions.joinToString(",") { it.widgetId + "=" + it.value }
         )
 
-        return ScenarioCommandPlan(actions, realPrerequisites)
+        return ScenarioCommandPlan(actions, prerequisites)
     }
 
     private fun buildReverseActuatorPlans(
