@@ -655,6 +655,58 @@ object IoTScenarioCommandPlanner {
         }
 
         /*
+         * MarfaCommandEngine may initially recognize a physical control widget
+         * by its title, for example "открыть дверь" -> btn43. This is only a
+         * surface-level match. Before planning, reverse-resolve such an
+         * actuator through the scenario to the logical state widget that the
+         * user actually controls (btn43 -> vbtn78=1).
+         *
+         * Element ID is the scenario identity. Device ID is used only as
+         * transport metadata after the element has been resolved uniquely.
+         */
+        val semanticTarget = resolveLogicalTargetFromActuator(
+            targetWidgetId = targetWidgetId,
+            desiredValue = desiredValue,
+            devices = devices,
+            models = allModels
+        )
+
+        val effectiveTargetWidgetId = semanticTarget?.first ?: targetWidgetId
+        val effectiveDesiredValue = semanticTarget?.second ?: desiredValue
+
+        val effectiveTargetMatch = devices
+            .flatMap { device ->
+                device.widgets
+                    .filter { it.id == effectiveTargetWidgetId }
+                    .map { device.id to it }
+            }
+            .singleOrNull()
+
+        if (effectiveTargetMatch == null) {
+            return ScenarioCommandPlan(
+                actions = base,
+                blockedReason = "Не удалось однозначно определить логический элемент команды."
+            )
+        }
+
+        val effectiveBase = if (semanticTarget != null) {
+            listOf(
+                LocalCommandActionItem(
+                    effectiveTargetMatch.first,
+                    effectiveTargetWidgetId,
+                    effectiveDesiredValue
+                )
+            )
+        } else {
+            base
+        }
+
+        DiagnosticTrace.system(
+            "MARFA semantic target original=" + targetWidgetId + "=" + normalizeValue(desiredValue) +
+                " resolved=" + effectiveTargetWidgetId + "=" + normalizeValue(effectiveDesiredValue)
+        )
+
+        /*
          * First try the generic dependency planner. This remains the fallback
          * for ordinary scenarios such as: if MODE == 1 then DOOR = 1.
          */
@@ -668,11 +720,11 @@ object IoTScenarioCommandPlanner {
 
             model.rules.mapNotNull { rule ->
                 val matchingAction = rule.actions.firstOrNull {
-                    it.targetId == targetWidgetId &&
-                        valueMatchesDesired(it.expression, desiredValue, context)
+                    it.targetId == effectiveTargetWidgetId &&
+                        valueMatchesDesired(it.expression, effectiveDesiredValue, context)
                 } ?: return@mapNotNull null
 
-                val targetResolved = resolved[targetWidgetId]
+                val targetResolved = resolved[effectiveTargetWidgetId]
                     ?: return@mapNotNull null
                 if (targetResolved.first != targetDeviceId) return@mapNotNull null
 
@@ -729,9 +781,9 @@ object IoTScenarioCommandPlanner {
          */
         val reverseCandidates = buildReverseActuatorPlans(
             targetDeviceId = targetDeviceId,
-            targetWidgetId = targetWidgetId,
-            desiredValue = desiredValue,
-            base = base,
+            targetWidgetId = effectiveTargetWidgetId,
+            desiredValue = effectiveDesiredValue,
+            base = effectiveBase,
             devices = devices,
             models = allModels,
             resolveWidgets = ::resolveWidgets
@@ -751,8 +803,8 @@ object IoTScenarioCommandPlanner {
          */
         val manualPlan = buildManualModeActuatorPlan(
             targetDeviceId = targetDeviceId,
-            targetWidgetId = targetWidgetId,
-            desiredValue = desiredValue,
+            targetWidgetId = effectiveTargetWidgetId,
+            desiredValue = effectiveDesiredValue,
             devices = devices,
             models = allModels,
             resolveWidgets = ::resolveWidgets
@@ -809,16 +861,80 @@ object IoTScenarioCommandPlanner {
          */
         val actions = buildList {
             addAll(prerequisites.map { LocalCommandActionItem(it.deviceId, it.widgetId, it.value) })
-            addAll(base)
+            addAll(effectiveBase)
         }.distinctBy { it.deviceId + "/" + it.widgetId + "/" + it.value }
 
         DiagnosticTrace.system(
-            "MARFA dependency plan target=" + targetWidgetId +
+            "MARFA dependency plan target=" + effectiveTargetWidgetId +
                 " prerequisites=" + prerequisites.joinToString(",") { it.widgetId + "=" + it.value } +
                 " commandActions=" + actions.joinToString(",") { it.widgetId + "=" + it.value }
         )
 
         return ScenarioCommandPlan(actions, prerequisites)
+    }
+
+    /**
+     * Convert a physical actuator selected by natural-language matching back
+     * to the logical state element that the IoTManager scenario controls.
+     *
+     * Example:
+     *   if vbtn78 == 0 then { btn43 = 1; vbtn78 = 1; }
+     *
+     * For "открой дверь", an initial engine match may be btn43=1. The same
+     * rule proves that vbtn78 is the logical state because vbtn78 is both
+     * written and compared in the rule. Marfa must command vbtn78, not btn43.
+     */
+    private fun resolveLogicalTargetFromActuator(
+        targetWidgetId: String,
+        desiredValue: String,
+        devices: List<com.yasn198020.aicontrol.core.Device>,
+        models: List<Pair<StoredDeviceScenario, DeviceScenarioModel>>
+    ): Pair<String, String>? {
+        val desired = normalizeValue(desiredValue)
+        if (desired != "1") return null
+
+        val resolved = devices
+            .flatMap { device -> device.widgets.map { it.id to (device.id to it) } }
+            .groupBy { it.first }
+
+        val candidates = models.flatMap { (_, model) ->
+            model.rules.flatMap { rule ->
+                val hasRequestedActuator = rule.actions.any { action ->
+                    action.targetId == targetWidgetId &&
+                        literalValue(action.expression)?.let { normalizeValue(it) == desired } == true
+                }
+                if (!hasRequestedActuator) {
+                    emptyList()
+                } else {
+                    rule.actions.mapNotNull { stateAction ->
+                        if (stateAction.targetId == targetWidgetId) return@mapNotNull null
+
+                        val stateValue = literalValue(stateAction.expression)?.let(::normalizeValue)
+                            ?: return@mapNotNull null
+                        if (stateValue != "0" && stateValue != "1") return@mapNotNull null
+
+                        val entries = resolved[stateAction.targetId]
+                            ?: return@mapNotNull null
+                        if (entries.size != 1) return@mapNotNull null
+
+                        val widget = entries.single().second.second
+                        if (!isControllable(widget)) return@mapNotNull null
+
+                        // A logical state is used as a condition in the same
+                        // rule. That distinguishes it from another actuator.
+                        if (findEquality(rule.condition.expression, stateAction.targetId) == null) {
+                            return@mapNotNull null
+                        }
+
+                        if (isActuatorWidget(widget, stateValue)) return@mapNotNull null
+
+                        stateAction.targetId to stateValue
+                    }
+                }
+            }
+        }.distinct()
+
+        return candidates.singleOrNull()
     }
 
     private fun buildReverseActuatorPlans(
