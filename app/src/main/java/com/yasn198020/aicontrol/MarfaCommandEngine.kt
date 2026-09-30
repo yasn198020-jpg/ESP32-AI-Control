@@ -207,7 +207,7 @@ class MarfaCommandEngine {
                     it.type == WidgetState.Type.BUTTON ||
                     it.type == WidgetState.Type.INPUT
             }.map { w ->
-                Candidate(d, w, entityScore(text, d, w) + actionTargetScore(w, desiredValue))
+                Candidate(d, w, entityScore(text, d, w) + actionTargetScore(w, desiredValue, text))
             }
         }.filter { it.score > 0 }
             .sortedWith(compareByDescending<Candidate> { it.score }.thenBy { it.widget.order }.thenBy { it.widget.title })
@@ -353,10 +353,24 @@ class MarfaCommandEngine {
         return score
     }
 
-    private fun actionTargetScore(widget: WidgetState, desiredValue: String?): Int {
+    private fun actionTargetScore(
+        widget: WidgetState,
+        desiredValue: String?,
+        commandText: String
+    ): Int {
         if (desiredValue == null) return 0
 
         val title = searchable(widget.title)
+        val command = searchable(commandText)
+        val explicitPhysical = containsAny(
+            command,
+            "реле",
+            "выход",
+            "выходной",
+            "кнопк",
+            "gpio",
+            "канал"
+        )
         val hasOpen = containsAny(title, "открыть", "открой", "открыва", "распах", "поднять", "подъем")
         val hasClose = containsAny(title, "закрыть", "закрой", "закрыва", "опустить", "опуск")
         val isStateIndicator =
@@ -377,10 +391,12 @@ class MarfaCommandEngine {
          */
         return when (desiredValue) {
             "1" -> (if (hasOpen) 40 else 0) + (if (hasClose && !hasOpen) -18 else 0) +
-                (if (isStateIndicator) 60 else 0)
+                (if (isStateIndicator && !explicitPhysical) 60 else 0) +
+                (if (explicitPhysical && !isStateIndicator) 45 else 0)
             "0" -> (if (hasClose) 40 else 0) + (if (hasOpen && !hasClose) -18 else 0) +
-                (if (isStateIndicator) 60 else 0)
-            else -> if (isStateIndicator) 10 else 0
+                (if (isStateIndicator && !explicitPhysical) 60 else 0) +
+                (if (explicitPhysical && !isStateIndicator) 45 else 0)
+            else -> if (isStateIndicator && !explicitPhysical) 10 else 0
         }
     }
 
