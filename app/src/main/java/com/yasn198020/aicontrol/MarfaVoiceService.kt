@@ -15,6 +15,11 @@ import android.os.Looper
 import android.speech.tts.TextToSpeech
 import androidx.core.app.NotificationCompat
 import java.util.Locale
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 class MarfaVoiceService : Service() {
 
@@ -35,7 +40,8 @@ class MarfaVoiceService : Service() {
     private var keepListeningForSmartRuleConfirmation = false
     private lateinit var prefs: android.content.SharedPreferences
     private val commandExecutor = MarfaCommandExecutor.get()
-    private val commandEngine = LocalCommandManager()
+    private val commandEngine by lazy { MarfaIntelligence.get(applicationContext) }
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val mainHandler = Handler(Looper.getMainLooper())
 
 
@@ -116,7 +122,12 @@ class MarfaVoiceService : Service() {
     private fun handleCommand(text: String) {
         val command = text.trim()
         if (command.isBlank()) return
+        serviceScope.launch {
+            handleCommandInternal(command)
+        }
+    }
 
+    private suspend fun handleCommandInternal(command: String) {
         try {
             pendingControl?.let { pending ->
                 when {
@@ -428,8 +439,7 @@ class MarfaVoiceService : Service() {
         tts?.speak(text, TextToSpeech.QUEUE_ADD, null, "marfa-command-" + System.nanoTime())
     }
 
-    override fun onDestroy() {
-        voiceManager?.stop()
+    override fun onDestroy() {\n        serviceScope.cancel()\n        voiceManager?.stop()
         voiceManager = null
         runtimeListener?.let { listener ->
             runtime?.removeUiListener(listener)
