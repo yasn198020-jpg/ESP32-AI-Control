@@ -784,6 +784,94 @@ object IoTScenarioCommandPlanner {
     }
 
     private fun buildReverseActuatorPlans(
+        targetDeviceId: String,
+        targetWidgetId: String,
+        desiredValue: String,
+        base: List<LocalCommandActionItem>,
+        devices: List<com.yasn198020.aicontrol.core.Device>,
+        models: List<Pair<StoredDeviceScenario, DeviceScenarioModel>>,
+        resolveWidgets: (Set<String>) -> Map<String, Pair<String, com.yasn198020.aicontrol.core.WidgetState>>
+    ): List<List<ScenarioPrerequisite>> {
+        val targetDesired = normalizeValue(desiredValue)
+        if (targetDesired != "0" && targetDesired != "1") return emptyList()
+
+        return models.flatMap { (stored, model) ->
+            val ids = (stored.sensorIds + model.identifiers).toSet()
+            val resolved = resolveWidgets(ids)
+            val target = resolved[targetWidgetId] ?: return@flatMap emptyList<List<ScenarioPrerequisite>>()
+            if (target.first != targetDeviceId) return@flatMap emptyList<List<ScenarioPrerequisite>>()
+
+            val variables = resolved.mapValues { it.value.second.value }
+            val context = IoTScenarioEvaluationContext(variables)
+            val result = mutableListOf<List<ScenarioPrerequisite>>()
+
+            model.rules.forEach { rule ->
+                rule.actions.forEach { action ->
+                    if (!isActuatorAction(action, targetDesired, resolved)) return@forEach
+
+                    val targetCondition = findEquality(rule.condition.expression, targetWidgetId)
+                        ?: return@forEach
+
+                    /*
+                     * We need the post-state branch for a state widget:
+                     *   vbtn78 == 1 -> btn43 = 1
+                     * and
+                     *   vbtn78 == 0 -> btn42 = 1.
+                     *
+                     * The opposite/pre-state branch is not useful after the
+                     * requested state has already been written.
+                     */
+                    if (normalizeValue(targetCondition) != targetDesired) return@forEach
+
+                    val requirements = deriveRequirementCandidates(
+                        removeEquality(rule.condition.expression, targetWidgetId),
+                        context
+                    )
+
+                    requirements.forEach { candidate ->
+                        val filtered = candidate.mapNotNull { req ->
+                            val resolvedWidget = resolved[req.widgetName] ?: return@mapNotNull null
+                            val widget = resolvedWidget.second
+                            if (!isControllable(widget)) return@mapNotNull null
+
+                            val current = normalizeValue(widget.value)
+                            if (valuesEquivalent(current, normalizeValue(req.value))) {
+                                null
+                            } else {
+                                ScenarioPrerequisite(
+                                    deviceId = resolvedWidget.first,
+                                    widgetId = widget.id,
+                                    value = req.value,
+                                    reason = humanRequirement(widget, req.value)
+                                )
+                            }
+                        }.distinctBy { it.deviceId + "/" + it.widgetId + "/" + it.value }
+
+                        /*
+                         * Validate the commandable part of the branch only.
+                         * IoTManager may also contain sensor/internal predicates
+                         * (temperature, helper variables, timers). Those are
+                         * runtime conditions and must never block the voice plan
+                         * or become MQTT writes.
+                         */
+                        /*
+                         * The action here is an IoTManager scenario OUTPUT
+                         * (for example btn43/btn42), not a command for Marfa.
+                         * Only controllable conditions required to enter the
+                         * branch are returned as prerequisites. The requested
+                         * logical target itself is added later from `base`.
+                         *
+                         * Sending action.targetId here would bypass the
+                         * scenario and physically drive the relay directly.
+                         */
+                        result += filtered
+                    }
+                }
+            }
+            result
+        }
+    }
+
     private fun buildManualModeActuatorPlan(
         targetDeviceId: String,
         targetWidgetId: String,
@@ -872,94 +960,6 @@ object IoTScenarioCommandPlanner {
             else -> null
         }
         return visit(expression)
-    }
-
-        targetDeviceId: String,
-        targetWidgetId: String,
-        desiredValue: String,
-        base: List<LocalCommandActionItem>,
-        devices: List<com.yasn198020.aicontrol.core.Device>,
-        models: List<Pair<StoredDeviceScenario, DeviceScenarioModel>>,
-        resolveWidgets: (Set<String>) -> Map<String, Pair<String, com.yasn198020.aicontrol.core.WidgetState>>
-    ): List<List<ScenarioPrerequisite>> {
-        val targetDesired = normalizeValue(desiredValue)
-        if (targetDesired != "0" && targetDesired != "1") return emptyList()
-
-        return models.flatMap { (stored, model) ->
-            val ids = (stored.sensorIds + model.identifiers).toSet()
-            val resolved = resolveWidgets(ids)
-            val target = resolved[targetWidgetId] ?: return@flatMap emptyList<List<ScenarioPrerequisite>>()
-            if (target.first != targetDeviceId) return@flatMap emptyList<List<ScenarioPrerequisite>>()
-
-            val variables = resolved.mapValues { it.value.second.value }
-            val context = IoTScenarioEvaluationContext(variables)
-            val result = mutableListOf<List<ScenarioPrerequisite>>()
-
-            model.rules.forEach { rule ->
-                rule.actions.forEach { action ->
-                    if (!isActuatorAction(action, targetDesired, resolved)) return@forEach
-
-                    val targetCondition = findEquality(rule.condition.expression, targetWidgetId)
-                        ?: return@forEach
-
-                    /*
-                     * We need the post-state branch for a state widget:
-                     *   vbtn78 == 1 -> btn43 = 1
-                     * and
-                     *   vbtn78 == 0 -> btn42 = 1.
-                     *
-                     * The opposite/pre-state branch is not useful after the
-                     * requested state has already been written.
-                     */
-                    if (normalizeValue(targetCondition) != targetDesired) return@forEach
-
-                    val requirements = deriveRequirementCandidates(
-                        removeEquality(rule.condition.expression, targetWidgetId),
-                        context
-                    )
-
-                    requirements.forEach { candidate ->
-                        val filtered = candidate.mapNotNull { req ->
-                            val resolvedWidget = resolved[req.widgetName] ?: return@mapNotNull null
-                            val widget = resolvedWidget.second
-                            if (!isControllable(widget)) return@mapNotNull null
-
-                            val current = normalizeValue(widget.value)
-                            if (valuesEquivalent(current, normalizeValue(req.value))) {
-                                null
-                            } else {
-                                ScenarioPrerequisite(
-                                    deviceId = resolvedWidget.first,
-                                    widgetId = widget.id,
-                                    value = req.value,
-                                    reason = humanRequirement(widget, req.value)
-                                )
-                            }
-                        }.distinctBy { it.deviceId + "/" + it.widgetId + "/" + it.value }
-
-                        /*
-                         * Validate the commandable part of the branch only.
-                         * IoTManager may also contain sensor/internal predicates
-                         * (temperature, helper variables, timers). Those are
-                         * runtime conditions and must never block the voice plan
-                         * or become MQTT writes.
-                         */
-                        /*
-                         * The action here is an IoTManager scenario OUTPUT
-                         * (for example btn43/btn42), not a command for Marfa.
-                         * Only controllable conditions required to enter the
-                         * branch are returned as prerequisites. The requested
-                         * logical target itself is added later from `base`.
-                         *
-                         * Sending action.targetId here would bypass the
-                         * scenario and physically drive the relay directly.
-                         */
-                        result += filtered
-                    }
-                }
-            }
-            result
-        }
     }
 
     private fun chooseUniquePlan(candidates: List<List<ScenarioPrerequisite>>): List<ScenarioPrerequisite>? {
