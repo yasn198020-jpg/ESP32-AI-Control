@@ -141,4 +141,32 @@ class MarfaCommandEngineTest {
         assertTrue(result.reply.contains("29,5"))
         assertTrue(result.reply.contains("градуса"))
     }
+    @Test
+    fun doorCommandSelectsLogicalStateWidget() {
+        val devices = listOf(
+            Device(
+                id = "greenhouse",
+                name = "Теплица",
+                online = true,
+                widgets = listOf(
+                    WidgetState("vbtn78", "закрыта открыта дверь", WidgetState.Type.TOGGLE, "0", order = 1),
+                    WidgetState("btn43", "открыть дверь", WidgetState.Type.BUTTON, "0", order = 2),
+                    WidgetState("btn42", "закрыть дверь", WidgetState.Type.BUTTON, "0", order = 3)
+                )
+            )
+        )
+
+        val open = MarfaCommandEngine().parse("Открой дверь", devices)
+        assertEquals(LocalCommandAction.CONTROL, open.action)
+        assertEquals("vbtn78", open.widgetId)
+        assertEquals("1", open.value)
+        assertEquals("Открываю: дверь", open.reply)
+
+        val close = MarfaCommandEngine().parse("Закрой дверь", devices)
+        assertEquals(LocalCommandAction.CONTROL, close.action)
+        assertEquals("vbtn78", close.widgetId)
+        assertEquals("0", close.value)
+        assertEquals("Закрываю: дверь", close.reply)
+    }
+
 }
