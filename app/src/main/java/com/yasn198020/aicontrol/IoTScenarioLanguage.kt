@@ -841,7 +841,7 @@ object IoTScenarioCommandPlanner {
         desiredValue: String,
         devices: List<com.yasn198020.aicontrol.core.Device>
     ): Boolean =
-        any { it.deviceId == targetDeviceId && it.value == "1" && isActuatorWidget(it.widgetId, desiredValue, devices) }
+        any { it.deviceId == targetDeviceId && it.value == "1" && isActuatorId(it.widgetId, desiredValue, devices) }
 
     private fun isActuatorAction(
         action: DeviceScenarioAction,
