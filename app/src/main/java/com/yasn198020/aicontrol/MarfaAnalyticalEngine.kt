@@ -199,7 +199,7 @@ class MarfaAnalyticalEngine {
 
     fun explicitPage(text: String, devices: List<Device>): String? {
         val marker = Regex(
-            """(?:на\s+страниц(?:е|у)|во\s+вкладк(?:е|у)|в\s+вкладк(?:е|у)|страниц(?:а|у)|вкладк(?:а|у))\s+"""
+            """(?:на\s+страниц(?:е|у)|на\s+вкладк(?:е|у)|во\s+вкладк(?:е|у)|в\s+вкладк(?:е|у)|страниц(?:а|у)|вкладк(?:а|у))\s+"""
         ).find(text) ?: return null
 
         val tail = " " + text.substring(marker.range.last + 1).trim() + " "
