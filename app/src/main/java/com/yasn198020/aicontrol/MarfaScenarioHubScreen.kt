@@ -1,3 +1,15 @@
+private fun formatDelayForUi(delayMs: Long): String {
+    val totalMinutes = delayMs / 60_000L
+    if (totalMinutes < 1L) return "менее минуты"
+    val hours = totalMinutes / 60L
+    val minutes = totalMinutes % 60L
+    return when {
+        hours > 0L && minutes > 0L -> "$hours ч $minutes мин"
+        hours > 0L -> "$hours ч"
+        else -> "$minutes мин"
+    }
+}
+
 package com.yasn198020.aicontrol
 
 import android.provider.OpenableColumns
@@ -407,6 +419,10 @@ private fun DeviceScenariosScreen(
         val item = saved.firstOrNull { it.id == id }
         if (item != null) {
             val model = remember(item.id, item.source) { manager.parseSource(item.source) }
+            var previewCommand by remember(item.id) { mutableStateOf("") }
+            var previewResult by remember(item.id) { mutableStateOf("") }
+            val previewEngine = remember(item.id) { MarfaCommandEngine() }
+
             Dialog(
                 onDismissRequest = { showSavedSource = null },
                 properties = DialogProperties(
@@ -448,8 +464,110 @@ private fun DeviceScenariosScreen(
                             .filterKeys { item.sensorIds.contains(it) }
                         val overview = DeviceScenarioModelFormatter.actionOverview(model, labels)
 
+                        val widgetLabels = devices
+                            .flatMap { device -> device.widgets }
+                            .associate { widget -> widget.id to widget.title }
+
+                        fun actionDescription(action: LocalCommandActionItem): String {
+                            val title = widgetLabels[action.widgetId]
+                                ?.takeIf { it.isNotBlank() }
+                                ?: action.widgetId
+                            return when (action.value.trim()) {
+                                "1" -> "включить «$title»"
+                                "0" -> "выключить «$title»"
+                                else -> "установить «$title» = ${action.value}"
+                            }
+                        }
+
                         LazyColumn(
                             Modifier.fillMaxSize().padding(top = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            contentPadding = PaddingValues(bottom = 16.dp)
+                        ) {
+                            item {
+                                Text(
+                                    "Что будет сделано по конкретной команде",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    "Проверка только показывает план. Команды на устройство не отправляются.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.padding(top = 2.dp)
+                                )
+                                OutlinedTextField(
+                                    value = previewCommand,
+                                    onValueChange = { previewCommand = it },
+                                    label = { Text("Например: «открой форточку через 20 минут»") },
+                                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                                    minLines = 2
+                                )
+                                Button(
+                                    enabled = previewCommand.isNotBlank(),
+                                    onClick = {
+                                        val result = previewEngine.parse(previewCommand, devices)
+                                        if (result.action != LocalCommandAction.CONTROL ||
+                                            result.deviceId.isBlank() ||
+                                            result.widgetId.isBlank()
+                                        ) {
+                                            previewResult = "Марфа: ${result.reply}"
+                                        } else {
+                                            val plan = manager.planCommand(result, devices)
+                                            previewResult = buildString {
+                                                append("Марфа поняла: ")
+                                                append(result.reply)
+                                                if (result.delayMs > 0L) {
+                                                    append("\n\nВыполнение: через ")
+                                                    append(formatDelayForUi(result.delayMs))
+                                                } else {
+                                                    append("\n\nВыполнение: сейчас")
+                                                }
+
+                                                if (!plan.blockedReason.isNullOrBlank()) {
+                                                    append("\n\nНЕ БУДЕТ ВЫПОЛНЕНО:\n")
+                                                    append(plan.blockedReason)
+                                                } else {
+                                                    if (plan.prerequisites.isNotEmpty()) {
+                                                        append("\n\nСНАЧАЛА — ЗАВИСИМОСТИ:")
+                                                        plan.prerequisites.forEachIndexed { index, prerequisite ->
+                                                            append("\n")
+                                                            append(index + 1)
+                                                            append(". ")
+                                                            append(prerequisite.reason)
+                                                        }
+                                                    }
+
+                                                    append("\n\nПОРЯДОК ДЕЙСТВИЙ:")
+                                                    plan.actions.forEachIndexed { index, action ->
+                                                        append("\n")
+                                                        append(index + 1)
+                                                        append(". ")
+                                                        append(actionDescription(action))
+                                                    }
+
+                                                    append("\n\nРезультат: команда будет выполнена в указанном порядке.")
+                                                }
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                                )
+                                if (previewResult.isNotBlank()) {
+                                    Card(
+                                        Modifier.fillMaxWidth().padding(top = 8.dp)
+                                    ) {
+                                        SelectionContainer {
+                                            Text(
+                                                previewResult,
+                                                modifier = Modifier.padding(12.dp),
+                                                style = MaterialTheme.typography.bodyMedium
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                             contentPadding = PaddingValues(bottom = 16.dp)
                         ) {
