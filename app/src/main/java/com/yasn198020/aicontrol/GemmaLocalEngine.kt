@@ -49,22 +49,22 @@ class GemmaLocalEngine private constructor(private val appContext: Context) {
             try {
                 val name = queryDisplayName(uri).orEmpty()
                 if (!name.lowercase(Locale.ROOT).endsWith(".gguf")) {
-                    return@withContext Result.failure(Exception("Нужен файл модели в формате GGUF"))
+                    return@withLock Result.failure(Exception("Нужен файл модели в формате GGUF"))
                 }
                 val parent = modelFile.parentFile
-                    ?: return@withContext Result.failure(Exception("Нет каталога модели"))
+                    ?: return@withLock Result.failure(Exception("Нет каталога модели"))
                 if (!parent.exists() && !parent.mkdirs()) {
-                    return@withContext Result.failure(Exception("Не удалось создать каталог модели"))
+                    return@withLock Result.failure(Exception("Не удалось создать каталог модели"))
                 }
 
                 val temp = File(parent, MODEL_FILE_NAME + ".part")
                 appContext.contentResolver.openInputStream(uri)?.use { input ->
                     temp.outputStream().use { output -> input.copyTo(output, DEFAULT_BUFFER_SIZE) }
-                } ?: return@withContext Result.failure(Exception("Не удалось открыть файл модели"))
+                } ?: return@withLock Result.failure(Exception("Не удалось открыть файл модели"))
 
                 if (!temp.isFile || temp.length() <= 1_000_000L) {
                     temp.delete()
-                    return@withContext Result.failure(Exception("Файл модели слишком маленький или повреждён"))
+                    return@withLock Result.failure(Exception("Файл модели слишком маленький или повреждён"))
                 }
 
                 loadedModel?.let { runCatching { Llama.releaseModel(it) } }
@@ -72,11 +72,11 @@ class GemmaLocalEngine private constructor(private val appContext: Context) {
                 loadedPath = ""
                 if (modelFile.exists() && !modelFile.delete()) {
                     temp.delete()
-                    return@withContext Result.failure(Exception("Не удалось заменить предыдущую модель"))
+                    return@withLock Result.failure(Exception("Не удалось заменить предыдущую модель"))
                 }
                 if (!temp.renameTo(modelFile)) {
                     temp.delete()
-                    return@withContext Result.failure(Exception("Не удалось сохранить модель"))
+                    return@withLock Result.failure(Exception("Не удалось сохранить модель"))
                 }
                 Result.success(statusText())
             } catch (e: Throwable) {
