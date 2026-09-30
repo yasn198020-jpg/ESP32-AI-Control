@@ -1050,22 +1050,31 @@ object IoTScenarioCommandPlanner {
 
                         /*
                          * Validate the commandable part of the branch only.
-                         * IoTManager may also contain sensor/internal predicates
-                         * (temperature, helper variables, timers). Those are
-                         * runtime conditions and must never block the voice plan
-                         * or become MQTT writes.
+                         * Unresolved internal/service conditions (for example
+                         * value37 or timers) cannot be treated as "no dependency":
+                         * doing so would create a false empty plan and could
+                         * bypass a real manual-mode dependency.
+                         *
+                         * An empty prerequisite list is valid only when the
+                         * remaining branch condition is already true.
                          */
+                        val branchCondition = removeEquality(
+                            rule.condition.expression,
+                            targetWidgetId
+                        )
+                        val branchAlreadyActive =
+                            IoTScenarioEvaluator.evaluate(branchCondition, context).isTruthy()
+
                         /*
                          * The action here is an IoTManager scenario OUTPUT
                          * (for example btn43/btn42), not a command for Marfa.
                          * Only controllable conditions required to enter the
                          * branch are returned as prerequisites. The requested
                          * logical target itself is added later from `base`.
-                         *
-                         * Sending action.targetId here would bypass the
-                         * scenario and physically drive the relay directly.
                          */
-                        result += filtered
+                        if (filtered.isNotEmpty() || branchAlreadyActive) {
+                            result += filtered
+                        }
                     }
                 }
             }
