@@ -911,9 +911,12 @@ object IoTScenarioCommandPlanner {
                                             ?.let(::normalizeValue)
                                             == normalizeValue(effectiveDesiredValue)
                                 }
-                                (stateCondition?.let {
-                                    normalizeValue(it) == normalizeValue(effectiveDesiredValue)
-                                } ?: false) || stateWritten
+                                val stateMatches = if (stateCondition == null) {
+                                    false
+                                } else {
+                                    normalizeValue(stateCondition) == normalizeValue(effectiveDesiredValue)
+                                }
+                                stateMatches || stateWritten
                             }
                         }
                     }
