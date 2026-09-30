@@ -14,6 +14,9 @@ class MarfaIntelligence private constructor(context: Context) {
 
     private val gemma = GemmaLocalEngine.get(context)
     private val smartRuleParser = LocalCommandManager()
+    private val trainedMatcher = TrainedCommandMatcher(
+        TrainedCommandStore(context.getSharedPreferences("settings", Context.MODE_PRIVATE))
+    )
 
     fun gemmaStatus(): String = gemma.statusText()
     suspend fun importGemmaModel(uri: Uri): Result<String> = gemma.importModel(uri)
@@ -25,6 +28,16 @@ class MarfaIntelligence private constructor(context: Context) {
         )
 
         if (looksLikeSmartRule(text)) return smartRuleParser.interpret(text, devices)
+
+        // User-trained phrases remain an exact-priority path in the callers.
+        // Returning NOT_FOUND here intentionally lets the existing trained-action
+        // block execute without letting Gemma reinterpret that phrase.
+        if (trainedMatcher.matchAll(text).isNotEmpty()) {
+            return LocalCommandResult(
+                LocalCommandAction.NOT_FOUND,
+                reply = ""
+            )
+        }
 
         if (gemma.isModelInstalled()) {
             gemma.interpret(text, devices).getOrNull()?.let { return it }
