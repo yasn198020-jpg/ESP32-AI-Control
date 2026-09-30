@@ -238,7 +238,6 @@ class IoTScenarioLanguageTest {
             listOf(StoredDeviceScenario(title = "Door", source = source) to model)
         )
 
-        if (plan.actions.map { it.widgetId } != listOf("vbtn90", "vbtn78")) throw AssertionError("DEBUG_ACTIONS " + plan.actions + " DEBUG_PREREQ " + plan.prerequisites)
         assertEquals(listOf("vbtn90", "vbtn78"), plan.actions.map { it.widgetId })
         assertEquals(listOf("1", "1"), plan.actions.map { it.value })
         assertEquals("vbtn90", plan.prerequisites.first().widgetId)
