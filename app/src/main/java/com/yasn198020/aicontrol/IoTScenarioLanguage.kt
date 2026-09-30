@@ -1239,6 +1239,76 @@ object IoTScenarioCommandPlanner {
                     val context = IoTScenarioEvaluationContext(
                         resolved.mapValues { it.value.second.value }
                     )
+
+                    /*
+                     * Prefer a direct proof of the manual-mode gate before
+                     * evaluating the current branch. The automatic branch can
+                     * already be true (MODE == 0), but that is exactly why a
+                     * voice command must first switch MODE to 1.
+                     *
+                     * For split scenarios, a manual rule may first write an
+                     * internal variable (for example value37) which is later
+                     * consumed by the actuator rule. Link such a manual rule
+                     * through the actuator rule's condition identifiers.
+                     */
+                    val linkedModeIds = buildList {
+                        findModeGate(rule.condition.expression, resolved)?.first?.let { add(it) }
+
+                        val linkedManualModes = model.rules.mapNotNull { manualRule ->
+                            val modeId = findModeEquality(
+                                manualRule.condition.expression,
+                                resolved,
+                                "1"
+                            ) ?: return@mapNotNull null
+
+                            val linked = manualRule.actions.any { manualAction ->
+                                manualAction.targetId == action.targetId ||
+                                    manualAction.targetId == targetWidgetId ||
+                                    manualAction.targetId in rule.condition.identifiers
+                            }
+                            if (linked) modeId else null
+                        }
+                        addAll(linkedManualModes)
+                    }.distinct()
+
+                    if (linkedModeIds.size == 1) {
+                        val modeId = linkedModeIds.single()
+                        val modeResolved = resolved[modeId]
+                            ?: return@mapNotNull null
+                        if (modeResolved.first != targetDeviceId) {
+                            return@mapNotNull null
+                        }
+
+                        val modeWidget = modeResolved.second
+                        if (!isControllable(modeWidget) || !isModeWidget(modeWidget)) {
+                            return@mapNotNull null
+                        }
+
+                        val actions = buildList {
+                            if (!valuesEquivalent(modeWidget.value, "1")) {
+                                add(
+                                    LocalCommandActionItem(
+                                        modeResolved.first,
+                                        modeId,
+                                        "1"
+                                    )
+                                )
+                            }
+                            add(
+                                LocalCommandActionItem(
+                                    target.first,
+                                    targetWidgetId,
+                                    targetDesired
+                                )
+                            )
+                        }
+
+                        return@mapNotNull ChainResult(
+                            actions = actions,
+                            controllableDependencies = listOf(modeId)
+                        )
+                    }
+
                     deriveRequirementCandidates(rule.condition.expression, context)
                         .asSequence()
                         .mapNotNull { reqs ->
@@ -1355,6 +1425,47 @@ object IoTScenarioCommandPlanner {
             "управлен",
             "mode"
         ).any { text.contains(it) }
+    }
+
+    private fun findModeEquality(
+        expression: IoTExpr,
+        resolved: Map<String, Pair<String, com.yasn198020.aicontrol.core.WidgetState>>,
+        wanted: String
+    ): String? {
+        val candidates = linkedSetOf<String>()
+
+        fun visit(e: IoTExpr) {
+            when (e) {
+                is IoTExpr.Binary -> {
+                    if (e.operator == "==") {
+                        val left = e.left as? IoTExpr.Variable
+                        val right = literalValue(e.right)
+                        if (left != null && right == wanted) {
+                            val widget = resolved[left.name]?.second
+                            if (widget != null && isControllable(widget) && isModeWidget(widget)) {
+                                candidates += left.name
+                            }
+                        }
+
+                        val rightVar = e.right as? IoTExpr.Variable
+                        val leftLiteral = literalValue(e.left)
+                        if (rightVar != null && leftLiteral == wanted) {
+                            val widget = resolved[rightVar.name]?.second
+                            if (widget != null && isControllable(widget) && isModeWidget(widget)) {
+                                candidates += rightVar.name
+                            }
+                        }
+                    }
+                    visit(e.left)
+                    visit(e.right)
+                }
+                is IoTExpr.Unary -> visit(e.expression)
+                else -> Unit
+            }
+        }
+
+        visit(expression)
+        return candidates.singleOrNull()
     }
 
     private fun findModeGate(
