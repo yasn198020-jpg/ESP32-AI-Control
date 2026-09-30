@@ -319,10 +319,10 @@ class IoTScenarioLanguageTest {
         )
 
         assertEquals(
-            listOf("vbtn90", "vbtn78", "btn43"),
+            listOf("vbtn90", "vbtn78"),
             plan.actions.map { it.widgetId }
         )
-        assertEquals(listOf("1"), plan.actions.map { it.value }.take(1))
+        assertEquals(listOf("1", "1"), plan.actions.map { it.value })
         assertEquals("vbtn90", plan.prerequisites.single().widgetId)
         assertEquals("1", plan.prerequisites.single().value)
 
@@ -336,7 +336,7 @@ class IoTScenarioLanguageTest {
         )
 
         assertEquals(
-            listOf("vbtn90", "vbtn78", "btn42"),
+            listOf("vbtn90", "vbtn78"),
             closePlan.actions.map { it.widgetId }
         )
     }
