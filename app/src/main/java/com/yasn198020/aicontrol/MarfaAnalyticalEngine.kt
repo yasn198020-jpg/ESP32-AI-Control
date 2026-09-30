@@ -81,8 +81,8 @@ class MarfaAnalyticalEngine {
             }
         }
 
-        // Context is resolved against REAL IoTManager page/tab names.
-        // No hardcoded context dictionary is used.
+        // Context comes from actual IoTManager page/tab names.
+        // There is deliberately no hardcoded domain-word dictionary.
         val contextPages = if (page == null) matchingContextPages(normalized, devices) else emptyList()
         val unknownContext = if (page == null && contextPages.isEmpty()) {
             unknownContextWords(normalized, devices)
@@ -97,16 +97,251 @@ class MarfaAnalyticalEngine {
             }
             unknownContext.isNotEmpty() -> {
                 return ControlResolution(
-                    clarification = "Я нашла объект «\${entityName(detectEntityKind(normalized))}», " +
-                        "но не нашла совпадение контекста «\${unknownContext.joinToString(", ")}». " +
+                    clarification = "Я нашла объект «${entityName(detectEntityKind(normalized))}», " +
+                        "но не нашла совпадение контекста «${unknownContext.joinToString(", ")}». " +
                         "Уточните название вкладки."
                 )
             }
             else -> all
         }
-
+        // Explicit page/tab is a hard constraint.
         val scoped = if (page == null) contextScoped
         else contextScoped.filter { normalize(it.widget.page) == page }
+
+        val candidates = scoped
+            .filter { it.score > 0 }
+            .sortedWith(
+                compareByDescending<ControlCandidate> { it.score }
+                    .thenBy { normalize(it.widget.page) }
+                    .thenBy { it.widget.order }
+                    .thenBy { it.widget.id }
+            )
+
+        if (candidates.isEmpty()) {
+            val suffix = if (page == null) "" else
+                " на вкладке «" + prettyPage(page, devices) + "»"
+            return ControlResolution(
+                clarification = "Я не нашла однозначный управляемый элемент" +
+                    suffix +
+                    ". Назовите объект, ID элемента или вкладку."
+            )
+        }
+
+        val best = candidates.first()
+        val second = candidates.getOrNull(1)
+        val tied = candidates.count { it.score == best.score } > 1
+        val weak = best.score < 22
+        val tooClose = second != null &&
+            second.score >= 18 &&
+            best.score - second.score < 5
+
+        if (tied || weak || tooClose) {
+            return ControlResolution(
+                candidates = candidates.take(5),
+                clarification = clarificationForControls(candidates)
+            )
+        }
+
+        return ControlResolution(candidate = best, candidates = candidates)
+    }
+
+    fun resolveSensor(text: String, devices: List<Device>): SensorResolution {
+        val normalized = normalize(text)
+        val page = explicitPage(normalized, devices)
+        val kind = detectKind(normalized)
+
+        val all = devices.flatMap { device ->
+            device.widgets
+                .filter {
+                    it.type == WidgetState.Type.VALUE ||
+                        it.type == WidgetState.Type.STATUS
+                }
+                .mapNotNull { widget ->
+                    val score = sensorScore(normalized, kind, page, device, widget)
+                    if (score <= 0) null else SensorCandidate(
+                        device,
+                        widget,
+                        score,
+                        sensorReasons(normalized, kind, page, widget)
+                    )
+                }
+        }
+
+        val scoped = if (page == null) all
+        else all.filter { normalize(it.widget.page) == page }
+
+        val candidates = scoped.sortedWith(
+            compareByDescending<SensorCandidate> { it.score }
+                .thenBy { normalize(it.widget.page) }
+                .thenBy { it.widget.order }
+                .thenBy { it.widget.id }
+        )
+
+        if (candidates.isEmpty()) {
+            return SensorResolution(
+                clarification = when (kind) {
+                    Kind.TEMPERATURE ->
+                        "Какую температуру показать? Укажите объект или вкладку."
+                    Kind.HUMIDITY ->
+                        "Какую влажность показать? Укажите объект или вкладку."
+                    Kind.PRESSURE ->
+                        "Какое давление показать? Укажите объект или вкладку."
+                    else ->
+                        "Какой датчик показать? Назовите его или укажите вкладку."
+                }
+            )
+        }
+
+        val best = candidates.first()
+        val second = candidates.getOrNull(1)
+        val tied = candidates.count { it.score == best.score } > 1
+        val weak = best.score < 16
+        val tooClose = second != null &&
+            second.score >= 14 &&
+            best.score - second.score < 4
+
+        if (tied || weak || tooClose) {
+            return SensorResolution(
+                candidates = candidates.take(5),
+                clarification = clarificationForSensors(candidates)
+            )
+        }
+
+        return SensorResolution(candidate = best, candidates = candidates)
+    }
+
+    fun detectKind(text: String): Kind = when {
+        containsAny(text, "температур", "темп", "градус", "жарко", "холодно") ->
+            Kind.TEMPERATURE
+        containsAny(text, "влажност", "влажн") ->
+            Kind.HUMIDITY
+        containsAny(text, "давлен") ->
+            Kind.PRESSURE
+        else -> Kind.VALUE
+    }
+
+    fun explicitPage(text: String, devices: List<Device>): String? {
+        val marker = Regex(
+            """(?:на\s+страниц(?:е|у)|на\s+вкладк(?:е|у)|во\s+вкладк(?:е|у)|в\s+вкладк(?:е|у)|страниц(?:а|у)|вкладк(?:а|у))\s+"""
+        ).find(text) ?: return null
+
+        val tail = " " + text.substring(marker.range.last + 1).trim() + " "
+        return devices.asSequence()
+            .flatMap { it.widgets.asSequence() }
+            .map { normalize(it.page).trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .sortedByDescending { it.length }
+            .firstOrNull { page -> tail.contains(" " + page + " ") }
+    }
+
+    private fun explicitElementId(text: String, devices: List<Device>): String? {
+        val tokens = tokenized(text)
+        return devices.asSequence()
+            .flatMap { it.widgets.asSequence() }
+            .map { it.id.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .sortedByDescending { it.length }
+            .firstOrNull { id -> tokens.any { it.equals(id, ignoreCase = true) } }
+    }
+
+    private fun controlScore(
+        text: String,
+        page: String?,
+        exactId: String?,
+        device: Device,
+        widget: WidgetState,
+        desiredValue: String?
+    ): Int {
+        if (exactId != null && !widget.id.equals(exactId, true)) return -100000
+
+        val title = normalize(widget.title)
+        val widgetPage = normalize(widget.page)
+        val deviceName = normalize(device.name)
+        var score = 0
+
+        val entity = detectEntityKind(text)
+        val aliases = aliases(entity)
+
+        if (aliases.first.any { text.contains(it) }) {
+            if (aliases.second.any { title.contains(it) }) score += 34
+            if (aliases.second.any { widgetPage.contains(it) }) score += 10
+            if (aliases.second.any { deviceName.contains(it) }) score += 8
+        }
+
+        tokenized(text).forEach { token ->
+            if (token.length >= 4) {
+                if (title.contains(token)) score += 6
+                if (widgetPage.contains(token)) score += 3
+                if (deviceName.contains(token)) score += 2
+            }
+        }
+
+        val explicitPhysical = containsAny(
+            text,
+            "реле", "выход", "выходной", "кнопк", "gpio", "канал", "исполнитель"
+        )
+        val hasOpen = containsAny(
+            title, "открыть", "открой", "открыва", "распах", "поднять", "подъем"
+        )
+        val hasClose = containsAny(
+            title, "закрыть", "закрой", "закрыва", "опустить", "опуск"
+        )
+        val isStateIndicator =
+            (title.contains("открыт") && title.contains("закрыт")) ||
+                containsAny(
+                    title,
+                    "состояние", "статус", "индикатор", "положение"
+                )
+
+        score += when (desiredValue) {
+            "1" ->
+                (if (hasOpen) 40 else 0) +
+                    (if (hasClose && !hasOpen) -18 else 0) +
+                    (if (isStateIndicator && !explicitPhysical) 60 else 0) +
+                    (if (explicitPhysical && !isStateIndicator) 45 else 0)
+            "0" ->
+                (if (hasClose) 40 else 0) +
+                    (if (hasOpen && !hasClose) -18 else 0) +
+                    (if (isStateIndicator && !explicitPhysical) 60 else 0) +
+                    (if (explicitPhysical && !isStateIndicator) 45 else 0)
+            else ->
+                if (isStateIndicator && !explicitPhysical) 12 else 0
+        }
+
+        if (page != null && widgetPage != page) return -100000
+        if (page != null) score += 500
+        return score
+    }
+
+    private fun spokenContext(text: String): List<String> {
+        // Use lexical stems, not exact word forms:
+        // помидор / помидора / помидоры / помидорами -> помидор.
+        val stems = listOf(
+            "помидор", "томат", "огур", "теплиц", "парник",
+            "сад", "огород", "гараж", "дом"
+        )
+        return stems.filter { text.contains(it) }.distinct()
+    }
+
+    private fun contextMatches(device: Device, widget: WidgetState, context: List<String>): Boolean {
+        val title = normalize(widget.title)
+        val page = normalize(widget.page)
+        val deviceName = normalize(device.name)
+        return context.any { stem ->
+            containsStem(title, stem) ||
+                containsStem(page, stem) ||
+                containsStem(deviceName, stem)
+        }
+    }
+
+    private fun containsStem(text: String, stem: String): Boolean {
+        if (text.contains(stem)) return true
+        return text.split(Regex("\\s+")).any { token ->
+            token.startsWith(stem)
+        }
+    }
 
     private fun matchingContextPages(text: String, devices: List<Device>): List<String> {
         val commandTokens = contextTokens(text)
@@ -171,29 +406,25 @@ class MarfaAnalyticalEngine {
             "установи", "установить", "поставь", "поставить", "задай", "задать",
             "назначь", "назначить"
         )
-
         val controlWords = setOf(
             "дверь", "двери", "дверью", "форточка", "форточки", "форточку", "форточкой",
             "фрамуга", "фрамуги", "фрамугу", "окно", "окна", "окном", "окну",
-            "ворота", "ворот", "насос", "насоса", "насосом",
-            "вентилятор", "вентиляторе", "вентилятором", "обогрев", "отопление",
-            "отоплением", "нагрев", "клапан", "кран", "свет", "лампа", "лампу",
-            "лампой", "полив", "орошение"
+            "ворота", "ворот", "насос", "насоса", "насосом", "вентилятор",
+            "вентиляторе", "вентилятором", "обогрев", "отопление", "отоплением",
+            "нагрев", "клапан", "кран", "свет", "лампа", "лампу", "лампой",
+            "полив", "орошение"
         )
-
         val grammarWords = REFERENCE_STOP_WORDS + setOf(
             "сейчас", "сегодня", "завтра", "потом", "позже", "сразу",
             "мне", "меня", "его", "ее", "её", "это", "этот", "эта", "эту",
-            "там", "здесь", "сюда", "туда", "тогда",
-            "час", "часа", "часов", "ч", "минут", "минуту", "минуты", "мин",
-            "градус", "градуса", "градусов",
+            "там", "здесь", "сюда", "туда", "тогда", "час", "часа", "часов",
+            "ч", "минут", "минуту", "минуты", "мин", "градус", "градуса", "градусов",
             "на", "во", "в", "из", "у", "к", "ко", "с", "со", "по", "для", "от", "до",
             "вкладка", "вкладке", "вкладку", "страница", "странице", "страницу",
             "номер", "значение", "режим"
         )
 
         val entityAliases = aliases(detectEntityKind(normalize(text))).first.toSet()
-
         return tokenized(normalize(text))
             .filterNot { it in actionWords || it in controlWords || it in grammarWords }
             .filterNot { it.length < 2 }
@@ -205,16 +436,14 @@ class MarfaAnalyticalEngine {
 
     private fun contextTokenKey(token: String): String {
         val normalized = normalize(token).trim()
-        if (normalized.matches(Regex("\\d+"))) return normalized
-
         val cardinal = mapOf(
             "ноль" to "0", "один" to "1", "одна" to "1", "одно" to "1",
             "два" to "2", "две" to "2", "три" to "3", "четыре" to "4",
             "пять" to "5", "шесть" to "6", "семь" to "7", "восемь" to "8",
             "девять" to "9", "десять" to "10"
         )
+        if (normalized.matches(Regex("\\d+"))) return normalized
         cardinal[normalized]?.let { return it }
-
         val ordinal = mapOf(
             "первый" to "1", "первая" to "1", "первое" to "1", "первую" to "1", "первого" to "1",
             "второй" to "2", "вторая" to "2", "второе" to "2", "вторую" to "2", "второго" to "2",
@@ -223,7 +452,6 @@ class MarfaAnalyticalEngine {
             "пятый" to "5", "пятая" to "5", "пятое" to "5", "пятую" to "5", "пятого" to "5"
         )
         ordinal[normalized]?.let { return it }
-
         return stemRussian(normalized)
     }
 
@@ -234,12 +462,11 @@ class MarfaAnalyticalEngine {
 
     private fun stemRussian(word: String): String {
         val endings = listOf(
-            "иями", "ями", "ами", "ию", "ью", "ою", "ею",
-            "ого", "ему", "ому", "ыми", "ими", "ей", "ов", "ев",
-            "ам", "ям", "ах", "ях", "ом", "ем", "ым", "им",
-            "ую", "юю", "ая", "яя", "ое", "ее", "ые", "ие",
-            "ать", "ить", "еть", "ять", "ой", "ый", "ий",
-            "ь", "й", "ы", "и", "а", "я", "у", "ю", "о", "е"
+            "иями", "ями", "ами", "ию", "ью", "ою", "ею", "ого", "ему", "ому",
+            "ыми", "ими", "ей", "ов", "ев", "ам", "ям", "ах", "ях", "ом", "ем",
+            "ым", "им", "ую", "юю", "ая", "яя", "ое", "ее", "ые", "ие",
+            "ать", "ить", "еть", "ять", "ой", "ый", "ий", "ь", "й", "ы", "и",
+            "а", "я", "у", "ю", "о", "е"
         )
         for (ending in endings) {
             if (word.length > ending.length + 2 && word.endsWith(ending)) {
@@ -248,7 +475,6 @@ class MarfaAnalyticalEngine {
         }
         return word
     }
-
     private fun entityName(kind: EntityKind): String = when (kind) {
         EntityKind.DOOR -> "дверь"
         EntityKind.VENT -> "форточку"
