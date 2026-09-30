@@ -325,6 +325,20 @@ class IoTScenarioLanguageTest {
         assertEquals(listOf("1"), plan.actions.map { it.value }.take(1))
         assertEquals("vbtn90", plan.prerequisites.single().widgetId)
         assertEquals("1", plan.prerequisites.single().value)
+
+        val closePlan = IoTScenarioCommandPlanner.plan(
+            targetDeviceId = "greenhouse",
+            targetWidgetId = "vbtn78",
+            desiredValue = "0",
+            baseActions = listOf(LocalCommandActionItem("greenhouse", "vbtn78", "0")),
+            devices = devices,
+            models = listOf(StoredDeviceScenario("Дверь", source) to model)
+        )
+
+        assertEquals(
+            listOf("vbtn90", "vbtn78", "btn42"),
+            closePlan.actions.map { it.widgetId }
+        )
     }
 
 }
