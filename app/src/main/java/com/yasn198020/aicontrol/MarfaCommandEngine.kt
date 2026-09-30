@@ -374,10 +374,15 @@ class MarfaCommandEngine {
     private fun parseValueQuestion(text: String, devices: List<Device>): LocalCommandResult? {
         if (!containsAny(text, "сколько", "какая", "какое", "покажи", "скажи", "узнай", "что там")) return null
         val resolution = analyticalEngine.resolveSensor(text, devices)
-        val sensor = resolution.candidate ?: return LocalCommandResult(
-            action = LocalCommandAction.CLARIFY,
-            reply = resolution.clarification ?: "Уточните, какой датчик использовать."
-        )
+        val sensor = resolution.candidate ?: run {
+            if (resolution.candidates.isNotEmpty()) {
+                pendingClarification = PendingClarification.Sensor(resolution.candidates)
+            }
+            return LocalCommandResult(
+                action = LocalCommandAction.CLARIFY,
+                reply = resolution.clarification ?: "Уточните, какой датчик использовать."
+            )
+        }
         return LocalCommandResult(
             LocalCommandAction.READ_VALUE,
             sensor.device.id,
