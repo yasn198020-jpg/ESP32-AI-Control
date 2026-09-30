@@ -1484,6 +1484,8 @@ private fun VoiceSettingsScreen(
     pitch: Float,
     voices: List<android.speech.tts.Voice>,
     selectedVoiceName: String,
+    gemmaStatus: String,
+    onImportGemma: () -> Unit,
     onPreset: (String) -> Unit,
     onRate: (Float) -> Unit,
     onPitch: (Float) -> Unit,
@@ -1512,6 +1514,17 @@ private fun VoiceSettingsScreen(
     ) {
         Text("Голос", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
         Text("Выберите голос из установленных на телефоне.")
+
+        HorizontalDivider()
+        Text("Марфа — локальная Gemma", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Text(
+            "Gemma понимает естественную речь и контекст. Модель работает на телефоне и не управляет MQTT напрямую.",
+            style = MaterialTheme.typography.bodySmall
+        )
+        Text(gemmaStatus, style = MaterialTheme.typography.bodySmall)
+        Button(onClick = onImportGemma, modifier = Modifier.fillMaxWidth()) {
+            Text("Импортировать модель GGUF")
+        }
 
         Text("Установленный голос", fontWeight = FontWeight.Medium)
         Box(Modifier.fillMaxWidth()) {
