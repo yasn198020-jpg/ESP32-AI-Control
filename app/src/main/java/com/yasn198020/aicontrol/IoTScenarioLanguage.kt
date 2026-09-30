@@ -871,6 +871,101 @@ object IoTScenarioCommandPlanner {
             )
         }
 
+        /*
+         * Final deterministic fallback for scenario-managed logical controls.
+         * Once the logical target and its scenario actuator are proven, look
+         * only on the target's resolved ESP for a unique mode widget. This
+         * prevents a global/other-ESP mode control from being selected.
+         *
+         * An explicit automatic gate (MODE == 0) or a matching actuator branch
+         * proves that the logical target is scenario-managed. A voice command
+         * must enter manual mode before writing that logical state.
+         */
+        val modeFallbackPlan = run {
+            val targetDeviceId = effectiveTargetMatch.first
+            val modeCandidates = devices
+                .firstOrNull { it.id == targetDeviceId }
+                ?.widgets
+                ?.filter { isControllable(it) && isModeWidget(it) }
+                ?: emptyList()
+
+            if (modeCandidates.size != 1) {
+                null
+            } else {
+                val modeWidget = modeCandidates.single()
+                val targetIsScenarioManaged = allModels.any { (_, model) ->
+                    val resolved = resolveWidgets(model.identifiers)
+                    val target = resolved[effectiveTargetWidgetId] ?: return@any false
+                    if (target.first != targetDeviceId) return@any false
+
+                    model.rules.any { rule ->
+                        rule.actions.any { action ->
+                            if (!isActuatorAction(action, effectiveDesiredValue, resolved)) {
+                                false
+                            } else {
+                                val stateCondition =
+                                    findEquality(rule.condition.expression, effectiveTargetWidgetId)
+                                val stateWritten = rule.actions.any { stateAction ->
+                                    stateAction.targetId == effectiveTargetWidgetId &&
+                                        literalValue(stateAction.expression)
+                                            ?.let(::normalizeValue)
+                                            == normalizeValue(effectiveDesiredValue)
+                                }
+                                (stateCondition != null &&
+                                    normalizeValue(stateCondition) == normalizeValue(effectiveDesiredValue)) ||
+                                    stateWritten
+                            }
+                        }
+                    }
+                }
+
+                if (!targetIsScenarioManaged) {
+                    null
+                } else {
+                    val actions = buildList {
+                        if (!valuesEquivalent(modeWidget.value, "1")) {
+                            add(
+                                LocalCommandActionItem(
+                                    targetDeviceId,
+                                    modeWidget.id,
+                                    "1"
+                                )
+                            )
+                        }
+                        add(
+                            LocalCommandActionItem(
+                                targetDeviceId,
+                                effectiveTargetWidgetId,
+                                effectiveDesiredValue
+                            )
+                        )
+                    }
+
+                    val prerequisites = if (valuesEquivalent(modeWidget.value, "1")) {
+                        emptyList()
+                    } else {
+                        listOf(
+                            ScenarioPrerequisite(
+                                deviceId = targetDeviceId,
+                                widgetId = modeWidget.id,
+                                value = "1",
+                                reason = humanRequirement(modeWidget, "1")
+                            )
+                        )
+                    }
+
+                    ScenarioCommandPlan(
+                        actions = actions,
+                        prerequisites = prerequisites
+                    )
+                }
+            }
+        }
+
+        if (modeFallbackPlan != null) {
+            return modeFallbackPlan
+        }
+
         val selectedPrerequisites = chooseUniquePlan(directCandidates + reverseCandidates)
         if (selectedPrerequisites == null && directCandidates.isEmpty() && reverseCandidates.isEmpty()) {
             return ScenarioCommandPlan(base)
