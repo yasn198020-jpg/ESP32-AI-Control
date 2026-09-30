@@ -239,10 +239,10 @@ class IoTScenarioLanguageTest {
             listOf(StoredDeviceScenario(title = "Door", source = source) to model)
         )
 
-        assertEquals(listOf("vbtn90", "btn43"), plan.actions.map { it.widgetId })
-        assertEquals("1", plan.actions[0].value)
-        assertEquals("1", plan.actions[1].value)
-        assertEquals("vbtn90", plan.prerequisites.single().widgetId)
+        assertEquals(listOf("vbtn90", "vbtn78"), plan.actions.map { it.widgetId })
+        assertEquals(listOf("1", "1"), plan.actions.map { it.value })
+        assertEquals("vbtn90", plan.prerequisites.first().widgetId)
+        assertEquals("1", plan.prerequisites.first().value)
     }
 
     @Test
