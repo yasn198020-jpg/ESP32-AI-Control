@@ -479,7 +479,7 @@ class MarfaAnalyticalEngine {
             .filterNot { it.value.matches(Regex("\\d+")) }
             .filterNot { it.index in durationNumberIndexes }
             .filterNot { it.value in knownIds }
-            .filterNot { token -> entityAliases.any { alias -> token.startsWith(alias) } }
+            .filterNot { token -> entityAliases.any { alias -> token.value.startsWith(alias) } }
             .filter { it.value.length >= 2 }
             .map { token -> ContextToken(token.value, contextTokenKey(token.value)) }
             .filter { it.key.isNotBlank() }
