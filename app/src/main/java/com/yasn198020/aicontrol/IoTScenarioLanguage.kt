@@ -898,7 +898,33 @@ object IoTScenarioCommandPlanner {
                     if (!isActuatorWidget(actuator, targetDesired)) return@mapNotNull null
 
                     val targetCondition = findEquality(rule.condition.expression, targetWidgetId)
-                    if (targetCondition != targetDesired) return@mapNotNull null
+                    val targetIsWrittenToDesiredState = rule.actions.any { targetAction ->
+                        targetAction.targetId == targetWidgetId &&
+                            literalValue(targetAction.expression)?.let { normalizeValue(it) == targetDesired } == true
+                    }
+
+                    /*
+                     * IoTManager state widgets are often used as a precondition:
+                     *   vbtn78 == 0 -> btn43 = 1; vbtn78 = 1
+                     * for "open", and
+                     *   vbtn78 == 1 -> btn42 = 1; vbtn78 = 0
+                     * for "close".
+                     *
+                     * So the branch may contain either the desired state as a
+                     * condition or the opposite/pre-state when the scenario
+                     * itself writes the requested state.
+                     */
+                    val conditionMatchesRequestedState =
+                        targetCondition != null &&
+                            normalizeValue(targetCondition) == targetDesired
+                    val conditionIsPreStateForRequestedAction =
+                        targetCondition != null &&
+                            normalizeValue(targetCondition) != targetDesired &&
+                            targetIsWrittenToDesiredState
+
+                    if (!conditionMatchesRequestedState && !conditionIsPreStateForRequestedAction) {
+                        return@mapNotNull null
+                    }
 
                     /*
                      * Find a controllable mode variable in the same branch
@@ -1298,105 +1324,3 @@ object DeviceScenarioModelFormatter {
                     }
                 }
             }
-        }
-
-        model.statements.forEachIndexed { index, statement ->
-            appendStatement(
-                statement,
-                "",
-                if (model.statements.size == 1) ""
-                else if (index == model.statements.lastIndex) "└─ "
-                else "├─ "
-            )
-        }
-
-        return lines.joinToString("\n")
-    }
-
-    fun actionOverview(
-        model: DeviceScenarioModel,
-        labels: Map<String, String> = emptyMap()
-    ): String {
-        if (model.parserErrors.isNotEmpty()) return ""
-
-        fun labelFor(id: String): String =
-            labels[id]?.trim()?.takeIf { it.isNotBlank() } ?: id
-
-        fun valueText(expression: IoTExpr): String? = when (expression) {
-            is IoTExpr.NumberLiteral ->
-                java.math.BigDecimal.valueOf(expression.value).stripTrailingZeros().toPlainString()
-            is IoTExpr.StringLiteral -> expression.value
-            else -> null
-        }
-
-        fun conditionText(expression: IoTExpr): String =
-            expression.render(labels)
-
-        fun actionText(statement: IoTStatement.Assignment): String {
-            val label = labelFor(statement.target)
-            val value = valueText(statement.expression)
-            val lower = label.lowercase()
-
-            val semanticName = when {
-                lower.contains("форточ") && (lower.contains("закрыта") || lower.contains("открыта")) ->
-                    if (value == "1") "Открыть форточку" else if (value == "0") "Закрыть форточку" else null
-                lower.contains("двер") && (lower.contains("закрыта") || lower.contains("открыта")) ->
-                    if (value == "1") "Открыть дверь" else if (value == "0") "Закрыть дверь" else null
-                else -> null
-            }
-
-            val isState = lower.contains("закрыта") || lower.contains("открыта")
-            return when {
-                semanticName != null && isState ->
-                    "$semanticName → установить состояние «$label» = " +
-                        if (value == "1") "открыта" else if (value == "0") "закрыта" else value
-                semanticName != null && value == "1" ->
-                    "$semanticName → включить «$label»"
-                value == "1" ->
-                    "включить «$label»"
-                value == "0" ->
-                    "выключить «$label»"
-                else ->
-                    "установить «$label» = " + statement.expression.render(labels)
-            }
-        }
-
-        fun collectAssignments(
-            statement: IoTStatement,
-            condition: String?,
-            out: MutableList<Pair<String?, String>>
-        ) {
-            when (statement) {
-                is IoTStatement.If -> {
-                    val ownCondition = conditionText(statement.condition)
-                    collectAssignments(statement.thenBranch, ownCondition, out)
-                    statement.elseBranch?.let {
-                        collectAssignments(it, "НЕ ($ownCondition)", out)
-                    }
-                }
-                is IoTStatement.Block -> statement.statements.forEach {
-                    collectAssignments(it, condition, out)
-                }
-                is IoTStatement.Assignment -> {
-                    out += condition to actionText(statement)
-                }
-                is IoTStatement.ExpressionStatement -> Unit
-            }
-        }
-
-        val entries = mutableListOf<Pair<String?, String>>()
-        model.statements.forEach { collectAssignments(it, null, entries) }
-        if (entries.isEmpty()) return ""
-
-        return buildString {
-            entries.forEachIndexed { index, (condition, action) ->
-                if (index > 0) append("\n")
-                append(action)
-                if (!condition.isNullOrBlank()) {
-                    append("\n  → ЗАВИСИМОСТЬ: ")
-                    append(condition)
-                }
-            }
-        }.trim()
-    }
-}
