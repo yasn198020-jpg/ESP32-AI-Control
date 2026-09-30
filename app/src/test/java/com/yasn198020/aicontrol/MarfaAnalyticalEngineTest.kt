@@ -46,4 +46,66 @@ class MarfaAnalyticalEngineTest {
         val result = MarfaCommandEngine().parse("какая температура", devices())
         assertEquals(LocalCommandAction.CLARIFY, result.action)
     }
+    @Test
+    fun duplicateControlsRequireClarificationWithoutPage() {
+        val result = MarfaAnalyticalEngine().resolveControl(
+            "открой дверь",
+            listOf(
+                Device("d1", "Теплица", true, listOf(
+                    WidgetState("door1", "закрыта открыта дверь", WidgetState.Type.TOGGLE, "0", page = "Теплица 1"),
+                    WidgetState("door2", "закрыта открыта дверь", WidgetState.Type.TOGGLE, "0", page = "Теплица 2")
+                ))
+            ),
+            "1"
+        )
+        assertEquals(null, result.candidate)
+        assertTrue(result.clarification!!.contains("Теплица 1"))
+        assertTrue(result.clarification!!.contains("Теплица 2"))
+    }
+
+    @Test
+    fun duplicateControlsResolveByExplicitPage() {
+        val result = MarfaAnalyticalEngine().resolveControl(
+            "открой дверь на вкладке Теплица 2",
+            listOf(
+                Device("d1", "Теплица", true, listOf(
+                    WidgetState("door1", "закрыта открыта дверь", WidgetState.Type.TOGGLE, "0", page = "Теплица 1"),
+                    WidgetState("door2", "закрыта открыта дверь", WidgetState.Type.TOGGLE, "0", page = "Теплица 2")
+                ))
+            ),
+            "1"
+        )
+        assertEquals("door2", result.candidate!!.widget.id)
+    }
+
+    @Test
+    fun exactElementIdOverridesTitle() {
+        val result = MarfaAnalyticalEngine().resolveControl(
+            "открой дверь id door2",
+            listOf(
+                Device("d1", "Теплица", true, listOf(
+                    WidgetState("door1", "дверь", WidgetState.Type.TOGGLE, "0", page = "Теплица 1"),
+                    WidgetState("door2", "дверь", WidgetState.Type.TOGGLE, "0", page = "Теплица 2")
+                ))
+            ),
+            "1"
+        )
+        assertEquals("door2", result.candidate!!.widget.id)
+    }
+
+    @Test
+    fun commandEngineDelegatesControlResolutionToAnalyticalEngine() {
+        val result = MarfaCommandEngine().parse(
+            "открой дверь на вкладке Теплица 2",
+            listOf(
+                Device("d1", "Теплица", true, listOf(
+                    WidgetState("door1", "закрыта открыта дверь", WidgetState.Type.TOGGLE, "0", page = "Теплица 1"),
+                    WidgetState("door2", "закрыта открыта дверь", WidgetState.Type.TOGGLE, "0", page = "Теплица 2")
+                ))
+            )
+        )
+        assertEquals(LocalCommandAction.CONTROL, result.action)
+        assertEquals("door2", result.widgetId)
+    }
+
 }
