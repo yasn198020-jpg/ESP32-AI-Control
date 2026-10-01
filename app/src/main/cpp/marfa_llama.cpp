@@ -1,4 +1,5 @@
 #include <android/log.h>
+#include <android/log.h>
 #include <jni.h>
 
 #include <algorithm>
@@ -379,7 +380,6 @@ Java_com_yasn198020_aicontrol_MarfaLlamaNative_nativeLoadModel(
     engine->threads = contextParams.n_threads;
     engine->context_size = static_cast<int>(contextParams.n_ctx);
     engine->affinity_info = affinityInfo;
-    engine->system_info = systemInfo;
     engine->system_info = systemInfo;
 
     const std::string info =
