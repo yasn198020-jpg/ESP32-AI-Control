@@ -58,6 +58,10 @@ class GemmaTestActivity : Activity() {
         val receiver = object : ResultReceiver(Handler(Looper.getMainLooper())) {
             override fun onReceiveResult(resultCode: Int, resultData: Bundle?) {
                 val elapsed = System.currentTimeMillis() - started
+                if (resultCode == 2) {
+                    append("[" + (resultData?.getLong("elapsed") ?: elapsed) + " мс] " + resultData?.getString("stage").orEmpty())
+                    return
+                }
                 val error = resultData?.getString("error")
                 val text = resultData?.getString("text").orEmpty()
                 append(if (resultCode == 0)
