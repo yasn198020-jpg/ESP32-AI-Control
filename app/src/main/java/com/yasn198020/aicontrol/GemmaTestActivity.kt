@@ -9,6 +9,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.ResultReceiver
 import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -42,6 +43,18 @@ class GemmaTestActivity : Activity() {
         root.addView(Button(this).apply {
             text = "🚀 Запустить ВСЕ тесты"
             setOnClickListener { runAllTests() }
+        })
+        val chainCommand = EditText(this).apply {
+            setSingleLine(true)
+            setText("Открой дверь помидоров")
+            hint = "Команда для сквозного теста"
+            setPadding(12, 8, 12, 8)
+        }
+        root.addView(chainCommand)
+
+        root.addView(Button(this).apply {
+            text = "🔬 Сквозной тест команды"
+            setOnClickListener { runFullChainTest(chainCommand.text.toString()) }
         })
 
         root.addView(Button(this).apply {
@@ -79,6 +92,35 @@ class GemmaTestActivity : Activity() {
         setContentView(root)
     }
 
+    private fun runFullChainTest(command: String) {
+        if (running) {
+            append("⚠ Тесты уже выполняются.")
+            return
+        }
+        val text = command.trim()
+        if (text.isBlank()) {
+            append("⚠ Введите команду для теста.")
+            return
+        }
+        running = true
+        output.text = ""
+        append("🔬 ЗАПУСК СКВОЗНОГО ТЕСТА")
+        append("Команда: $text")
+        append("MQTT/устройство не будет затронуто.")
+        scope.launch {
+            val started = System.currentTimeMillis()
+            val devices = AppRuntime.get(applicationContext).deviceRepository.snapshot()
+            val result = MarfaIntelligence.get(applicationContext).diagnoseCommand(text, devices)
+            val elapsed = System.currentTimeMillis() - started
+            val report = result.fold(
+                onSuccess = { it },
+                onFailure = { "❌ СКВОЗНАЯ ДИАГНОСТИКА ОШИБКА: " + (it.message ?: it.javaClass.simpleName) }
+            )
+            append("[" + elapsed + " мс]")
+            append(report)
+            running = false
+        }
+    }
     private fun runAllTests() {
         if (running) {
             append("⚠ Тесты уже выполняются.")
