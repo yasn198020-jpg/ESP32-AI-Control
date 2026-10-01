@@ -84,7 +84,7 @@ class GemmaTestActivity : Activity() {
                 val error = resultData?.getString("error")
                 val text = resultData?.getString("text").orEmpty()
                 append(if (resultCode == 0)
-                    "Ответ за " + elapsed + " мс:\n" + text
+                    "Ответ за " + elapsed + " мс, скорость: " + resultData?.getString("tokens_per_second").orEmpty() + " ток/с:\n" + text
                 else
                     "ОШИБКА за " + elapsed + " мс:\n" + (error ?: "неизвестная ошибка"))
             }
