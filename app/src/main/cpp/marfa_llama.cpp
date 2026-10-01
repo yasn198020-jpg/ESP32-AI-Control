@@ -30,6 +30,7 @@ struct NativeEngine {
     int threads = 0;
     int context_size = 0;
     std::string affinity_info;
+    std::string system_info;
 };
 
 void logInfo(const std::string & message) {
@@ -38,6 +39,25 @@ void logInfo(const std::string & message) {
 
 void logError(const std::string & message) {
     __android_log_print(ANDROID_LOG_ERROR, TAG, "%s", message.c_str());
+}
+
+std::string affinityMaskDescription() {
+#if defined(__ANDROID__)
+    cpu_set_t current;
+    CPU_ZERO(&current);
+    if (sched_getaffinity(0, sizeof(current), &current) != 0) {
+        return "get_failed:" + std::string(std::strerror(errno));
+    }
+    std::string out;
+    for (int cpu = 0; cpu < 32; ++cpu) {
+        if (!CPU_ISSET(cpu, &current)) continue;
+        if (!out.empty()) out += ",";
+        out += std::to_string(cpu);
+    }
+    return out.empty() ? "none" : out;
+#else
+    return "non-Android";
+#endif
 }
 
 bool pinToPerformanceCores(int & selectedThreads, std::string & description) {
@@ -78,6 +98,7 @@ bool pinToPerformanceCores(int & selectedThreads, std::string & description) {
         for (const auto & core : cores) description += std::to_string(core.cpu) + ",";
         return false;
     }
+    const std::string afterMask = affinityMaskDescription();
     selectedThreads = std::min(selectedThreads, static_cast<int>(best.size()));
     description = "affinity=big[";
     for (size_t i = 0; i < best.size(); ++i) {
@@ -85,7 +106,8 @@ bool pinToPerformanceCores(int & selectedThreads, std::string & description) {
         description += std::to_string(best[i]);
     }
     description += "],freq=" + std::to_string(bestFreq) +
-                   ",threads=" + std::to_string(selectedThreads);
+                   ",threads=" + std::to_string(selectedThreads) +
+                   ",mask=" + afterMask;
     return true;
 #else
     description = "affinity=non-Android";
@@ -308,7 +330,8 @@ Java_com_yasn198020_aicontrol_MarfaLlamaNative_nativeLoadModel(
 
     llama_backend_init();
 
-    logInfo("System info: " + std::string(llama_print_system_info()));
+    const std::string systemInfo = llama_print_system_info();
+    logInfo("System info: " + systemInfo);
 
     int effectiveThreads = std::max(1, static_cast<int>(threads));
     std::string affinityInfo;
@@ -348,6 +371,7 @@ Java_com_yasn198020_aicontrol_MarfaLlamaNative_nativeLoadModel(
     engine->threads = contextParams.n_threads;
     engine->context_size = static_cast<int>(contextParams.n_ctx);
     engine->affinity_info = affinityInfo;
+    engine->system_info = systemInfo;
 
     const std::string info =
             "Native llama.cpp loaded: version=" + std::string(llama_version()) +
@@ -477,6 +501,8 @@ Java_com_yasn198020_aicontrol_MarfaLlamaNative_nativeGenerate(
         << ",\"generationTokensPerSecond\":" << generationTokensPerSecond
         << ",\"effectiveThreads\":" << engine->threads
         << ",\"affinity\":\"" << jsonEscape(engine->affinity_info)
+        << "\",\"affinityCurrent\":\"" << jsonEscape(affinityMaskDescription())
+        << "\",\"systemInfo\":\"" << jsonEscape(engine->system_info)
         << "\",\"backend\":\"llama.cpp-" << jsonEscape(llama_version())
         << "\"}";
 
