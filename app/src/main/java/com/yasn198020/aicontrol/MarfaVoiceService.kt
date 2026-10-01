@@ -129,6 +129,10 @@ class MarfaVoiceService : Service() {
 
     private suspend fun handleCommandInternal(command: String) {
         try {
+            val devicesSnapshot = synchronizedCopyDevices()
+            if (commandEngine.isLikelyContextual(command)) {
+                speak(acknowledgementFor(command))
+            }
             pendingControl?.let { pending ->
                 when {
                     isCommandConfirmation(command) -> {
@@ -190,7 +194,7 @@ class MarfaVoiceService : Service() {
 
             // Parse once to reserve smart-rule phrases for the natural engine.
             // Existing trained phrases keep priority for ordinary commands.
-            val result = commandEngine.interpret(command, synchronizedCopyDevices())
+            val result = commandEngine.interpret(command, devicesSnapshot)
             android.util.Log.d(
                 "MARFA_ENGINE",
                 "command=${command} action=${result.action} delayMs=${result.delayMs} actions=${result.actionItems.size}"
@@ -290,6 +294,15 @@ class MarfaVoiceService : Service() {
                 prefs.edit().putBoolean("marfa_voice_active", false).apply()
                 MarfaShortcutInstaller.setActive(this, false)
             }
+        }
+    }
+
+    private fun acknowledgementFor(command: String): String {
+        val n = command.lowercase(Locale("ru", "RU")).trim()
+        return when {
+            n.contains("где ") || n.contains(" там") || n.contains("у ") || n.contains("для ") ->
+                "Поняла. Уточняю, какой объект вы имеете в виду."
+            else -> "Поняла. Уточняю команду."
         }
     }
 
