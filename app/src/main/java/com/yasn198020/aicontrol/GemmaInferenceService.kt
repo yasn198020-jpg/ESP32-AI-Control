@@ -27,6 +27,7 @@ class GemmaInferenceService : Service() {
         const val EXTRA_RESULT = "result"
         const val EXTRA_RAW_PROMPT = "raw_prompt"
         const val EXTRA_MAX_TOKENS = "max_tokens"
+        const val EXTRA_THREADS = "threads"
 
         private const val MODEL_FILE_NAME = "marfa-gemma.gguf"
         private const val CONTEXT_SIZE = 768
@@ -58,6 +59,7 @@ CATALOG fields: id, device, page, title, type.
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var loadedModel: LlamaModel? = null
     private var loadedPath = ""
+    private var loadedThreads = 0
     private val inferenceMutex = Mutex()
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -65,6 +67,7 @@ CATALOG fields: id, device, page, title, type.
         val rawPrompt = intent?.getStringExtra(EXTRA_RAW_PROMPT).orEmpty()
         val catalog = intent?.getStringExtra(EXTRA_CATALOG).orEmpty()
         val requestedMaxTokens = intent?.getIntExtra(EXTRA_MAX_TOKENS, MAX_TOKENS)?.coerceIn(1, MAX_TOKENS) ?: MAX_TOKENS
+        val requestedThreads = intent?.getIntExtra(EXTRA_THREADS, 0)?.coerceIn(1, MAX_THREADS) ?: 0
         val receiver = if (android.os.Build.VERSION.SDK_INT >= 33) {
             intent?.getParcelableExtra(EXTRA_RESULT, ResultReceiver::class.java)
         } else {
@@ -87,9 +90,9 @@ CATALOG fields: id, device, page, title, type.
                     if (rawPrompt.isBlank() && catalog.isBlank()) throw Exception("Пустой каталог виджетов")
 
                     stage("Загрузка модели")
-                    val model = loadModel()
+                    val model = loadModel(requestedThreads)
                     stage("Модель загружена")
-                    stage("Запуск inference: maxTokens=$requestedMaxTokens")
+                    stage("Запуск inference: maxTokens=$requestedMaxTokens, threads=" + (if (requestedThreads > 0) requestedThreads else "auto"))
                     val result = if (rawPrompt.isNotBlank()) {
                         Llama.complete(
                             model = model,
@@ -120,14 +123,15 @@ CATALOG fields: id, device, page, title, type.
         return START_NOT_STICKY
     }
 
-    private suspend fun loadModel(): LlamaModel {
+    private suspend fun loadModel(requestedThreads: Int): LlamaModel {
         val modelFile = File(
             getExternalFilesDir("models") ?: File(filesDir, "models"),
             MODEL_FILE_NAME
         )
         val path = modelFile.absolutePath
 
-        loadedModel?.let { if (loadedPath == path) return it }
+        val cpuThreads = requestedThreads.takeIf { it > 0 } ?: minOf(MAX_THREADS, maxOf(2, Runtime.getRuntime().availableProcessors() - 1))
+        loadedModel?.let { if (loadedPath == path && loadedThreads == cpuThreads) return it }
 
         if (!modelFile.isFile || modelFile.length() <= 1_000_000L) {
             throw Exception("Файл Gemma GGUF не найден или повреждён")
@@ -156,7 +160,7 @@ CATALOG fields: id, device, page, title, type.
             path,
             LlamaConfig(
                 contextSize = CONTEXT_SIZE,
-                threads = minOf(MAX_THREADS, maxOf(2, Runtime.getRuntime().availableProcessors() - 1)),
+                threads = cpuThreads,
                 gpuLayers = 0,
                 temperature = 0.1f,
                 topP = 0.9f,
@@ -164,6 +168,7 @@ CATALOG fields: id, device, page, title, type.
             )
         )
         loadedPath = path
+        loadedThreads = cpuThreads
         return loadedModel!!
     }
 
@@ -179,6 +184,7 @@ CATALOG fields: id, device, page, title, type.
         loadedModel?.let { runCatching { Llama.releaseModel(it) } }
         loadedModel = null
         loadedPath = ""
+        loadedThreads = 0
         scope.cancel()
         super.onDestroy()
     }
