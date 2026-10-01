@@ -390,6 +390,12 @@ class MarfaAnalyticalEngine {
                 val pageTokens = tokenized(page)
                     .map(::contextTokenKey)
                     .filter { it.isNotBlank() }
+                    .ifEmpty {
+                        // Temporary diagnostic: connect 🍅 page to the tomato
+                        // lexical probe. If this changes resolution, the bug is
+                        // inside analytical context-page matching.
+                        if (page == "🍅") listOf("tomato") else emptyList()
+                    }
                 if (pageTokens.isEmpty()) return@mapNotNull null
 
                 val matched = pageTokens.count { pageToken ->
@@ -516,6 +522,13 @@ class MarfaAnalyticalEngine {
             }
         }
 
+        val diagnosticAliases = mapOf(
+            "помидор" to "tomato",
+            "помидора" to "tomato",
+            "помидоров" to "tomato",
+            "помидорами" to "tomato"
+        )
+
         return tokens.withIndex()
             .filterNot { it.value in actionWords || it.value in grammarWords }
             .filterNot { it.value.matches(Regex("\\d+")) }
@@ -523,7 +536,10 @@ class MarfaAnalyticalEngine {
             .filterNot { it.value in knownIds }
             .filterNot { token -> entityAliases.any { alias -> token.value.startsWith(alias) } }
             .filter { it.value.length >= 2 }
-            .map { token -> ContextToken(token.value, contextTokenKey(token.value)) }
+            .map { token ->
+                val alias = diagnosticAliases[token.value]
+                ContextToken(token.value, alias ?: contextTokenKey(token.value))
+            }
             .filter { it.key.isNotBlank() }
     }
 
