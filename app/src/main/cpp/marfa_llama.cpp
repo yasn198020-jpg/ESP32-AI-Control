@@ -13,6 +13,8 @@
 
 #if defined(__ANDROID__)
 #include <sched.h>
+#include <sys/syscall.h>
+#include <unistd.h>
 #endif
 
 #include "llama.h"
@@ -41,8 +43,15 @@ void logError(const std::string & message) {
 bool pinToPerformanceCores(int & selectedThreads, std::string & description) {
 #if defined(__ANDROID__)
     struct CoreInfo { int cpu; long long freq; };
+    cpu_set_t allowed;
+    CPU_ZERO(&allowed);
+    if (sched_getaffinity(0, sizeof(allowed), &allowed) != 0) {
+        description = "affinity=get_failed:" + std::string(std::strerror(errno));
+        return false;
+    }
     std::vector<CoreInfo> cores;
     for (int cpu = 0; cpu < 32; ++cpu) {
+        if (!CPU_ISSET(cpu, &allowed)) continue;
         std::ifstream in("/sys/devices/system/cpu/cpu" + std::to_string(cpu) +
                          "/cpufreq/cpuinfo_max_freq");
         long long freq = 0;
@@ -50,7 +59,7 @@ bool pinToPerformanceCores(int & selectedThreads, std::string & description) {
         if (freq > 0) cores.push_back({cpu, freq});
     }
     if (cores.size() < 2) {
-        description = "affinity=unavailable";
+        description = "affinity=allowed_cores_lt2";
         return false;
     }
     std::sort(cores.begin(), cores.end(), [](const CoreInfo & a, const CoreInfo & b) {
@@ -59,29 +68,24 @@ bool pinToPerformanceCores(int & selectedThreads, std::string & description) {
     });
     const long long bestFreq = cores.front().freq;
     std::vector<int> best;
-    for (const auto & core : cores) {
-        if (core.freq == bestFreq) best.push_back(core.cpu);
-    }
-    if (best.size() < 2) {
-        best.clear();
-        best.push_back(cores[0].cpu);
-        best.push_back(cores[1].cpu);
-    }
+    for (const auto & core : cores) if (core.freq == bestFreq) best.push_back(core.cpu);
+    if (best.size() < 2) best = {cores[0].cpu, cores[1].cpu};
 
-    cpu_set_t set;
-    CPU_ZERO(&set);
-    for (int cpu : best) CPU_SET(cpu, &set);
-
-    if (sched_setaffinity(0, sizeof(set), &set) != 0) {
-        description = "affinity=failed:" + std::string(std::strerror(errno));
+    uint64_t mask = 0;
+    for (const int cpu : best) if (cpu >= 0 && cpu < 64) mask |= (uint64_t(1) << cpu);
+    if (syscall(SYS_sched_setaffinity, 0, sizeof(mask), &mask) != 0) {
+        description = "affinity=failed:" + std::string(std::strerror(errno)) + ",allowed=";
+        for (const auto & core : cores) description += std::to_string(core.cpu) + ",";
         return false;
     }
-
     selectedThreads = std::min(selectedThreads, static_cast<int>(best.size()));
-    description = "affinity=big[" + std::to_string(best[0]) + "," +
-                  std::to_string(best[1]) + "],freq=" +
-                  std::to_string(bestFreq) + ",threads=" +
-                  std::to_string(selectedThreads);
+    description = "affinity=big[";
+    for (size_t i = 0; i < best.size(); ++i) {
+        if (i) description += ",";
+        description += std::to_string(best[i]);
+    }
+    description += "],freq=" + std::to_string(bestFreq) +
+                   ",threads=" + std::to_string(selectedThreads);
     return true;
 #else
     description = "affinity=non-Android";
