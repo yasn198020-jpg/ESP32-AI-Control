@@ -30,7 +30,9 @@ class GemmaInferenceService : Service() {
         const val EXTRA_THREADS = "threads"
         const val EXTRA_CONTEXT = "context"
 
-        private const val MODEL_FILE_NAME = "marfa-gemma.gguf"
+        private const val MODEL_FILE_NAME = "marfa-gemma3-1b-q4km.gguf"
+        private const val MODEL_URL = "https://huggingface.co/ggml-org/gemma-3-1b-it-GGUF/resolve/main/gemma-3-1b-it-Q4_K_M.gguf"
+        private const val MODEL_MIN_BYTES = 700L * 1024L * 1024L
         private const val DEFAULT_CONTEXT_SIZE = 768
         private const val MIN_CONTEXT_SIZE = 128
         private const val MAX_CONTEXT_SIZE = 768
@@ -94,7 +96,8 @@ CATALOG fields: id, device, page, title, type.
                     if (command.isBlank() && rawPrompt.isBlank()) throw Exception("Пустая команда")
                     if (rawPrompt.isBlank() && catalog.isBlank()) throw Exception("Пустой каталог виджетов")
 
-                    stage("Загрузка модели")
+                    stage("Проверка облегчённой модели Gemma 3 1B")
+                    ensureModelFile { message -> stage(message) }
                     val model = loadModel(requestedThreads, requestedContext)
                     stage("Модель загружена: " + formatBytes(modelFileSize()) + ", ABI=" + android.os.Build.SUPPORTED_ABIS.joinToString(",") + ", CPU=" + Runtime.getRuntime().availableProcessors())
                     stage("Запуск inference: maxTokens=$requestedMaxTokens, threads=" + (if (requestedThreads > 0) requestedThreads else "auto") + ", context=$requestedContext")
@@ -129,6 +132,48 @@ CATALOG fields: id, device, page, title, type.
         return START_NOT_STICKY
     }
 
+    private fun ensureModelFile(stage: (String) -> Unit) {
+        val file = File(getExternalFilesDir("models") ?: File(filesDir, "models"), MODEL_FILE_NAME)
+        if (file.isFile && file.length() >= MODEL_MIN_BYTES) return
+        file.parentFile?.mkdirs()
+        val temp = File(file.parentFile, MODEL_FILE_NAME + ".download")
+        stage("Скачивание Gemma 3 1B Q4_K_M (~806 МБ)")
+        val connection = (java.net.URL(MODEL_URL).openConnection() as java.net.HttpURLConnection).apply {
+            connectTimeout = 15_000
+            readTimeout = 60_000
+            instanceFollowRedirects = true
+            requestMethod = "GET"
+        }
+        try {
+            connection.connect()
+            if (connection.responseCode !in 200..299) throw Exception("Не удалось скачать Gemma: HTTP " + connection.responseCode)
+            val total = connection.contentLengthLong
+            var done = 0L
+            var lastReport = -10
+            connection.inputStream.use { input ->
+                temp.outputStream().use { output ->
+                    val buffer = ByteArray(1024 * 1024)
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        output.write(buffer, 0, read)
+                        done += read
+                        if (total > 0) {
+                            val percent = (done * 100 / total).toInt()
+                            if (percent >= lastReport + 10) { lastReport = percent; stage("Скачивание Gemma: " + percent + "%") }
+                        }
+                    }
+                }
+            }
+            if (temp.length() < MODEL_MIN_BYTES) throw Exception("Скачанный GGUF слишком маленький: " + formatBytes(temp.length()))
+            if (file.exists()) file.delete()
+            if (!temp.renameTo(file)) throw Exception("Не удалось сохранить Gemma GGUF")
+            stage("Gemma 3 1B скачана: " + formatBytes(file.length()))
+        } finally {
+            connection.disconnect()
+            if (temp.exists() && temp.length() < MODEL_MIN_BYTES) temp.delete()
+        }
+    }
     private suspend fun loadModel(requestedThreads: Int, requestedContext: Int): LlamaModel {
         val modelFile = File(
             getExternalFilesDir("models") ?: File(filesDir, "models"),
@@ -139,8 +184,8 @@ CATALOG fields: id, device, page, title, type.
         val cpuThreads = requestedThreads.takeIf { it > 0 } ?: minOf(MAX_THREADS, maxOf(2, Runtime.getRuntime().availableProcessors() - 1))
         loadedModel?.let { if (loadedPath == path && loadedThreads == cpuThreads && loadedContext == requestedContext) return it }
 
-        if (!modelFile.isFile || modelFile.length() <= 1_000_000L) {
-            throw Exception("Файл Gemma GGUF не найден или повреждён")
+        if (!modelFile.isFile || modelFile.length() < MODEL_MIN_BYTES) {
+            throw Exception("Файл Gemma 3 1B GGUF не найден или неполный: " + formatBytes(modelFile.length()))
         }
 
         val memory = getSystemService(ACTIVITY_SERVICE) as ActivityManager
