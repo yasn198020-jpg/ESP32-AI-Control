@@ -354,6 +354,15 @@ CATALOG fields: id, device, page, title, type.
         loadedPath = ""
         loadedThreads = 0
         loadedContext = 0
+
+        nativeHandle.takeIf { it != 0L }?.let {
+            runCatching { MarfaLlamaNative.nativeRelease(it) }
+        }
+        nativeHandle = 0L
+        nativePath = ""
+        nativeThreads = 0
+        nativeContext = 0
+
         scope.cancel()
         super.onDestroy()
     }
