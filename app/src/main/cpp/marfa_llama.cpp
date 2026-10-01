@@ -391,6 +391,96 @@ Java_com_yasn198020_aicontrol_MarfaLlamaNative_nativeLoadModel(
     return reinterpret_cast<jlong>(engine);
 }
 
+
+extern "C"
+JNIEXPORT jstring JNICALL
+Java_com_yasn198020_aicontrol_MarfaLlamaNative_nativeBenchmarkPrompt(
+        JNIEnv * env,
+        jobject,
+        jlong handle,
+        jstring jPrompt,
+        jstring jSystemPrompt) {
+    auto * engine = reinterpret_cast<NativeEngine *>(handle);
+    if (engine == nullptr || engine->model == nullptr || engine->context == nullptr) {
+        return env->NewStringUTF("{\"error\":\"invalid native handle\"}");
+    }
+
+    const char * promptChars = env->GetStringUTFChars(jPrompt, nullptr);
+    const char * systemChars = env->GetStringUTFChars(jSystemPrompt, nullptr);
+    if (promptChars == nullptr || systemChars == nullptr) {
+        if (promptChars) env->ReleaseStringUTFChars(jPrompt, promptChars);
+        if (systemChars) env->ReleaseStringUTFChars(jSystemPrompt, systemChars);
+        return env->NewStringUTF("{\"error\":\"JNI string conversion failed\"}");
+    }
+    const std::string userPrompt(promptChars);
+    const std::string systemPrompt(systemChars);
+    env->ReleaseStringUTFChars(jPrompt, promptChars);
+    env->ReleaseStringUTFChars(jSystemPrompt, systemChars);
+
+    std::string formatted;
+    if (!formatChat(engine->model, systemPrompt, userPrompt, formatted)) {
+        return env->NewStringUTF("{\"error\":\"chat template failed\"}");
+    }
+
+    const llama_vocab * vocab = llama_model_get_vocab(engine->model);
+    std::vector<llama_token> tokens;
+    if (!tokenizePrompt(vocab, formatted, tokens)) {
+        return env->NewStringUTF("{\"error\":\"tokenization failed\"}");
+    }
+
+    const int batchSizes[] = {1, 2, 4, 8, 16, 32, 35};
+    std::ostringstream result;
+    result.setf(std::ios::fixed);
+    result.precision(2);
+    result << "{\"promptTokens\":" << tokens.size() << ",\"results\":[";
+
+    for (size_t bi = 0; bi < sizeof(batchSizes) / sizeof(batchSizes[0]); ++bi) {
+        const int batchSize = std::min(batchSizes[bi], static_cast<int>(tokens.size()));
+        if (batchSize <= 0) continue;
+
+        llama_memory_clear(llama_get_memory(engine->context), true);
+        const auto start = std::chrono::steady_clock::now();
+
+        int processed = 0;
+        bool ok = true;
+        while (processed < static_cast<int>(tokens.size())) {
+            const int count = std::min(batchSize, static_cast<int>(tokens.size()) - processed);
+            llama_batch batch = llama_batch_init(count, 0, 1);
+            if (batch.token == nullptr) {
+                ok = false;
+                break;
+            }
+            batch.n_tokens = count;
+            for (int i = 0; i < count; ++i) {
+                batch.token[i] = tokens[processed + i];
+                batch.pos[i] = processed + i;
+                batch.n_seq_id[i] = 1;
+                batch.seq_id[i][0] = 0;
+                batch.logits[i] = (processed + i == static_cast<int>(tokens.size()) - 1) ? 1 : 0;
+            }
+            if (llama_decode(engine->context, batch) != 0) ok = false;
+            llama_batch_free(batch);
+            if (!ok) break;
+            processed += count;
+        }
+
+        const auto end = std::chrono::steady_clock::now();
+        const double ms = std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(end - start).count();
+
+        if (bi) result << ",";
+        result << "{\"batch\":" << batchSize
+               << ",\"ok\":" << (ok ? "true" : "false")
+               << ",\"ms\":" << ms
+               << ",\"tokPerSec\":" << (ms > 0.0 ? tokens.size() * 1000.0 / ms : 0.0)
+               << "}";
+        logInfo("Prompt benchmark batch=" + std::to_string(batchSize) +
+                " ms=" + std::to_string(ms));
+    }
+
+    result << "]}";
+    return env->NewStringUTF(result.str().c_str());
+}
+
 extern "C"
 JNIEXPORT jstring JNICALL
 Java_com_yasn198020_aicontrol_MarfaLlamaNative_nativeGenerate(
