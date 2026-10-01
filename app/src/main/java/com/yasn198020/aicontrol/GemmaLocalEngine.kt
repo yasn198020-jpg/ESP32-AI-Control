@@ -176,6 +176,8 @@ CATALOG fields: id, device, page, title, type.
         }
         return word
     }
+    fun validateRawResult(rawText: String, originalCommand: String, devices: List<Device>): Result<LocalCommandResult> = parseAndValidate(rawText, originalCommand, devices)
+
     private fun parseAndValidate(rawText: String, originalCommand: String, devices: List<Device>): Result<LocalCommandResult> {
         val jsonText = extractJson(rawText) ?: return Result.failure(Exception("Gemma вернула не JSON"))
         val json = runCatching { JSONObject(jsonText) }
