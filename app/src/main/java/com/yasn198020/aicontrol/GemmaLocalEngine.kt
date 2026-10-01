@@ -20,8 +20,8 @@ import java.util.Locale
 
 class GemmaLocalEngine private constructor(private val appContext: Context) {
     companion object {
-        private const val MODEL_FILE_NAME = "marfa-gemma.gguf"
-        private const val REQUEST_TIMEOUT_MS = 30_000L
+        private const val MODEL_FILE_NAME = "marfa-gemma3-1b-q4km.gguf"
+        private const val REQUEST_TIMEOUT_MS = 120_000L
         private const val SYSTEM_PROMPT = """
 Ты локальный семантический интерпретатор команд IoTManager.
 Твоя задача — понять смысл русской фразы пользователя и выбрать существующий объект.
@@ -56,11 +56,11 @@ CATALOG fields: id, device, page, title, type.
             MODEL_FILE_NAME
         )
 
-    fun isModelInstalled(): Boolean = modelFile.isFile && modelFile.length() > 1_000_000L
+    fun isModelInstalled(): Boolean = modelFile.isFile && modelFile.length() >= 700L * 1024L * 1024L
 
     fun statusText(): String =
         if (isModelInstalled()) "Gemma установлена • " + formatBytes(modelFile.length())
-        else "Gemma не установлена. Выберите файл GGUF."
+        else "Gemma 3 1B будет загружена автоматически при первом запуске."
 
     suspend fun importModel(uri: Uri): Result<String> = withContext(Dispatchers.IO) {
         try {
@@ -99,10 +99,6 @@ CATALOG fields: id, device, page, title, type.
 
     suspend fun interpret(command: String, devices: List<Device>): Result<LocalCommandResult> =
         withContext(Dispatchers.IO) {
-            if (!isModelInstalled()) {
-                return@withContext Result.failure(Exception("Gemma не установлена"))
-            }
-
             val catalog = buildCatalog(devices, command)
             val resultDeferred = CompletableDeferred<Result<String>>()
             val receiver = object : ResultReceiver(Handler(Looper.getMainLooper())) {
