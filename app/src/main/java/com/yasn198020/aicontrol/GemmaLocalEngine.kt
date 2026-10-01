@@ -142,8 +142,33 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
                 Candidate(device, widget, score)
             }
         }.sortedByDescending { it.score }
-        val selected = if (commandTokens.isEmpty()) candidates.take(12)
-        else candidates.filter { it.score > 0 }.take(12).ifEmpty { candidates.take(12) }
+
+        // For control commands, use the same semantic resolver that already knows
+        // the difference between a logical state widget and a physical actuator.
+        // This keeps candidateIndex aligned with Marfa's real IoTManager logic.
+        val desiredValue = when {
+            Regex("""\\b(откры|открой|распах|подним)""", RegexOption.IGNORE_CASE).containsMatchIn(command) -> "1"
+            Regex("""\\b(закры|закрой|опуст|запечат)""", RegexOption.IGNORE_CASE).containsMatchIn(command) -> "0"
+            Regex("""\\b(включ|запусти|зажг)""", RegexOption.IGNORE_CASE).containsMatchIn(command) -> "1"
+            Regex("""\\b(выключ|останов|погаси)""", RegexOption.IGNORE_CASE).containsMatchIn(command) -> "0"
+            else -> null
+        }
+        val orderedCandidates = if (desiredValue != null) {
+            val resolution = MarfaAnalyticalEngine().resolveControl(command, devices, desiredValue)
+            val rank = resolution.candidates.mapIndexed { index, candidate ->
+                candidate.widget.id to index
+            }.toMap()
+            candidates.sortedWith(
+                compareBy<Candidate> { rank[it.widget.id] ?: Int.MAX_VALUE }
+                    .thenByDescending { it.score }
+                    .thenBy { it.widget.order }
+                    .thenBy { it.widget.id }
+            )
+        } else {
+            candidates
+        }
+        val selected = if (commandTokens.isEmpty()) orderedCandidates.take(12)
+        else orderedCandidates.filter { it.score > 0 }.take(12).ifEmpty { orderedCandidates.take(12) }
         val array = JSONArray()
         selected.forEach { item ->
             array.put(JSONObject().apply {
@@ -162,7 +187,7 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
     private fun buildCandidatePairs(devices: List<Device>, command: String): List<Pair<Device, WidgetState>> {
         data class Candidate(val device: Device, val widget: WidgetState, val score: Int)
         val commandTokens = semanticTokens(command)
-        return devices.flatMap { device ->
+        val candidates = devices.flatMap { device ->
             device.widgets.map { widget ->
                 val haystack = semanticTokens(searchableText(device.name + " " + widget.page + " " + widget.title + " " + widget.definitionName))
                 var score = commandTokens.count { it in haystack } * 10
@@ -172,6 +197,26 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
                 Candidate(device, widget, score)
             }
         }.sortedByDescending { it.score }
+
+        val desiredValue = when {
+            Regex("""\\b(откры|открой|распах|подним)""", RegexOption.IGNORE_CASE).containsMatchIn(command) -> "1"
+            Regex("""\\b(закры|закрой|опуст|запечат)""", RegexOption.IGNORE_CASE).containsMatchIn(command) -> "0"
+            Regex("""\\b(включ|запусти|зажг)""", RegexOption.IGNORE_CASE).containsMatchIn(command) -> "1"
+            Regex("""\\b(выключ|останов|погаси)""", RegexOption.IGNORE_CASE).containsMatchIn(command) -> "0"
+            else -> null
+        }
+        val orderedCandidates = if (desiredValue != null) {
+            val resolution = MarfaAnalyticalEngine().resolveControl(command, devices, desiredValue)
+            val rank = resolution.candidates.mapIndexed { index, candidate -> candidate.widget.id to index }.toMap()
+            candidates.sortedWith(
+                compareBy<Candidate> { rank[it.widget.id] ?: Int.MAX_VALUE }
+                    .thenByDescending { it.score }
+                    .thenBy { it.widget.order }
+                    .thenBy { it.widget.id }
+            )
+        } else candidates
+
+        return orderedCandidates
             .let { all ->
                 if (commandTokens.isEmpty()) all.take(12)
                 else all.filter { it.score > 0 }.take(12).ifEmpty { all.take(12) }
