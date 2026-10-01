@@ -21,7 +21,7 @@ import java.util.Locale
 class GemmaLocalEngine private constructor(private val appContext: Context) {
     companion object {
         private const val MODEL_FILE_NAME = "marfa-gemma.gguf"
-        private const val REQUEST_TIMEOUT_MS = 45_000L
+        private const val REQUEST_TIMEOUT_MS = 30_000L
         @Volatile private var instance: GemmaLocalEngine? = null
 
         fun get(context: Context): GemmaLocalEngine =
