@@ -225,14 +225,10 @@ delayMs=0.
                             if (iotError.isNotBlank()) throw Exception("IoT native test: " + iotError)
                             val iotRaw = iotJson.optString("text").trim()
                             stage("IoT native response получен: textChars=" + iotRaw.length)
-                            val fullReport = report +
-                                "
---- 7. REAL IOT NATIVE TEST ---
-" +
-                                "command=" + iotCommand + "
-" +
-                                "raw=" + iotRaw + "
-"
+                            val fullReport = report.toString() +
+                                "\n--- 7. REAL IOT NATIVE TEST ---\n" +
+                                "command=" + iotCommand + "\n" +
+                                "raw=" + iotRaw + "\n"
                             receiver?.send(0, Bundle().apply {
                                 putString("text", fullReport)
                                 putString("iot_raw", iotRaw)
