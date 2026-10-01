@@ -1025,7 +1025,7 @@ object IoTScenarioCommandPlanner {
      * rule proves that vbtn78 is the logical state because vbtn78 is both
      * written and compared in the rule. Marfa must command vbtn78, not btn43.
      */
-    private fun resolveLogicalTargetFromActuator(
+    internal fun resolveLogicalTargetFromActuator(
         targetWidgetId: String,
         desiredValue: String,
         devices: List<com.yasn198020.aicontrol.core.Device>,
