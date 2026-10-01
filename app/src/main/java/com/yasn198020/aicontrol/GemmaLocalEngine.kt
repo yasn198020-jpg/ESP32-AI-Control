@@ -243,11 +243,28 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
             )
         } else candidates
 
-        return orderedCandidates
-            .let { all ->
-                if (commandTokens.isEmpty()) all.take(12)
-                else all.filter { it.score > 0 }.take(12).ifEmpty { all.take(12) }
-            }
+        val selectedBase = if (commandTokens.isEmpty()) orderedCandidates.take(12)
+        else orderedCandidates.filter { it.score > 0 }.take(12).ifEmpty { orderedCandidates.take(12) }
+
+        val emojiPageKeys = devices.asSequence()
+            .flatMap { it.widgets.asSequence() }
+            .map { it.page }
+            .filter { containsSymbolOrEmoji(it) }
+            .map(::searchableText)
+            .map { it.lowercase(Locale("ru", "RU")).replace('ё', 'е').trim() }
+            .filter { it.isNotBlank() }
+            .toSet()
+
+        val emojiPageCandidates = orderedCandidates.filter { candidate ->
+            searchableText(candidate.widget.page)
+                .lowercase(Locale("ru", "RU"))
+                .replace('ё', 'е')
+                .trim() in emojiPageKeys
+        }
+
+        return (selectedBase + emojiPageCandidates)
+            .distinctBy { it.widget.id }
+            .take(48)
             .map { it.device to it.widget }
     }
 
