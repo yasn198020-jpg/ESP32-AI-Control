@@ -71,12 +71,23 @@ CATALOG fields: id, device, page, title, type.
         }
 
         scope.launch {
+            val startedAt = System.currentTimeMillis()
+            fun stage(message: String) {
+                receiver?.send(2, Bundle().apply {
+                    putString("stage", message)
+                    putLong("elapsed", System.currentTimeMillis() - startedAt)
+                })
+            }
             try {
                 inferenceMutex.withLock {
+                    stage("Сервис получил запрос")
                     if (command.isBlank() && rawPrompt.isBlank()) throw Exception("Пустая команда")
                     if (rawPrompt.isBlank() && catalog.isBlank()) throw Exception("Пустой каталог виджетов")
 
+                    stage("Загрузка модели")
                     val model = loadModel()
+                    stage("Модель загружена")
+                    stage("Запуск inference")
                     val result = if (rawPrompt.isNotBlank()) {
                         Llama.complete(
                             model = model,
@@ -93,6 +104,7 @@ CATALOG fields: id, device, page, title, type.
                         )
                     }
 
+                    stage("Ответ получен")
                     receiver?.send(0, Bundle().apply {
                         putString("text", result.text)
                     })
