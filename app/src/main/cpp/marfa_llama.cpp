@@ -464,7 +464,10 @@ Java_com_yasn198020_aicontrol_MarfaLlamaNative_nativeGenerate(
         << "\",\"tokensPerSecond\":" << tokensPerSecond
         << ",\"promptTokens\":" << promptTokens.size()
         << ",\"generatedTokens\":" << generated
-        << ",\"backend\":\"llama.cpp-" << jsonEscape(llama_version())
+        << ",\"promptMs\":" << (promptSeconds * 1000.0)
+        << ",\"generationMs\":" << (generationSeconds * 1000.0)
+        << ",\"generationTokensPerSecond\":" << generationTokensPerSecond
+        << ",\"backend\":\"llama.cpp- << jsonEscape(llama_version())
         << "\"}";
 
     return env->NewStringUTF(result.str().c_str());
