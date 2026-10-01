@@ -82,12 +82,33 @@ class MarfaAnalyticalEngine {
         }
 
         // Context comes from actual IoTManager page/tab names.
-        // There is deliberately no hardcoded domain-word dictionary.
+        // Text pages are resolved deterministically. Pages made only of symbols/emoji
+        // are semantic context and are intentionally handed to Gemma instead of
+        // being rejected as "unknown" by lexical matching.
         val contextPages = if (page == null) matchingContextPages(normalized, devices) else emptyList()
-        val unknownContext = if (page == null && contextPages.isEmpty()) {
+        val contextTokens = if (page == null) contextTokens(normalized, devices) else emptyList()
+        val hasNonLexicalPage = devices.asSequence()
+            .flatMap { it.widgets.asSequence() }
+            .map { it.page }
+            .filter { it.isNotBlank() }
+            .any(::isNonLexicalPage)
+        val unknownContext = if (page == null && contextPages.isEmpty() && !hasNonLexicalPage) {
             unknownContextWords(normalized, devices)
         } else {
             emptyList()
+        }
+
+        // An unknown context word plus at least one symbol/emoji-only page cannot be
+        // resolved safely by lexical rules. Return no deterministic candidate so the
+        // Gemma-selected semantic candidate remains authoritative.
+        if (page == null &&
+            contextPages.isEmpty() &&
+            contextTokens.isNotEmpty() &&
+            hasNonLexicalPage &&
+            unknownContext.isEmpty()) {
+            return ControlResolution(
+                clarification = "Контекст команды требует смыслового сопоставления с вкладкой."
+            )
         }
 
         val contextScoped = when {
@@ -383,25 +404,25 @@ class MarfaAnalyticalEngine {
 
         return devices.asSequence()
             .flatMap { it.widgets.asSequence() }
-            .map { normalize(it.page) }
+            .map { it.page }
             .filter { it.isNotBlank() }
             .distinct()
-            .mapNotNull { page ->
-                val pageTokens = tokenized(page)
+            .mapNotNull { rawPage ->
+                val lexicalPage = normalize(rawPage)
+                // Only text-bearing pages can be matched deterministically here.
+                // Symbol/emoji-only pages are kept for semantic Gemma resolution.
+                if (lexicalPage.isBlank()) return@mapNotNull null
+
+                val pageTokens = tokenized(lexicalPage)
                     .map(::contextTokenKey)
                     .filter { it.isNotBlank() }
-                    .ifEmpty {
-                        // Temporary diagnostic: connect 🍅 page to the tomato
-                        // lexical probe. If this changes resolution, the bug is
-                        // inside analytical context-page matching.
-                        if (page == "🍅") listOf("tomato") else emptyList()
-                    }
+
                 if (pageTokens.isEmpty()) return@mapNotNull null
 
                 val matched = pageTokens.count { pageToken ->
                     commandTokens.any { commandToken -> lexicalMatch(commandToken, pageToken) }
                 }
-                if (matched == pageTokens.size) page to matched else null
+                if (matched == pageTokens.size) lexicalPage to matched else null
             }
             .sortedWith(
                 compareByDescending<Pair<String, Int>> { it.second }
@@ -522,13 +543,6 @@ class MarfaAnalyticalEngine {
             }
         }
 
-        val diagnosticAliases = mapOf(
-            "помидор" to "tomato",
-            "помидора" to "tomato",
-            "помидоров" to "tomato",
-            "помидорами" to "tomato"
-        )
-
         return tokens.withIndex()
             .filterNot { it.value in actionWords || it.value in grammarWords }
             .filterNot { it.value.matches(Regex("\\d+")) }
@@ -536,10 +550,7 @@ class MarfaAnalyticalEngine {
             .filterNot { it.value in knownIds }
             .filterNot { token -> entityAliases.any { alias -> token.value.startsWith(alias) } }
             .filter { it.value.length >= 2 }
-            .map { token ->
-                val alias = diagnosticAliases[token.value]
-                ContextToken(token.value, alias ?: contextTokenKey(token.value))
-            }
+            .map { token -> ContextToken(token.value, contextTokenKey(token.value)) }
             .filter { it.key.isNotBlank() }
     }
 
@@ -733,6 +744,13 @@ class MarfaAnalyticalEngine {
         EntityKind.LIGHT -> listOf("свет", "ламп") to listOf("свет", "ламп")
         EntityKind.IRRIGATION -> listOf("полив", "орош") to listOf("полив", "орош")
         EntityKind.GENERIC -> emptyList<String>() to emptyList()
+    }
+
+    private fun isNonLexicalPage(page: String): Boolean {
+        if (page.isBlank()) return false
+        return normalize(page).isBlank() && page.any {
+            !it.isLetterOrDigit() && !it.isWhitespace()
+        }
     }
 
     private fun prettyPage(page: String, devices: List<Device>): String =
