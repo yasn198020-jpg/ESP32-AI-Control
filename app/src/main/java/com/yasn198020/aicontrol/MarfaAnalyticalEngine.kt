@@ -98,17 +98,15 @@ class MarfaAnalyticalEngine {
             emptyList()
         }
 
-        // An unknown context word plus at least one symbol/emoji-only page cannot be
-        // resolved safely by lexical rules. Return no deterministic candidate so the
-        // Gemma-selected semantic candidate remains authoritative.
+        // If the command contains context but the available page is emoji/symbol-only,
+        // lexical analysis must NOT invent a candidate and must NOT ask the user to clarify.
+        // Return an empty resolution so the semantic Gemma result remains authoritative.
         if (page == null &&
             contextPages.isEmpty() &&
             contextTokens.isNotEmpty() &&
             hasNonLexicalPage &&
             unknownContext.isEmpty()) {
-            return ControlResolution(
-                clarification = "Контекст команды требует смыслового сопоставления с вкладкой."
-            )
+            return ControlResolution()
         }
 
         val contextScoped = when {
