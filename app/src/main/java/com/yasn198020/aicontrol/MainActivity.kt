@@ -1170,6 +1170,7 @@ private fun App(
                 availableVoices, selectedVoiceName,
                 gemmaStatus,
                 { pickGemmaModel.launch(arrayOf("*/*")) },
+                { context.startActivity(Intent(context, GemmaTestActivity::class.java)) },
                 ::selectVoicePreset,
                 { voiceRate = it; voicePreset = "custom" },
                 { voicePitch = it; voicePreset = "custom" },
@@ -1497,6 +1498,7 @@ private fun VoiceSettingsScreen(
     selectedVoiceName: String,
     gemmaStatus: String,
     onImportGemma: () -> Unit,
+    onGemmaTest: () -> Unit,
     onPreset: (String) -> Unit,
     onRate: (Float) -> Unit,
     onPitch: (Float) -> Unit,
@@ -1535,6 +1537,9 @@ private fun VoiceSettingsScreen(
         Text(gemmaStatus, style = MaterialTheme.typography.bodySmall)
         Button(onClick = onImportGemma, modifier = Modifier.fillMaxWidth()) {
             Text("Импортировать модель GGUF")
+        }
+        OutlinedButton(onClick = onGemmaTest, modifier = Modifier.fillMaxWidth()) {
+            Text("Тест Gemma (3 команды)")
         }
 
         Text("Установленный голос", fontWeight = FontWeight.Medium)
