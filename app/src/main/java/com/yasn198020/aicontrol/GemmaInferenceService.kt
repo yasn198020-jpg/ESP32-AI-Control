@@ -84,8 +84,6 @@ class GemmaInferenceService : Service() {
                 receiver?.send(1, Bundle().apply {
                     putString("error", t.message ?: "Ошибка нативного Gemma-движка")
                 })
-            } finally {
-                stopSelfResult(startId)
             }
         }
         return START_NOT_STICKY
@@ -98,7 +96,7 @@ class GemmaInferenceService : Service() {
         )
         val path = modelFile.absolutePath
 
-        loadedModel?.let { if (loadedPath == path && it.isLoaded) return it }
+        loadedModel?.let { if (loadedPath == path) return it }
 
         if (!modelFile.isFile || modelFile.length() <= 1_000_000L) {
             throw Exception("Файл Gemma GGUF не найден или повреждён")
