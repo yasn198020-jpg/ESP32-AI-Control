@@ -125,7 +125,7 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
                     if (resultCode == 0 && error.isNullOrBlank()) {
                         resultDeferred.complete(Result.success(resultData?.getString("text").orEmpty()))
                     } else {
-                        resultDeferred.complete(Result.failure(Exception(error ?: "Ошибка Gemma")))
+                        resultDeferred.complete(Result.failure(Exception("Gemma service: " + (error ?: "Ошибка Gemma"))))
                     }
                 }
             }
