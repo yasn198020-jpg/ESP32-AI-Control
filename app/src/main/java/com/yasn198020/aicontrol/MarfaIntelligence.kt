@@ -50,6 +50,103 @@ class MarfaIntelligence private constructor(context: Context) {
         }
     }
 
+    suspend fun diagnoseCommand(command: String, devices: List<Device>): Result<String> {
+        val text = command.trim()
+        if (text.isBlank()) return Result.success("КОМАНДА ПУСТАЯ")
+        val normalized = normalize(text)
+        val semantic = semanticTokens(text).joinToString(", ")
+        val fast = smartRuleParser.interpret(text, devices)
+        val out = StringBuilder()
+        out.appendLine("=== СКВОЗНОЙ ТЕСТ MARFA ===")
+        out.appendLine("Команда: $text")
+        out.appendLine("Нормализация: $normalized")
+        out.appendLine("Смысловые токены: ${semantic.ifBlank { "нет" }}")
+        out.appendLine()
+        out.appendLine("--- 1. БЫСТРЫЙ ПАРСЕР ---")
+        out.appendLine("action=${fast.action}")
+        out.appendLine("deviceId=${fast.deviceId}")
+        out.appendLine("widgetId=${fast.widgetId}")
+        out.appendLine("value=${fast.value}")
+        out.appendLine("delayMs=${fast.delayMs}")
+        out.appendLine("reply=${fast.reply}")
+        val trained = trainedMatcher.matchAll(text).isNotEmpty()
+        out.appendLine("trainedMatch=$trained")
+        if (looksLikeSmartRule(text)) {
+            out.appendLine("smartRule=true")
+            out.appendLine("Следующая стадия: Gemma не вызывается.")
+            return Result.success(out.toString())
+        }
+        val modelInstalled = gemma.isModelInstalled()
+        val useGemma = modelInstalled && shouldUseGemma(text, fast, devices)
+        out.appendLine()
+        out.appendLine("--- 2. РЕШЕНИЕ MARFA INTELLIGENCE ---")
+        out.appendLine("gemmaInstalled=$modelInstalled")
+        out.appendLine("shouldUseGemma=$useGemma")
+        val explained = buildSet {
+            addAll(semanticTokens(fast.widgetId))
+            devices.firstOrNull { it.id == fast.deviceId }?.let { device ->
+                addAll(semanticTokens(device.name))
+                device.widgets.firstOrNull { it.id == fast.widgetId }?.let { widget ->
+                    addAll(semanticTokens(widget.title))
+                    addAll(semanticTokens(widget.page))
+                    addAll(semanticTokens(widget.definitionName))
+                }
+            }
+        }
+        val unknown = semanticTokens(text).filter { it !in explained }
+        out.appendLine("explained=${explained.joinToString(", ").ifBlank { "нет" }}")
+        out.appendLine("unknown/context=${unknown.joinToString(", ").ifBlank { "нет" }}")
+        if (!modelInstalled || !useGemma) {
+            out.appendLine(if (!modelInstalled) "Gemma не установлена — фактический путь завершится FAST PATH." else "Gemma по реальной логике приложения не запускается.")
+            out.appendLine("ФИНАЛ: action=${fast.action}, deviceId=${fast.deviceId}, widgetId=${fast.widgetId}, value=${fast.value}")
+            return Result.success(out.toString())
+        }
+        val trace = gemma.diagnoseCommand(text, devices).getOrElse { return Result.failure(it) }
+        out.appendLine()
+        out.appendLine("--- 3. CATALOG → GEMMA ---")
+        val catalogArray = org.json.JSONArray(trace.catalog)
+        out.appendLine("Всего кандидатов перед compactCatalog: ${catalogArray.length()}")
+        for (i in 0 until catalogArray.length()) {
+            val c = catalogArray.optJSONObject(i) ?: continue
+            out.appendLine("[${c.optInt("index", i)}] id=${c.optString("id")}; device=${c.optString("device")}; page=${c.optString("page")}; title=${c.optString("title")}; titleSearch=${c.optString("titleSearch")}; type=${c.optString("type")}")
+        }
+        out.appendLine()
+        out.appendLine("--- 4. RAW GEMMA ---")
+        out.appendLine("kind=${trace.kind}")
+        out.appendLine("candidateIndex=${trace.candidateIndex}")
+        out.appendLine("value=${trace.modelValue}")
+        out.appendLine("reply=${trace.modelReply}")
+        out.appendLine("raw=${trace.raw}")
+        out.appendLine()
+        out.appendLine("--- 5. ТОЧНОЕ СОПОСТАВЛЕНИЕ candidateIndex ---")
+        out.appendLine(if (trace.gemmaWidgetId.isBlank()) "Кандидат не найден" else "device=${trace.gemmaDeviceId}; widget=${trace.gemmaWidgetId}; page=${trace.gemmaPage}; title=${trace.gemmaWidgetTitle}")
+        out.appendLine()
+        out.appendLine("--- 6. MARFA ANALYTICAL ENGINE ---")
+        out.appendLine("candidate=${trace.analyticalCandidate.ifBlank { "нет" }}")
+        trace.analyticalCandidates.forEachIndexed { index, candidate -> out.appendLine("  ${index + 1}. $candidate") }
+        out.appendLine("clarification=${trace.analyticalClarification ?: "нет"}")
+        val replaced = trace.analyticalCandidate.isNotBlank() && trace.gemmaWidgetId.isNotBlank() && !trace.analyticalCandidate.contains("widget=${trace.gemmaWidgetId}")
+        out.appendLine("replacementByAnalytical=$replaced")
+        out.appendLine()
+        out.appendLine("--- 7. SCENARIO TARGET ---")
+        out.appendLine(trace.scenarioTarget.ifBlank { "логическая цель сценария не найдена" })
+        out.appendLine()
+        out.appendLine("--- 8. ФИНАЛЬНАЯ ВАЛИДАЦИЯ ---")
+        trace.finalResult?.let {
+            out.appendLine("action=${it.action}")
+            out.appendLine("deviceId=${it.deviceId}")
+            out.appendLine("widgetId=${it.widgetId}")
+            out.appendLine("value=${it.value}")
+            out.appendLine("delayMs=${it.delayMs}")
+            out.appendLine("reply=${it.reply}")
+            out.appendLine("needsConfirmation=${it.needsConfirmation}")
+        } ?: out.appendLine("ERROR=${trace.finalError ?: "неизвестно"}")
+        out.appendLine()
+        out.appendLine("=== СКВОЗНОЙ ТЕСТ ЗАВЕРШЕН ===")
+        out.appendLine("Ни MQTT, ни действие устройства этим тестом не выполняются.")
+        return Result.success(out.toString())
+    }
+
     /** Lets the voice UI acknowledge a deep semantic lookup before Gemma starts. */
     fun isLikelyContextual(command: String): Boolean {
         val n = normalize(command)
