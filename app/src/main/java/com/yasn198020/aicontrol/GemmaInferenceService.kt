@@ -27,9 +27,9 @@ class GemmaInferenceService : Service() {
         const val EXTRA_RESULT = "result"
 
         private const val MODEL_FILE_NAME = "marfa-gemma.gguf"
-        private const val CONTEXT_SIZE = 1024
-        private const val THREADS = 2
-        private const val MAX_TOKENS = 160
+        private const val CONTEXT_SIZE = 768
+        private const val MAX_THREADS = 6
+        private const val MAX_TOKENS = 96
 
         private const val SYSTEM_PROMPT = """
 Ты локальный семантический интерпретатор команд IoTManager.
@@ -131,7 +131,7 @@ CATALOG fields: id, device, page, title, type.
             path,
             LlamaConfig(
                 contextSize = CONTEXT_SIZE,
-                threads = THREADS,
+                threads = minOf(MAX_THREADS, maxOf(2, Runtime.getRuntime().availableProcessors() - 1)),
                 gpuLayers = 0,
                 temperature = 0.1f,
                 topP = 0.9f,
