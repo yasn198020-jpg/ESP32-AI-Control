@@ -138,9 +138,9 @@ class MarfaIntelligence private constructor(context: Context) {
         value.lowercase(Locale("ru", "RU"))
             .replace('ё', 'е')
             .replace(Regex("[^a-zа-я0-9:,.]+"), " ")
-            .replace(Regex("\s+"), " ")
+            .replace(Regex("\\s+"), " ")
             .trim()
-            .replace(Regex("\b(?:пожалуйста|прошу|марф|марфа|марфу|марфе|марфой)\b"), " ")
+            .replace(Regex("\\b(?:пожалуйста|прошу|марф|марфа|марфу|марфе|марфой)\\b"), " ")
             .replace(Regex("\s+"), " ")
             .trim()
 }
