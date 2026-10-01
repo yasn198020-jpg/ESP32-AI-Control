@@ -337,7 +337,7 @@ class GemmaLocalEngine private constructor(private val appContext: Context) {
         return if (start >= 0 && end > start) clean.substring(start, end + 1) else null
     }
 
-    override fun finalize() {\n        loadedModel?.let { runCatching { Llama.releaseModel(it) } }\n        loadedModel = null\n        loadedPath = ""\n    }\n\n    private fun queryDisplayName(uri: Uri): String? {
+    private fun queryDisplayName(uri: Uri): String? {
         appContext.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
             ?.use { cursor -> if (cursor.moveToFirst()) return cursor.getString(0) }
         return uri.lastPathSegment
