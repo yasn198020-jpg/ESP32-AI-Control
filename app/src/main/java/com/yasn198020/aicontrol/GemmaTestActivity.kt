@@ -19,6 +19,8 @@ import kotlinx.coroutines.launch
 class GemmaTestActivity : Activity() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var output: TextView
+    private var testSequence = 0
+    private val timeoutHandlers = mutableMapOf<Int, Runnable>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -38,7 +40,10 @@ class GemmaTestActivity : Activity() {
             setPadding(8, 8, 8, 16)
         })
 
-        addTestButton(root, "Тест 8 токенов") { runRawTest("Скажи одним предложением: привет.", 8) }
+        addTestButton(root, "Потоки: 1") { runRawTest("Скажи одним предложением: привет.", 8, 1) }
+        addTestButton(root, "Потоки: 2") { runRawTest("Скажи одним предложением: привет.", 8, 2) }
+        addTestButton(root, "Потоки: 4") { runRawTest("Скажи одним предложением: привет.", 8, 4) }
+        addTestButton(root, "Потоки: 6") { runRawTest("Скажи одним предложением: привет.", 8, 6) }
         addTestButton(root, "Тест 16 токенов") { runRawTest("Скажи одним предложением: привет.", 16) }
         addTestButton(root, "Тест 32 токена") { runRawTest("Расскажи короткий смешной анекдот.", 32) }
         addTestButton(root, "Тест 96 токенов") { runRawTest("Расскажи короткий смешной анекдот.", 96) }
@@ -64,9 +69,10 @@ class GemmaTestActivity : Activity() {
         root.addView(Button(this).apply { text = title; setOnClickListener { action() } })
     }
 
-    private fun runRawTest(prompt: String, maxTokens: Int = 96) {
+    private fun runRawTest(prompt: String, maxTokens: Int = 96, threads: Int = 0) {
         val started = System.currentTimeMillis()
-        append("\n\n▶ " + prompt + "\nЗапуск Gemma…")
+        val testId = ++testSequence
+        append("\n\n▶ " + prompt + "\nПотоки: " + (if (threads > 0) threads else "auto") + ", токены: " + maxTokens + "\nЗапуск Gemma…")
         val receiver = object : ResultReceiver(Handler(Looper.getMainLooper())) {
             override fun onReceiveResult(resultCode: Int, resultData: Bundle?) {
                 val elapsed = System.currentTimeMillis() - started
@@ -74,6 +80,7 @@ class GemmaTestActivity : Activity() {
                     append("[" + (resultData?.getLong("elapsed") ?: elapsed) + " мс] " + resultData?.getString("stage").orEmpty())
                     return
                 }
+                timeoutHandlers.remove(testId)?.let { Handler(Looper.getMainLooper()).removeCallbacks(it) }
                 val error = resultData?.getString("error")
                 val text = resultData?.getString("text").orEmpty()
                 append(if (resultCode == 0)
@@ -86,14 +93,15 @@ class GemmaTestActivity : Activity() {
             startService(Intent(this, GemmaInferenceService::class.java)
                 .putExtra(GemmaInferenceService.EXTRA_RAW_PROMPT, prompt)
                 .putExtra(GemmaInferenceService.EXTRA_MAX_TOKENS, maxTokens)
+                .putExtra(GemmaInferenceService.EXTRA_THREADS, threads)
                 .putExtra(GemmaInferenceService.EXTRA_RESULT, receiver))
         } catch (t: Throwable) {
             append("Не удалось запустить Gemma: " + (t.message ?: t.javaClass.simpleName))
             return
         }
-        Handler(Looper.getMainLooper()).postDelayed({
-            append("ТАЙМАУТ: Gemma не вернула ответ за 45 секунд. Если выше нет этапа «Сервис получил запрос», вероятно, процесс :gemma завершился до отправки результата.")
-        }, 45_000L)
+        val timeout = Runnable { append("ТАЙМАУТ: Gemma не вернула ответ за 45 секунд.") }
+        timeoutHandlers[testId] = timeout
+        Handler(Looper.getMainLooper()).postDelayed(timeout, 45_000L)
     }
 
     private fun runIoTTest(command: String) {
@@ -124,6 +132,8 @@ class GemmaTestActivity : Activity() {
     private fun append(value: String) { output.append("\n" + value) }
 
     override fun onDestroy() {
+        timeoutHandlers.values.forEach { Handler(Looper.getMainLooper()).removeCallbacks(it) }
+        timeoutHandlers.clear()
         scope.cancel()
         super.onDestroy()
     }
