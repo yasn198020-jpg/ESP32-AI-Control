@@ -64,6 +64,37 @@ CATALOG fields: id, device, page, title, type.
 """
     }
 
+    private fun buildIoTPrompt(command: String, catalog: String): String {
+        // Keep the task itself at the end of the user message. Small local models
+        // tend to copy an output schema when the schema appears before the data.
+        return """
+ЗАДАЧА: выбери ОДИН существующий объект из CATALOG для команды пользователя.
+
+КОМАНДА ПОЛЬЗОВАТЕЛЯ:
+$command
+
+CATALOG:
+$catalog
+
+ПРАВИЛА:
+1. Сначала найди объект по смыслу команды: предмет, страница, устройство и контекст.
+2. Формы одного слова считаются одним смыслом: дверь/двери/дверью; помидор/помидора/помидорами и аналогично для любых слов.
+3. Слово действия (открыть, закрыть, включить, выключить) НЕ является названием объекта.
+4. Для управления выбери логический объект, а не физическое реле.
+5. widgetId должен быть СТРОГО одним из id в CATALOG. Никогда не придумывай id.
+6. Если объект найден, kind должен быть ровно "control".
+7. Для "открой/включи" value ровно "1"; для "закрой/выключи" value ровно "0".
+8. Если подходящего объекта нет, kind ровно "not_found", widgetId пустой.
+9. Если есть несколько равнозначных объектов, kind ровно "clarify", widgetId пустой.
+10. delayMs = 0, если задержки нет.
+
+Ответь СЕЙЧАС только одним JSON-объектом. Не пиши объяснений.
+Пример допустимого ответа при найденном объекте:
+{"kind":"control","widgetId":"ID_ИЗ_CATALOG","value":"1","delayMs":0,"reply":""}
+Заменяй ID_ИЗ_CATALOG только на реальный id из CATALOG.
+""".trimIndent()
+    }
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var loadedModel: LlamaModel? = null
     private var loadedPath = ""
@@ -164,7 +195,7 @@ CATALOG fields: id, device, page, title, type.
                             val iotJson = JSONObject(
                                 MarfaLlamaNative.nativeGenerate(
                                     handle = iotHandle,
-                                    prompt = "КОМАНДА:\n" + iotCommand + "\n\nCATALOG:\n" + catalog,
+                                    prompt = buildIoTPrompt(iotCommand, catalog),
                                     systemPrompt = CHAT_SYSTEM_PROMPT,
                                     maxTokens = MAX_TOKENS
                                 )
