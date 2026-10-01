@@ -167,8 +167,35 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
         } else {
             candidates
         }
-        val selected = if (commandTokens.isEmpty()) orderedCandidates.take(12)
+        // Keep every widget from emoji-named pages in the semantic catalog.
+        // The user may say the Russian meaning of an emoji (for example "помидор")
+        // while the stored page name is only the emoji.  The Unicode name is exposed
+        // by searchableText(), but the Russian phrase cannot be scored lexically
+        // against the English Unicode name.  Without this, the correct page can be
+        // dropped before Gemma gets a chance to understand the relation.
+        val emojiPageKeys = devices.asSequence()
+            .flatMap { it.widgets.asSequence() }
+            .map { it.page }
+            .filter { page -> containsSymbolOrEmoji(page) }
+            .map(::searchableText)
+            .map { it.lowercase(Locale("ru", "RU")).replace('ё', 'е').trim() }
+            .filter { it.isNotBlank() }
+            .toSet()
+
+        val selectedBase = if (commandTokens.isEmpty()) orderedCandidates.take(12)
         else orderedCandidates.filter { it.score > 0 }.take(12).ifEmpty { orderedCandidates.take(12) }
+
+        val emojiPageCandidates = orderedCandidates.filter { candidate ->
+            searchableText(candidate.widget.page)
+                .lowercase(Locale("ru", "RU"))
+                .replace('ё', 'е')
+                .trim() in emojiPageKeys
+        }
+
+        val selected = (selectedBase + emojiPageCandidates)
+            .distinctBy { it.widget.id }
+            .take(48)
+
         val array = JSONArray()
         selected.forEach { item ->
             array.put(JSONObject().apply {
@@ -249,6 +276,19 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
             offset += Character.charCount(codePoint)
         }
         return out.toString()
+    }
+
+    private fun containsSymbolOrEmoji(value: String): Boolean {
+        if (value.isBlank()) return false
+        var offset = 0
+        while (offset < value.length) {
+            val codePoint = value.codePointAt(offset)
+            if (!Character.isLetterOrDigit(codePoint) && !Character.isWhitespace(codePoint)) {
+                return true
+            }
+            offset += Character.charCount(codePoint)
+        }
+        return false
     }
 
     private fun semanticTokens(value: String): Set<String> {
