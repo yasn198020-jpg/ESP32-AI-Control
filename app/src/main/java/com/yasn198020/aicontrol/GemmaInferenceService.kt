@@ -109,9 +109,10 @@ CATALOG fields: id, device, page, title, type.
                         )
                     }
 
-                    stage("Ответ получен")
+                    stage("Ответ получен: " + result.tokensPerSecond + " ток/с")
                     receiver?.send(0, Bundle().apply {
                         putString("text", result.text)
+                        putString("tokens_per_second", result.tokensPerSecond.toString())
                     })
                 }
             } catch (t: Throwable) {
