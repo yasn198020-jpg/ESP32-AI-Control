@@ -65,6 +65,7 @@
             android:exported="false"
             android:theme="@style/Theme.App.NoActionBar" />
 
+        <service android:name=".GemmaInferenceService" android:exported="false" android:process=":gemma" />
         <service
             android:name=".MarfaVoiceService"
             android:exported="false"
