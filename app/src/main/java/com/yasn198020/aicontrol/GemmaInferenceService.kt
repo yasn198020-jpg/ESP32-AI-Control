@@ -54,12 +54,11 @@ class GemmaInferenceService : Service() {
 «закрыть», «открыть» или похожими словами.
 Приоритет для управления: логический объект/состояние, а не физическое реле/GPIO,
 если пользователь прямо не попросил реле, выход или канал.
-Никогда не придумывай widgetId. Используй только ID из CATALOG.
+Не придумывай ID. Выбирай только candidateIndex из CATALOG.
 Если подходящего объекта нет — not_found.
 Если несколько объектов подходят одинаково хорошо — clarify.
 Не выполняй MQTT, сценарии, ручной режим и зависимости: это делает приложение.
-Верни ТОЛЬКО JSON без Markdown:
-{"kind":"control|read_value|clarify|not_found","widgetId":"","value":"","delayMs":0,"reply":""}
+Верни ТОЛЬКО JSON без Markdown: {"kind":"control|read_value|clarify|not_found","candidateIndex":-1,"value":"","delayMs":0,"reply":""}
 CATALOG fields: id, device, page, title, type.
 """
     }
