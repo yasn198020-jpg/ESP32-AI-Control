@@ -164,6 +164,10 @@ CATALOG fields: id, device, page, title, type.
                                 nativeJson.optDouble("generationMs", 0.0).toLong() +
                                 "; genTok/s=" +
                                 nativeJson.optDouble("generationTokensPerSecond", 0.0) +
+                                "; effectiveThreads=" +
+                                nativeJson.optInt("effectiveThreads", 0) +
+                                "; affinity=" +
+                                nativeJson.optString("affinity", "unknown") +
                                 "; textChars=" + text.length
                         )
                         receiver?.send(0, Bundle().apply {
