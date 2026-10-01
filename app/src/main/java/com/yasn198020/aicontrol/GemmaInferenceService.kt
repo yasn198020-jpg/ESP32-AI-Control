@@ -30,6 +30,7 @@ class GemmaInferenceService : Service() {
         const val EXTRA_MAX_TOKENS = "max_tokens"
         const val EXTRA_THREADS = "threads"
         const val EXTRA_CONTEXT = "context"
+        const val EXTRA_PROMPT_BENCHMARK = "prompt_benchmark"
 
         private const val MODEL_FILE_NAME = "marfa-gemma3-1b-q4km.gguf"
         private const val MODEL_URL = "https://huggingface.co/ggml-org/gemma-3-1b-it-GGUF/resolve/main/gemma-3-1b-it-Q4_K_M.gguf"
@@ -82,6 +83,7 @@ CATALOG fields: id, device, page, title, type.
         val requestedMaxTokens = intent?.getIntExtra(EXTRA_MAX_TOKENS, MAX_TOKENS)?.coerceIn(1, MAX_TOKENS) ?: MAX_TOKENS
         val requestedThreads = intent?.getIntExtra(EXTRA_THREADS, 0)?.takeIf { it > 0 }?.coerceIn(1, MAX_THREADS) ?: 0
         val requestedContext = intent?.getIntExtra(EXTRA_CONTEXT, DEFAULT_CONTEXT_SIZE)?.coerceIn(MIN_CONTEXT_SIZE, MAX_CONTEXT_SIZE) ?: DEFAULT_CONTEXT_SIZE
+        val promptBenchmark = intent?.getBooleanExtra(EXTRA_PROMPT_BENCHMARK, false) ?: false
         val receiver = if (android.os.Build.VERSION.SDK_INT >= 33) {
             intent?.getParcelableExtra(EXTRA_RESULT, ResultReceiver::class.java)
         } else {
@@ -128,6 +130,26 @@ CATALOG fields: id, device, page, title, type.
                             CHAT_SYSTEM_PROMPT
                         }
                         val maxTokens = if (rawPrompt.isNotBlank()) requestedMaxTokens else MAX_TOKENS
+
+                        if (promptBenchmark) {
+                            stage("Запуск полного prompt benchmark: batch 1/2/4/8/16/32/35")
+                            val benchmark = JSONObject(
+                                MarfaLlamaNative.nativeBenchmarkPrompt(
+                                    handle = handle,
+                                    prompt = prompt,
+                                    systemPrompt = systemPrompt
+                                )
+                            )
+                            val error = benchmark.optString("error").trim()
+                            if (error.isNotBlank()) throw Exception("Prompt benchmark: $error")
+                            stage("Prompt benchmark: " + benchmark.toString())
+                            receiver?.send(0, Bundle().apply {
+                                putString("text", benchmark.toString(2))
+                                putString("tokens_per_second", "diagnostic")
+                                putString("backend", "native-prompt-benchmark")
+                            })
+                            return@withLock
+                        }
 
                         stage(
                             "Запуск НАТИВНОГО llama.cpp inference: maxTokens=" +
