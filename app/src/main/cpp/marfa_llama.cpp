@@ -27,6 +27,7 @@ struct NativeEngine {
     llama_context * context = nullptr;
     int threads = 0;
     int context_size = 0;
+    std::string affinity_info;
 };
 
 void logInfo(const std::string & message) {
@@ -340,6 +341,7 @@ Java_com_yasn198020_aicontrol_MarfaLlamaNative_nativeLoadModel(
     engine->context = context;
     engine->threads = contextParams.n_threads;
     engine->context_size = static_cast<int>(contextParams.n_ctx);
+    engine->affinity_info = affinityInfo;
 
     const std::string info =
             "Native llama.cpp loaded: version=" + std::string(llama_version()) +
@@ -467,7 +469,9 @@ Java_com_yasn198020_aicontrol_MarfaLlamaNative_nativeGenerate(
         << ",\"promptMs\":" << (promptSeconds * 1000.0)
         << ",\"generationMs\":" << (generationSeconds * 1000.0)
         << ",\"generationTokensPerSecond\":" << generationTokensPerSecond
-        << ",\"backend\":\"llama.cpp- << jsonEscape(llama_version())
+        << ",\"effectiveThreads\":" << engine->threads
+        << ",\"affinity\":\"" << jsonEscape(engine->affinity_info)
+        << "\",\"backend\":\"llama.cpp- << jsonEscape(llama_version())
         << "\"}";
 
     return env->NewStringUTF(result.str().c_str());
