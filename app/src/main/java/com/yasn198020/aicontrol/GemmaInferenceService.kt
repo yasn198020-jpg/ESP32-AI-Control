@@ -15,6 +15,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.util.Locale
 
@@ -48,6 +50,7 @@ class GemmaInferenceService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var loadedModel: LlamaModel? = null
     private var loadedPath = ""
+    private val inferenceMutex = Mutex()
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val command = intent?.getStringExtra(EXTRA_COMMAND).orEmpty()
@@ -61,20 +64,22 @@ class GemmaInferenceService : Service() {
 
         scope.launch {
             try {
-                if (command.isBlank()) throw Exception("Пустая команда")
-                if (catalog.isBlank()) throw Exception("Пустой каталог виджетов")
+                inferenceMutex.withLock {
+                    if (command.isBlank()) throw Exception("Пустая команда")
+                    if (catalog.isBlank()) throw Exception("Пустой каталог виджетов")
 
-                val model = loadModel()
-                val result = Llama.complete(
-                    model = model,
-                    prompt = "КОМАНДА:\n" + command + "\n\nCATALOG:\n" + catalog,
-                    systemPrompt = SYSTEM_PROMPT,
-                    maxTokens = MAX_TOKENS
-                )
+                    val model = loadModel()
+                    val result = Llama.complete(
+                        model = model,
+                        prompt = "КОМАНДА:\n" + command + "\n\nCATALOG:\n" + catalog,
+                        systemPrompt = SYSTEM_PROMPT,
+                        maxTokens = MAX_TOKENS
+                    )
 
-                receiver?.send(0, Bundle().apply {
-                    putString("text", result.text)
-                })
+                    receiver?.send(0, Bundle().apply {
+                        putString("text", result.text)
+                    })
+                }
             } catch (t: Throwable) {
                 receiver?.send(1, Bundle().apply {
                     putString("error", t.message ?: "Ошибка нативного Gemma-движка")
