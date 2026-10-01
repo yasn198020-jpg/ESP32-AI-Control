@@ -26,6 +26,7 @@ class GemmaInferenceService : Service() {
         const val EXTRA_CATALOG = "catalog"
         const val EXTRA_RESULT = "result"
         const val EXTRA_RAW_PROMPT = "raw_prompt"
+        const val EXTRA_MAX_TOKENS = "max_tokens"
 
         private const val MODEL_FILE_NAME = "marfa-gemma.gguf"
         private const val CONTEXT_SIZE = 768
@@ -63,6 +64,7 @@ CATALOG fields: id, device, page, title, type.
         val command = intent?.getStringExtra(EXTRA_COMMAND).orEmpty()
         val rawPrompt = intent?.getStringExtra(EXTRA_RAW_PROMPT).orEmpty()
         val catalog = intent?.getStringExtra(EXTRA_CATALOG).orEmpty()
+        val requestedMaxTokens = intent?.getIntExtra(EXTRA_MAX_TOKENS, MAX_TOKENS)?.coerceIn(1, MAX_TOKENS) ?: MAX_TOKENS
         val receiver = if (android.os.Build.VERSION.SDK_INT >= 33) {
             intent?.getParcelableExtra(EXTRA_RESULT, ResultReceiver::class.java)
         } else {
@@ -87,13 +89,13 @@ CATALOG fields: id, device, page, title, type.
                     stage("Загрузка модели")
                     val model = loadModel()
                     stage("Модель загружена")
-                    stage("Запуск inference")
+                    stage("Запуск inference: maxTokens=$requestedMaxTokens")
                     val result = if (rawPrompt.isNotBlank()) {
                         Llama.complete(
                             model = model,
                             prompt = rawPrompt,
                             systemPrompt = "Ты обычный русскоязычный помощник. Отвечай естественно и кратко.",
-                            maxTokens = MAX_TOKENS
+                            maxTokens = requestedMaxTokens
                         )
                     } else {
                         Llama.complete(
