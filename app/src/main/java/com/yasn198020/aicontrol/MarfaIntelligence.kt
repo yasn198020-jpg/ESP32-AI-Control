@@ -141,6 +141,6 @@ class MarfaIntelligence private constructor(context: Context) {
             .replace(Regex("\\s+"), " ")
             .trim()
             .replace(Regex("\\b(?:пожалуйста|прошу|марф|марфа|марфу|марфе|марфой)\\b"), " ")
-            .replace(Regex("\s+"), " ")
+            .replace(Regex("\\s+"), " ")
             .trim()
 }
