@@ -62,7 +62,10 @@ index — это единственный допустимый номер кан
 candidateIndex=-1 используй только если в CATALOG действительно нет подходящего объекта.
 Не выполняй MQTT, сценарии, ручной режим и зависимости: это делает приложение.
 Верни ТОЛЬКО JSON без Markdown: {"kind":"control|read_value|not_found","candidateIndex":0,"value":"","delayMs":0,"reply":""}
-CATALOG fields: index, id, device, page, title, type.
+CATALOG fields: index, id, device, page, title, titleSearch, type.
+title — исходное название для понимания контекста.
+titleSearch — универсальная нормализованная поисковая форма; она может содержать Unicode-названия символов и эмодзи.
+Учитывай titleSearch вместе с title, device и page.
 """
     }
 
