@@ -40,7 +40,7 @@ android {
                           '-DLLAMA_OPENSSL=OFF',
                           '-DGGML_NATIVE=OFF',
                           '-DGGML_BACKEND_DL=OFF',
-                          '-DGGML_CPU_ALL_VARIANTS=ON',
+                          '-DGGML_CPU_ALL_VARIANTS=OFF',
                           '-DGGML_CPU_KLEIDIAI=ON',
                           '-DGGML_OPENMP=OFF',
                           '-DGGML_LLAMAFILE=OFF'
