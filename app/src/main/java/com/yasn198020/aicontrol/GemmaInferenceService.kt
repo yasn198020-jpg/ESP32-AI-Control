@@ -156,8 +156,28 @@ CATALOG fields: id, device, page, title, type.
                         if (fullDiagnostics) {
                             stage("Запуск ВСЕХ диагностических тестов")
                             val report = runFullNativeDiagnostics(::stage)
+                            val iotCommand = "Открой дверь помидоров"
+                            stage("IoT native test: " + iotCommand)
+                            val iotJson = JSONObject(
+                                MarfaLlamaNative.nativeGenerate(
+                                    handle = handle,
+                                    prompt = "КОМАНДА:\n" + iotCommand + "\n\nCATALOG:\n" + catalog,
+                                    systemPrompt = CHAT_SYSTEM_PROMPT,
+                                    maxTokens = MAX_TOKENS
+                                )
+                            )
+                            val iotError = iotJson.optString("error").trim()
+                            if (iotError.isNotBlank()) throw Exception("IoT native test: " + iotError)
+                            val iotRaw = iotJson.optString("text").trim()
+                            stage("IoT native response получен: textChars=" + iotRaw.length)
+                            val fullReport = report +
+                                "\n--- 7. REAL IOT NATIVE TEST ---\n" +
+                                "command=" + iotCommand + "\n" +
+                                "raw=" + iotRaw + "\n"
                             receiver?.send(0, Bundle().apply {
-                                putString("text", report)
+                                putString("text", fullReport)
+                                putString("iot_raw", iotRaw)
+                                putString("iot_command", iotCommand)
                                 putString("tokens_per_second", "diagnostic")
                                 putString("backend", "native-full-diagnostics")
                             })
