@@ -170,15 +170,18 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
         val selectedBase = if (commandTokens.isEmpty()) orderedCandidates.take(12)
         else orderedCandidates.filter { it.score > 0 }.take(12).ifEmpty { orderedCandidates.take(12) }
 
-        // Symbol/emoji-only pages are semantic namespaces. Put one representative
-        // widget from every such page first so the compact prompt cannot discard
-        // the entire page before Gemma can reason about it.
-        val nonLexicalPageRepresentatives = orderedCandidates
+        // Symbol/emoji-only pages are semantic namespaces. Expose several real
+        // candidates from each relevant emoji page, not just one representative.
+        // This lets Gemma first identify the page semantics and then choose the
+        // correct widget inside that page (for example the door control).
+        val nonLexicalPageCandidates = orderedCandidates
             .filter { isNonLexicalPage(it.widget.page) }
-            .distinctBy { it.widget.page }
+            .groupBy { it.widget.page }
+            .entries
+            .flatMap { (_, pageCandidates) -> pageCandidates.take(8) }
             .take(24)
 
-        val selected = (nonLexicalPageRepresentatives + selectedBase + orderedCandidates)
+        val selected = (nonLexicalPageCandidates + selectedBase + orderedCandidates)
             .distinctBy { it.widget.id }
             .take(48)
 
@@ -190,7 +193,9 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
                 put("device", item.device.name)
                 put("page", item.widget.page)
                 put("title", item.widget.title)
-                put("titleSearch", searchableText(item.device.name + " " + item.widget.page + " " + item.widget.title + " " + item.widget.definitionName))
+                // Put page semantics first so a compact prompt cannot cut away
+                // the Unicode meaning of a symbol/emoji-only page.
+                put("titleSearch", searchableText(item.widget.page + " " + item.widget.title + " " + item.device.name + " " + item.widget.definitionName))
                 put("type", item.widget.type.name)
             })
         }
@@ -232,12 +237,16 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
         val selectedBase = if (commandTokens.isEmpty()) orderedCandidates.take(12)
         else orderedCandidates.filter { it.score > 0 }.take(12).ifEmpty { orderedCandidates.take(12) }
 
-        val nonLexicalPageRepresentatives = orderedCandidates
+        // Keep the same candidate ordering as buildCatalog(): candidateIndex
+        // must point to exactly the same widget that Gemma saw.
+        val nonLexicalPageCandidates = orderedCandidates
             .filter { isNonLexicalPage(it.widget.page) }
-            .distinctBy { it.widget.page }
+            .groupBy { it.widget.page }
+            .entries
+            .flatMap { (_, pageCandidates) -> pageCandidates.take(8) }
             .take(24)
 
-        return (nonLexicalPageRepresentatives + selectedBase + orderedCandidates)
+        return (nonLexicalPageCandidates + selectedBase + orderedCandidates)
             .distinctBy { it.widget.id }
             .take(48)
             .map { it.device to it.widget }
