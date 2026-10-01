@@ -70,9 +70,17 @@ class GemmaTestActivity : Activity() {
                     "ОШИБКА за " + elapsed + " мс:\n" + (error ?: "неизвестная ошибка"))
             }
         }
-        startService(Intent(this, GemmaInferenceService::class.java)
-            .putExtra(GemmaInferenceService.EXTRA_RAW_PROMPT, prompt)
-            .putExtra(GemmaInferenceService.EXTRA_RESULT, receiver))
+        try {
+            startService(Intent(this, GemmaInferenceService::class.java)
+                .putExtra(GemmaInferenceService.EXTRA_RAW_PROMPT, prompt)
+                .putExtra(GemmaInferenceService.EXTRA_RESULT, receiver))
+        } catch (t: Throwable) {
+            append("Не удалось запустить Gemma: " + (t.message ?: t.javaClass.simpleName))
+            return
+        }
+        Handler(Looper.getMainLooper()).postDelayed({
+            append("ТАЙМАУТ: Gemma не вернула ответ за 45 секунд. Если выше нет этапа «Сервис получил запрос», вероятно, процесс :gemma завершился до отправки результата.")
+        }, 45_000L)
     }
 
     private fun runIoTTest(command: String) {
