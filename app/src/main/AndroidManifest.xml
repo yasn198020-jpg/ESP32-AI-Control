@@ -76,6 +76,10 @@
             android:excludeFromRecents="true"
             android:theme="@style/Theme.App.NoActionBar" />
         <service
+            android:name=".GemmaInferenceService"
+            android:exported="false"
+            android:process=":gemma" />
+        <service
             android:name=".MqttBackgroundService"
             android:exported="false"
             android:foregroundServiceType="remoteMessaging"
