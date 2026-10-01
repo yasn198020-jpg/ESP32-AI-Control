@@ -28,9 +28,12 @@ class GemmaInferenceService : Service() {
         const val EXTRA_RAW_PROMPT = "raw_prompt"
         const val EXTRA_MAX_TOKENS = "max_tokens"
         const val EXTRA_THREADS = "threads"
+        const val EXTRA_CONTEXT = "context"
 
         private const val MODEL_FILE_NAME = "marfa-gemma.gguf"
-        private const val CONTEXT_SIZE = 768
+        private const val DEFAULT_CONTEXT_SIZE = 768
+        private const val MIN_CONTEXT_SIZE = 128
+        private const val MAX_CONTEXT_SIZE = 768
         private const val MAX_THREADS = 6
         private const val MAX_TOKENS = 96
 
@@ -60,6 +63,7 @@ CATALOG fields: id, device, page, title, type.
     private var loadedModel: LlamaModel? = null
     private var loadedPath = ""
     private var loadedThreads = 0
+    private var loadedContext = 0
     private val inferenceMutex = Mutex()
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -67,7 +71,8 @@ CATALOG fields: id, device, page, title, type.
         val rawPrompt = intent?.getStringExtra(EXTRA_RAW_PROMPT).orEmpty()
         val catalog = intent?.getStringExtra(EXTRA_CATALOG).orEmpty()
         val requestedMaxTokens = intent?.getIntExtra(EXTRA_MAX_TOKENS, MAX_TOKENS)?.coerceIn(1, MAX_TOKENS) ?: MAX_TOKENS
-        val requestedThreads = intent?.getIntExtra(EXTRA_THREADS, 0)?.coerceIn(1, MAX_THREADS) ?: 0
+        val requestedThreads = intent?.getIntExtra(EXTRA_THREADS, 0)?.takeIf { it > 0 }?.coerceIn(1, MAX_THREADS) ?: 0
+        val requestedContext = intent?.getIntExtra(EXTRA_CONTEXT, DEFAULT_CONTEXT_SIZE)?.coerceIn(MIN_CONTEXT_SIZE, MAX_CONTEXT_SIZE) ?: DEFAULT_CONTEXT_SIZE
         val receiver = if (android.os.Build.VERSION.SDK_INT >= 33) {
             intent?.getParcelableExtra(EXTRA_RESULT, ResultReceiver::class.java)
         } else {
@@ -90,9 +95,9 @@ CATALOG fields: id, device, page, title, type.
                     if (rawPrompt.isBlank() && catalog.isBlank()) throw Exception("Пустой каталог виджетов")
 
                     stage("Загрузка модели")
-                    val model = loadModel(requestedThreads)
-                    stage("Модель загружена")
-                    stage("Запуск inference: maxTokens=$requestedMaxTokens, threads=" + (if (requestedThreads > 0) requestedThreads else "auto"))
+                    val model = loadModel(requestedThreads, requestedContext)
+                    stage("Модель загружена: " + formatBytes(modelFileSize()) + ", ABI=" + android.os.Build.SUPPORTED_ABIS.joinToString(",") + ", CPU=" + Runtime.getRuntime().availableProcessors())
+                    stage("Запуск inference: maxTokens=$requestedMaxTokens, threads=" + (if (requestedThreads > 0) requestedThreads else "auto") + ", context=$requestedContext")
                     val result = if (rawPrompt.isNotBlank()) {
                         Llama.complete(
                             model = model,
@@ -124,7 +129,7 @@ CATALOG fields: id, device, page, title, type.
         return START_NOT_STICKY
     }
 
-    private suspend fun loadModel(requestedThreads: Int): LlamaModel {
+    private suspend fun loadModel(requestedThreads: Int, requestedContext: Int): LlamaModel {
         val modelFile = File(
             getExternalFilesDir("models") ?: File(filesDir, "models"),
             MODEL_FILE_NAME
@@ -132,7 +137,7 @@ CATALOG fields: id, device, page, title, type.
         val path = modelFile.absolutePath
 
         val cpuThreads = requestedThreads.takeIf { it > 0 } ?: minOf(MAX_THREADS, maxOf(2, Runtime.getRuntime().availableProcessors() - 1))
-        loadedModel?.let { if (loadedPath == path && loadedThreads == cpuThreads) return it }
+        loadedModel?.let { if (loadedPath == path && loadedThreads == cpuThreads && loadedContext == requestedContext) return it }
 
         if (!modelFile.isFile || modelFile.length() <= 1_000_000L) {
             throw Exception("Файл Gemma GGUF не найден или повреждён")
@@ -160,7 +165,7 @@ CATALOG fields: id, device, page, title, type.
         loadedModel = Llama.loadModel(
             path,
             LlamaConfig(
-                contextSize = CONTEXT_SIZE,
+                contextSize = requestedContext,
                 threads = cpuThreads,
                 gpuLayers = 0,
                 temperature = 0.1f,
@@ -170,7 +175,13 @@ CATALOG fields: id, device, page, title, type.
         )
         loadedPath = path
         loadedThreads = cpuThreads
+        loadedContext = requestedContext
         return loadedModel!!
+    }
+
+    private fun modelFileSize(): Long {
+        val file = File(getExternalFilesDir("models") ?: File(filesDir, "models"), MODEL_FILE_NAME)
+        return file.length()
     }
 
     private fun formatBytes(bytes: Long): String {
@@ -186,6 +197,7 @@ CATALOG fields: id, device, page, title, type.
         loadedModel = null
         loadedPath = ""
         loadedThreads = 0
+        loadedContext = 0
         scope.cancel()
         super.onDestroy()
     }
