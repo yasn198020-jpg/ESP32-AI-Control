@@ -167,32 +167,18 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
         } else {
             candidates
         }
-        // Keep every widget from emoji-named pages in the semantic catalog.
-        // The user may say the Russian meaning of an emoji (for example "помидор")
-        // while the stored page name is only the emoji.  The Unicode name is exposed
-        // by searchableText(), but the Russian phrase cannot be scored lexically
-        // against the English Unicode name.  Without this, the correct page can be
-        // dropped before Gemma gets a chance to understand the relation.
-        val emojiPageKeys = devices.asSequence()
-            .flatMap { it.widgets.asSequence() }
-            .map { it.page }
-            .filter { page -> containsSymbolOrEmoji(page) }
-            .map(::searchableText)
-            .map { it.lowercase(Locale("ru", "RU")).replace('ё', 'е').trim() }
-            .filter { it.isNotBlank() }
-            .toSet()
-
         val selectedBase = if (commandTokens.isEmpty()) orderedCandidates.take(12)
         else orderedCandidates.filter { it.score > 0 }.take(12).ifEmpty { orderedCandidates.take(12) }
 
-        val emojiPageCandidates = orderedCandidates.filter { candidate ->
-            searchableText(candidate.widget.page)
-                .lowercase(Locale("ru", "RU"))
-                .replace('ё', 'е')
-                .trim() in emojiPageKeys
-        }
+        // Symbol/emoji-only pages are semantic namespaces. Put one representative
+        // widget from every such page first so the compact prompt cannot discard
+        // the entire page before Gemma can reason about it.
+        val nonLexicalPageRepresentatives = orderedCandidates
+            .filter { isNonLexicalPage(it.widget.page) }
+            .distinctBy { it.widget.page }
+            .take(24)
 
-        val selected = (selectedBase + emojiPageCandidates)
+        val selected = (nonLexicalPageRepresentatives + selectedBase + orderedCandidates)
             .distinctBy { it.widget.id }
             .take(48)
 
@@ -246,23 +232,12 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
         val selectedBase = if (commandTokens.isEmpty()) orderedCandidates.take(12)
         else orderedCandidates.filter { it.score > 0 }.take(12).ifEmpty { orderedCandidates.take(12) }
 
-        val emojiPageKeys = devices.asSequence()
-            .flatMap { it.widgets.asSequence() }
-            .map { it.page }
-            .filter { containsSymbolOrEmoji(it) }
-            .map(::searchableText)
-            .map { it.lowercase(Locale("ru", "RU")).replace('ё', 'е').trim() }
-            .filter { it.isNotBlank() }
-            .toSet()
+        val nonLexicalPageRepresentatives = orderedCandidates
+            .filter { isNonLexicalPage(it.widget.page) }
+            .distinctBy { it.widget.page }
+            .take(24)
 
-        val emojiPageCandidates = orderedCandidates.filter { candidate ->
-            searchableText(candidate.widget.page)
-                .lowercase(Locale("ru", "RU"))
-                .replace('ё', 'е')
-                .trim() in emojiPageKeys
-        }
-
-        return (selectedBase + emojiPageCandidates)
+        return (nonLexicalPageRepresentatives + selectedBase + orderedCandidates)
             .distinctBy { it.widget.id }
             .take(48)
             .map { it.device to it.widget }
@@ -308,6 +283,9 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
         return false
     }
 
+    private fun isNonLexicalPage(page: String): Boolean =
+        page.isNotBlank() && page.none { it.isLetterOrDigit() || it.isWhitespace() }
+
     private fun semanticTokens(value: String): Set<String> {
         val normalizedValue = searchableText(value)
         val stop = setOf("открой","открыть","открывай","закрой","закрыть","закрывай",
@@ -315,15 +293,7 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
             "останови","остановить","покажи","скажи","узнай","какая","какое","какие",
             "сколько","температура","температур","градус","градуса","через","спустя",
             "пожалуйста","марфа","там","здесь","у","в","на","для","где","около","возле","рядом","и","а","то","же")
-        val dictionary = mapOf(
-            // Temporary diagnostic alias: if this makes an emoji-named 🍅 page
-            // resolve from "помидор/помидора/помидоров", the failure is in
-            // lexical/context matching rather than the Gemma runtime.
-            "помидор" to "tomato",
-            "помидора" to "tomato",
-            "помидоров" to "tomato",
-            "помидорами" to "tomato"
-        )
+        val dictionary = emptyMap<String, String>()
         return normalizedValue.lowercase(Locale("ru","RU")).replace('ё','е')
             .replace(Regex("[^a-zа-я0-9]+"), " ").trim().split(Regex("\\s+"))
             .map { dictionary[it] ?: it }
