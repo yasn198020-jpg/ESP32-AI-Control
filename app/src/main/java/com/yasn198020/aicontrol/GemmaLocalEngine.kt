@@ -21,7 +21,7 @@ import java.util.Locale
 class GemmaLocalEngine private constructor(private val appContext: Context) {
     companion object {
         private const val MODEL_FILE_NAME = "marfa-gemma.gguf"
-        private const val REQUEST_TIMEOUT_MS = 120_000L
+        private const val REQUEST_TIMEOUT_MS = 45_000L
         @Volatile private var instance: GemmaLocalEngine? = null
 
         fun get(context: Context): GemmaLocalEngine =
@@ -118,18 +118,17 @@ class GemmaLocalEngine private constructor(private val appContext: Context) {
         }
 
     private fun buildCatalog(devices: List<Device>): String {
+        // Gemma only needs semantic identity. Live values, MQTT topics and full
+        // widget CONFIG stay in the deterministic app layer.
         val array = JSONArray()
         devices.forEach { device ->
             device.widgets.forEach { widget ->
                 array.put(JSONObject().apply {
+                    put("id", widget.id)
                     put("device", device.name)
                     put("page", widget.page)
-                    put("widgetId", widget.id)
                     put("title", widget.title)
                     put("type", widget.type.name)
-                    put("definition", widget.definitionName)
-                    put("unit", widget.unit)
-                    put("value", widget.value)
                 })
             }
         }
