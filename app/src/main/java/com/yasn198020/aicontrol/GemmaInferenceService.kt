@@ -160,6 +160,12 @@ CATALOG fields: id, device, page, title, type.
                                 nativeJson.optInt("generatedTokens", 0) +
                                 "; promptMs=" +
                                 nativeJson.optDouble("promptMs", 0.0).toLong() +
+                                "; formatMs=" +
+                                nativeJson.optDouble("formatMs", 0.0).toLong() +
+                                "; tokenizeMs=" +
+                                nativeJson.optDouble("tokenizeMs", 0.0).toLong() +
+                                "; decodePromptMs=" +
+                                nativeJson.optDouble("decodePromptMs", 0.0).toLong() +
                                 "; generationMs=" +
                                 nativeJson.optDouble("generationMs", 0.0).toLong() +
                                 "; genTok/s=" +
