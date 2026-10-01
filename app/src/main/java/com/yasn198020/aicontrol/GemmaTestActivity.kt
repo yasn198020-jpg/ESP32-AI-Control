@@ -44,6 +44,10 @@ class GemmaTestActivity : Activity() {
         addTestButton(root, "Потоки: 2") { runRawTest("Скажи одним предложением: привет.", 8, 2) }
         addTestButton(root, "Потоки: 4") { runRawTest("Скажи одним предложением: привет.", 8, 4) }
         addTestButton(root, "Потоки: 6") { runRawTest("Скажи одним предложением: привет.", 8, 6) }
+        addTestButton(root, "Контекст: 128") { runRawTest("Скажи одним предложением: привет.", 8, 6, 128) }
+        addTestButton(root, "Контекст: 256") { runRawTest("Скажи одним предложением: привет.", 8, 6, 256) }
+        addTestButton(root, "Контекст: 512") { runRawTest("Скажи одним предложением: привет.", 8, 6, 512) }
+        addTestButton(root, "Контекст: 768") { runRawTest("Скажи одним предложением: привет.", 8, 6, 768) }
         addTestButton(root, "Тест 16 токенов") { runRawTest("Скажи одним предложением: привет.", 16) }
         addTestButton(root, "Тест 32 токена") { runRawTest("Расскажи короткий смешной анекдот.", 32) }
         addTestButton(root, "Тест 96 токенов") { runRawTest("Расскажи короткий смешной анекдот.", 96) }
@@ -69,10 +73,10 @@ class GemmaTestActivity : Activity() {
         root.addView(Button(this).apply { text = title; setOnClickListener { action() } })
     }
 
-    private fun runRawTest(prompt: String, maxTokens: Int = 96, threads: Int = 0) {
+    private fun runRawTest(prompt: String, maxTokens: Int = 96, threads: Int = 0, context: Int = 768) {
         val started = System.currentTimeMillis()
         val testId = ++testSequence
-        append("\n\n▶ " + prompt + "\nПотоки: " + (if (threads > 0) threads else "auto") + ", токены: " + maxTokens + "\nЗапуск Gemma…")
+        append("\n\n▶ " + prompt + "\nПотоки: " + (if (threads > 0) threads else "auto") + ", токены: " + maxTokens + ", context: " + context + "\nЗапуск Gemma…")
         val receiver = object : ResultReceiver(Handler(Looper.getMainLooper())) {
             override fun onReceiveResult(resultCode: Int, resultData: Bundle?) {
                 val elapsed = System.currentTimeMillis() - started
@@ -94,6 +98,7 @@ class GemmaTestActivity : Activity() {
                 .putExtra(GemmaInferenceService.EXTRA_RAW_PROMPT, prompt)
                 .putExtra(GemmaInferenceService.EXTRA_MAX_TOKENS, maxTokens)
                 .putExtra(GemmaInferenceService.EXTRA_THREADS, threads)
+                .putExtra(GemmaInferenceService.EXTRA_CONTEXT, context)
                 .putExtra(GemmaInferenceService.EXTRA_RESULT, receiver))
         } catch (t: Throwable) {
             append("Не удалось запустить Gemma: " + (t.message ?: t.javaClass.simpleName))
