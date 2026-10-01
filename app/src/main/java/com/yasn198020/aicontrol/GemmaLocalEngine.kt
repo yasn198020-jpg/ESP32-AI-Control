@@ -319,17 +319,32 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
             else "Gemma выбрала отсутствующий widgetId: $widgetId"
         ))
 
-        val device = pair.first
-        val widget = pair.second
+        var device = pair.first
+        var widget = pair.second
 
         return when (kind) {
             "control" -> {
+                val commandValue = commandControlValue(originalCommand)
+                // Gemma provides semantic intent/candidate, but the deterministic
+                // resolver remains authoritative for the final IoTManager target.
+                // This prevents a similarly named actuator (for example btn178)
+                // from replacing the logical state element (for example vbtn78).
+                val analyticalValue = commandValue ?: normalizeControlValue(modelValue, originalCommand, widget)
+                val analytical = MarfaAnalyticalEngine().resolveControl(
+                    originalCommand,
+                    devices,
+                    analyticalValue
+                )
+                if (analytical.candidate != null) {
+                    device = analytical.candidate.device
+                    widget = analytical.candidate.widget
+                }
+
                 if (widget.type != WidgetState.Type.TOGGLE &&
                     widget.type != WidgetState.Type.BUTTON &&
                     widget.type != WidgetState.Type.INPUT) {
                     Result.failure(Exception("Недоступный для управления виджет: " + widget.id))
                 } else {
-                    val commandValue = commandControlValue(originalCommand)
                     val value = commandValue ?: normalizeControlValue(modelValue, originalCommand, widget)
                     val modelDelay = json.optLong("delayMs", 0L).coerceAtLeast(0L)
                     val fallbackDelay = if (modelDelay <= 0L)
