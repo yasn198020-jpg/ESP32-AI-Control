@@ -104,9 +104,9 @@ class GemmaTestActivity : Activity() {
             append("Не удалось запустить Gemma: " + (t.message ?: t.javaClass.simpleName))
             return
         }
-        val timeout = Runnable { append("ТАЙМАУТ: Gemma не вернула ответ за 45 секунд.") }
+        val timeout = Runnable { append("ТАЙМАУТ: Gemma не вернула ответ за 180 секунд.") }
         timeoutHandlers[testId] = timeout
-        Handler(Looper.getMainLooper()).postDelayed(timeout, 45_000L)
+        Handler(Looper.getMainLooper()).postDelayed(timeout, 180_000L)
     }
 
     private fun runIoTTest(command: String) {
