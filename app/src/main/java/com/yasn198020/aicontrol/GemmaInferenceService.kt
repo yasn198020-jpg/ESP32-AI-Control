@@ -192,7 +192,7 @@ CATALOG fields: id, device, page, title, type.
                             putString("tokens_per_second", result.tokensPerSecond.toString())
                             putString("backend", "llama-android-aar")
                         })
-                    })
+                    }
                 }
             } catch (t: Throwable) {
                 receiver?.send(1, Bundle().apply {
