@@ -471,7 +471,7 @@ Java_com_yasn198020_aicontrol_MarfaLlamaNative_nativeGenerate(
         << ",\"generationTokensPerSecond\":" << generationTokensPerSecond
         << ",\"effectiveThreads\":" << engine->threads
         << ",\"affinity\":\"" << jsonEscape(engine->affinity_info)
-        << "\",\"backend\":\"llama.cpp- << jsonEscape(llama_version())
+        << "\",\"backend\":\"llama.cpp-" << jsonEscape(llama_version())
         << "\"}";
 
     return env->NewStringUTF(result.str().c_str());
