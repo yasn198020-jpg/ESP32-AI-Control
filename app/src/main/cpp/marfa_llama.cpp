@@ -304,6 +304,8 @@ Java_com_yasn198020_aicontrol_MarfaLlamaNative_nativeLoadModel(
 
     llama_backend_init();
 
+    logInfo("System info: " + std::string(llama_print_system_info()));
+
     int effectiveThreads = std::max(1, static_cast<int>(threads));
     std::string affinityInfo;
     pinToPerformanceCores(effectiveThreads, affinityInfo);
