@@ -80,7 +80,7 @@ class GemmaTestActivity : Activity() {
             val elapsed = System.currentTimeMillis() - started
             val text = result.fold(
                 onSuccess = {
-                    "kind=" + it.kind + "\nwidgetId=" + it.widgetId + "\nvalue=" + it.value +
+                    "action=" + it.action + "\nwidgetId=" + it.widgetId + "\nvalue=" + it.value +
                         "\ndelayMs=" + it.delayMs + "\nreply=" + it.reply
                 },
                 onFailure = { "ОШИБКА: " + (it.message ?: it.javaClass.simpleName) }
