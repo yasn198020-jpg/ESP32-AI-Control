@@ -147,10 +147,13 @@ class MarfaCommandExecutor private constructor() {
                 .firstOrNull { it.id == action.deviceId }
             val widget = device?.widgets?.firstOrNull { it.id == action.widgetId }
 
-            if (device == null || widget == null || !device.online) {
+            if (device == null || widget == null) {
+                DiagnosticTrace.system("MARFA action skipped: widget not found " + action.deviceId + "/" + action.widgetId)
                 failed++
                 return@forEach
             }
+
+            DiagnosticTrace.system("MARFA action TX " + action.deviceId + "/" + action.widgetId + "=" + action.value + " type=" + widget.type.name)
 
             val ok = try {
                 when (widget.type) {
