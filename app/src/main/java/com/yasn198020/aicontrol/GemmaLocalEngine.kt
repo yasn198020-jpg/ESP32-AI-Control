@@ -141,8 +141,8 @@ CATALOG fields: id, device, page, title, type.
                 Candidate(device, widget, score)
             }
         }.sortedByDescending { it.score }
-        val selected = if (commandTokens.isEmpty()) candidates.take(24)
-        else candidates.filter { it.score > 0 }.take(24).ifEmpty { candidates.take(24) }
+        val selected = if (commandTokens.isEmpty()) candidates.take(12)
+        else candidates.filter { it.score > 0 }.take(12).ifEmpty { candidates.take(12) }
         val array = JSONArray()
         selected.forEach { item ->
             array.put(JSONObject().apply {
@@ -171,8 +171,8 @@ CATALOG fields: id, device, page, title, type.
             }
         }.sortedByDescending { it.score }
             .let { all ->
-                if (commandTokens.isEmpty()) all.take(24)
-                else all.filter { it.score > 0 }.take(24).ifEmpty { all.take(24) }
+                if (commandTokens.isEmpty()) all.take(12)
+                else all.filter { it.score > 0 }.take(12).ifEmpty { all.take(12) }
             }
             .map { it.device to it.widget }
     }
@@ -229,6 +229,7 @@ CATALOG fields: id, device, page, title, type.
                 .firstOrNull { it.second.id == widgetId }
         } ?: return Result.failure(Exception(
             if (candidateIndex >= 0) "Gemma выбрала недопустимый candidateIndex: $candidateIndex"
+            else if (kind == "control") "Gemma не выбрала candidateIndex"
             else "Gemma выбрала отсутствующий widgetId: $widgetId"
         ))
 
