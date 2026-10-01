@@ -158,6 +158,12 @@ CATALOG fields: id, device, page, title, type.
                                 nativeJson.optInt("promptTokens", 0) +
                                 "; generatedTokens=" +
                                 nativeJson.optInt("generatedTokens", 0) +
+                                "; promptMs=" +
+                                nativeJson.optDouble("promptMs", 0.0).toLong() +
+                                "; generationMs=" +
+                                nativeJson.optDouble("generationMs", 0.0).toLong() +
+                                "; genTok/s=" +
+                                nativeJson.optDouble("generationTokensPerSecond", 0.0) +
                                 "; textChars=" + text.length
                         )
                         receiver?.send(0, Bundle().apply {
