@@ -91,11 +91,19 @@ bool pinToPerformanceCores(int & selectedThreads, std::string & description) {
     for (const auto & core : cores) if (core.freq == bestFreq) best.push_back(core.cpu);
     if (best.size() < 2) best = {cores[0].cpu, cores[1].cpu};
 
-    uint64_t mask = 0;
-    for (const int cpu : best) if (cpu >= 0 && cpu < 64) mask |= (uint64_t(1) << cpu);
-    if (syscall(SYS_sched_setaffinity, 0, sizeof(mask), &mask) != 0) {
+    cpu_set_t selected;
+    CPU_ZERO(&selected);
+    for (const int cpu : best) CPU_SET(cpu, &selected);
+    if (syscall(SYS_sched_setaffinity, 0, sizeof(selected), &selected) != 0) {
         description = "affinity=failed:" + std::string(std::strerror(errno)) + ",allowed=";
         for (const auto & core : cores) description += std::to_string(core.cpu) + ",";
+        return false;
+    }
+
+    cpu_set_t applied;
+    CPU_ZERO(&applied);
+    if (sched_getaffinity(0, sizeof(applied), &applied) != 0) {
+        description = "affinity=applied_get_failed:" + std::string(std::strerror(errno));
         return false;
     }
     const std::string afterMask = affinityMaskDescription();
@@ -371,6 +379,7 @@ Java_com_yasn198020_aicontrol_MarfaLlamaNative_nativeLoadModel(
     engine->threads = contextParams.n_threads;
     engine->context_size = static_cast<int>(contextParams.n_ctx);
     engine->affinity_info = affinityInfo;
+    engine->system_info = systemInfo;
     engine->system_info = systemInfo;
 
     const std::string info =
