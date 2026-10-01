@@ -16,6 +16,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.util.Locale
@@ -44,67 +45,78 @@ class GemmaInferenceService : Service() {
 
         private const val CHAT_SYSTEM_PROMPT = """
 Ты локальный семантический интерпретатор команд IoTManager.
-Твоя задача — понять смысл русской фразы пользователя и выбрать существующий объект.
-Учитывай падежи, окончания, разговорные формы, местоимения и смысловой контекст.
-Не требуй точного совпадения слов и не используй фиксированный словарь предметов.
-Например, «помидор», «помидора», «помидорами» должны восприниматься как один смысл,
-но тот же принцип применяй к любому другому слову и предмету.
-Связывай контекст пользователя с полями device, page и title из CATALOG.
-«закрой дверь» — это объект двери, даже если рядом есть элементы с названиями
-«закрыть», «открыть» или похожими словами.
-Приоритет для управления: логический объект/состояние, а не физическое реле/GPIO,
-если пользователь прямо не попросил реле, выход или канал.
-Не придумывай ID. Выбирай только candidateIndex из CATALOG.
-index — это единственный допустимый номер кандидата. Он уже дан в CATALOG.
-Если в CATALOG есть хотя бы один подходящий объект, ОБЯЗАТЕЛЬНО выбери его.
-Не возвращай candidateIndex=-1 для подходящего объекта.
-Если несколько объектов похожи, выбери наиболее подходящий по смыслу команды, устройству, странице и названию.
-candidateIndex=-1 используй только если в CATALOG действительно нет подходящего объекта.
-Не выполняй MQTT, сценарии, ручной режим и зависимости: это делает приложение.
-Верни ТОЛЬКО JSON без Markdown: {"kind":"control|read_value|not_found","candidateIndex":0,"value":"","delayMs":0,"reply":""}
-CATALOG fields: index, id, device, page, title, titleSearch, type.
-title — исходное название для понимания контекста.
-titleSearch — универсальная нормализованная поисковая форма; она может содержать Unicode-названия символов и эмодзи.
-Учитывай titleSearch вместе с title, device и page.
+Пойми смысл русской команды и выбери существующий логический объект из CATALOG.
+Учитывай падежи, окончания, разговорные формы и контекст слов.
+Не используй фиксированный словарь предметов.
+«закрой дверь» означает объект двери, даже если рядом есть элементы «закрыть» или «открыть».
+Приоритет — логический объект/состояние, а не физическое реле/GPIO.
+Не придумывай ID. Выбирай только существующий candidateIndex.
+Если подходящий объект есть, не возвращай -1.
+Не выполняй MQTT, сценарии, ручной режим и зависимости — это делает приложение.
+Верни ТОЛЬКО JSON:
+{"kind":"control|read_value|not_found","candidateIndex":0,"value":"","delayMs":0,"reply":""}
+CATALOG: index,id,device,page,title,titleSearch,type.
+title — исходное название; titleSearch — поисковая форма, в том числе для символов/эмодзи.
 """
+
     }
 
     private fun buildIoTPrompt(command: String, catalog: String): String {
+        val compactCatalog = compactCatalogForContext(catalog)
         return """
-КОМАНДА ПОЛЬЗОВАТЕЛЯ:
+КОМАНДА:
 $command
 
-СПИСОК КАНДИДАТОВ CATALOG:
-$catalog
+CATALOG:
+$compactCatalog
 
-Выбери РОВНО ОДНОГО кандидата из CATALOG.
-candidateIndex должен ТОЧНО равняться существующему полю "index" выбранного кандидата.
-Сначала определи объект по смыслу всей команды, затем выбери его index.
-Учитывай падежи, окончания, разговорные формы, местоимения и связь слов между собой.
-Не используй фиксированный словарь предметов.
-Действие "открыть/закрыть/включить/выключить" не является названием объекта.
-Выбирай логический объект, а не физическое реле.
+Выбери РОВНО ОДНОГО кандидата по смыслу всей команды.
+Учитывай связь слов, падежи и контекст device/page/title/titleSearch.
+Действие «открыть/закрыть/включить/выключить» не является названием объекта.
+Выбирай логический объект, не физическое реле.
 
-Для управления:
-kind="control".
-"открыть/включить" → value="1".
-"закрыть/выключить" → value="0".
-
-Только если ни один кандидат действительно не подходит:
-kind="not_found", candidateIndex=-1.
-Не используй kind="clarify" в этой задаче: если кандидаты похожи, выбери наиболее подходящий по контексту.
-
+control: открыть/включить = value 1; закрыть/выключить = value 0.
+Если кандидат подходит, обязательно выбери его index.
+Если подходящего кандидата нет: kind=not_found, candidateIndex=-1.
 delayMs=0.
 
-Ответь только одним JSON-объектом.
-Не пиши объяснений и не пиши ID.
-
-Формат:
+Ответ только JSON:
 {"kind":"control","candidateIndex":0,"value":"1","delayMs":0,"reply":""}
-
-ЗАДАЧА: сейчас выбери candidateIndex из CATALOG для команды пользователя.
 """.trimIndent()
     }
+
+    /**
+     * Keeps the candidate list small enough for the 768-token context window.
+     * The catalog is already semantically ranked by GemmaLocalEngine, so we
+     * preserve the first candidates and compact verbose searchable metadata.
+     */
+    private fun compactCatalogForContext(catalog: String, maxChars: Int = 2200): String {
+        return runCatching {
+            val source = JSONArray(catalog)
+            val result = JSONArray()
+            for (i in 0 until source.length()) {
+                val item = source.optJSONObject(i) ?: continue
+                val compact = JSONObject().apply {
+                    put("index", item.optInt("index", i))
+                    put("id", item.optString("id"))
+                    put("device", item.optString("device").take(60))
+                    put("page", item.optString("page").take(60))
+                    put("title", item.optString("title").take(80))
+                    put("titleSearch", item.optString("titleSearch").take(100))
+                    put("type", item.optString("type"))
+                }
+                val candidateText = compact.toString()
+                val next = if (result.length() == 0) candidateText
+                else result.toString().dropLast(1) + "," + candidateText + "]"
+                if (next.length > maxChars) break
+                result.put(compact)
+            }
+            result.toString()
+        }.getOrElse {
+            catalog.take(maxChars)
+        }
+    }
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var loadedModel: LlamaModel? = null
     private var loadedPath = ""
@@ -197,15 +209,14 @@ delayMs=0.
                         if (fullDiagnostics) {
                             stage("Запуск ВСЕХ диагностических тестов")
                             val report = runFullNativeDiagnostics(::stage)
-                            // Diagnostics recreate the native engine for several configurations.
-                            // The original handle can therefore point to a freed NativeEngine.
                             val iotHandle = loadNativeModel(4, 768)
                             val iotCommand = "Открой дверь помидоров"
                             stage("IoT native test: " + iotCommand)
+                            val iotPrompt = buildIoTPrompt(iotCommand, catalog)
                             val iotJson = JSONObject(
                                 MarfaLlamaNative.nativeGenerate(
                                     handle = iotHandle,
-                                    prompt = buildIoTPrompt(iotCommand, catalog),
+                                    prompt = iotPrompt,
                                     systemPrompt = CHAT_SYSTEM_PROMPT,
                                     maxTokens = MAX_TOKENS
                                 )
@@ -215,9 +226,13 @@ delayMs=0.
                             val iotRaw = iotJson.optString("text").trim()
                             stage("IoT native response получен: textChars=" + iotRaw.length)
                             val fullReport = report +
-                                "\n--- 7. REAL IOT NATIVE TEST ---\n" +
-                                "command=" + iotCommand + "\n" +
-                                "raw=" + iotRaw + "\n"
+                                "
+--- 7. REAL IOT NATIVE TEST ---
+" +
+                                "command=" + iotCommand + "
+" +
+                                "raw=" + iotRaw + "
+"
                             receiver?.send(0, Bundle().apply {
                                 putString("text", fullReport)
                                 putString("iot_raw", iotRaw)
@@ -299,7 +314,7 @@ delayMs=0.
                         } else {
                             Llama.complete(
                                 model = model,
-                                prompt = "КОМАНДА:\n" + command + "\n\nCATALOG:\n" + catalog,
+                                prompt = "КОМАНДА:\n" + command + "\n\nCATALOG:\n" + compactCatalogForContext(catalog),
                                 systemPrompt = CHAT_SYSTEM_PROMPT,
                                 maxTokens = MAX_TOKENS
                             )
@@ -507,8 +522,6 @@ delayMs=0.
         val info = ActivityManager.MemoryInfo()
         memory.getMemoryInfo(info)
 
-        // Do not try to start a large native model when Android is already under
-        // memory pressure. This check is intentionally conservative.
         val required = maxOf(
             3_500L * 1024L * 1024L,
             modelFile.length() * 5L / 4L + 768L * 1024L * 1024L
