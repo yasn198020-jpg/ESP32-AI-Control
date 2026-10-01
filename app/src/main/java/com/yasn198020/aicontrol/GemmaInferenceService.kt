@@ -31,6 +31,7 @@ class GemmaInferenceService : Service() {
         const val EXTRA_THREADS = "threads"
         const val EXTRA_CONTEXT = "context"
         const val EXTRA_PROMPT_BENCHMARK = "prompt_benchmark"
+        const val EXTRA_FULL_DIAGNOSTICS = "full_diagnostics"
 
         private const val MODEL_FILE_NAME = "marfa-gemma3-1b-q4km.gguf"
         private const val MODEL_URL = "https://huggingface.co/ggml-org/gemma-3-1b-it-GGUF/resolve/main/gemma-3-1b-it-Q4_K_M.gguf"
@@ -84,6 +85,7 @@ CATALOG fields: id, device, page, title, type.
         val requestedThreads = intent?.getIntExtra(EXTRA_THREADS, 0)?.takeIf { it > 0 }?.coerceIn(1, MAX_THREADS) ?: 0
         val requestedContext = intent?.getIntExtra(EXTRA_CONTEXT, DEFAULT_CONTEXT_SIZE)?.coerceIn(MIN_CONTEXT_SIZE, MAX_CONTEXT_SIZE) ?: DEFAULT_CONTEXT_SIZE
         val promptBenchmark = intent?.getBooleanExtra(EXTRA_PROMPT_BENCHMARK, false) ?: false
+        val fullDiagnostics = intent?.getBooleanExtra(EXTRA_FULL_DIAGNOSTICS, false) ?: false
         val receiver = if (android.os.Build.VERSION.SDK_INT >= 33) {
             intent?.getParcelableExtra(EXTRA_RESULT, ResultReceiver::class.java)
         } else {
@@ -147,6 +149,17 @@ CATALOG fields: id, device, page, title, type.
                                 putString("text", benchmark.toString(2))
                                 putString("tokens_per_second", "diagnostic")
                                 putString("backend", "native-prompt-benchmark")
+                            })
+                            return@withLock
+                        }
+
+                        if (fullDiagnostics) {
+                            stage("Запуск ВСЕХ диагностических тестов")
+                            val report = runFullNativeDiagnostics(stage)
+                            receiver?.send(0, Bundle().apply {
+                                putString("text", report)
+                                putString("tokens_per_second", "diagnostic")
+                                putString("backend", "native-full-diagnostics")
                             })
                             return@withLock
                         }
@@ -243,6 +256,131 @@ CATALOG fields: id, device, page, title, type.
             }
         }
         return START_NOT_STICKY
+    }
+
+    private fun runFullNativeDiagnostics(stage: (String) -> Unit): String {
+        val systemPrompt = "Ты обычный русскоязычный помощник. Отвечай естественно и кратко."
+        val testPrompt = "Скажи одним словом: тест."
+        val generationPrompt = "Генерируй простую последовательность слов: один два три четыре пять шесть семь восемь девять десять."
+        val report = StringBuilder()
+
+        report.append("=== ПОЛНАЯ ДИАГНОСТИКА MARFA/GEMMA ===\n")
+        report.append("ABI=").append(android.os.Build.SUPPORTED_ABIS.joinToString(",")).append("\n")
+        report.append("CPU логических процессоров=").append(Runtime.getRuntime().availableProcessors()).append("\n")
+        report.append("llama.cpp: нативный backend + KleidiAI\n\n")
+
+        fun runTest(label: String, threads: Int, context: Int, maxTokens: Int, prompt: String = testPrompt): JSONObject {
+            stage("Тест " + label + ": threads=" + threads + ", context=" + context + ", maxTokens=" + maxTokens)
+            val loadStarted = System.currentTimeMillis()
+            val handle = loadNativeModel(threads, context)
+            val loadMs = System.currentTimeMillis() - loadStarted
+
+            val result = JSONObject(
+                MarfaLlamaNative.nativeGenerate(
+                    handle = handle,
+                    prompt = prompt,
+                    systemPrompt = systemPrompt,
+                    maxTokens = maxTokens
+                )
+            )
+            val error = result.optString("error").trim()
+            if (error.isNotBlank()) {
+                throw Exception(label + ": " + error)
+            }
+
+            report.append(label)
+                .append(": loadMs=").append(loadMs)
+                .append(", promptTokens=").append(result.optInt("promptTokens", 0))
+                .append(", promptMs=").append(result.optDouble("promptMs", 0.0).toLong())
+                .append(", generationMs=").append(result.optDouble("generationMs", 0.0).toLong())
+                .append(", generatedTokens=").append(result.optInt("generatedTokens", 0))
+                .append(", genTok/s=").append(result.optDouble("generationTokensPerSecond", 0.0))
+                .append(", effectiveThreads=").append(result.optInt("effectiveThreads", 0))
+                .append(", affinity=").append(result.optString("affinity", "unknown"))
+                .append("\n")
+
+            return result
+        }
+
+        report.append("--- 1. THREADS 1/2/4/6 (context 768) ---\n")
+        listOf(1, 2, 4, 6).forEach { threads ->
+            runTest("threads=" + threads, threads, 768, 8)
+        }
+
+        report.append("\n--- 2. CONTEXT 128/256/512/768 (threads 4) ---\n")
+        listOf(128, 256, 512, 768).forEach { context ->
+            runTest("context=" + context, 4, context, 8)
+        }
+
+        report.append("\n--- 3. OUTPUT TOKENS 8/16/32/96 (threads 4, context 768) ---\n")
+        listOf(8, 16, 32, 96).forEach { maxTokens ->
+            runTest("maxTokens=" + maxTokens, 4, 768, maxTokens, generationPrompt)
+        }
+
+        stage("Возврат к рабочей конфигурации: threads=4, context=768")
+        val restoreStarted = System.currentTimeMillis()
+        val handle = loadNativeModel(4, 768)
+        val restoreMs = System.currentTimeMillis() - restoreStarted
+
+        report.append("\n--- 4. PROMPT BATCH BENCHMARK ---\n")
+        val benchmark = JSONObject(
+            MarfaLlamaNative.nativeBenchmarkPrompt(
+                handle = handle,
+                prompt = testPrompt,
+                systemPrompt = systemPrompt
+            )
+        )
+        val benchmarkError = benchmark.optString("error").trim()
+        if (benchmarkError.isNotBlank()) {
+            throw Exception("Prompt benchmark: " + benchmarkError)
+        }
+        report.append("restoreLoadMs=").append(restoreMs).append("\n")
+        report.append(benchmark.toString(2)).append("\n")
+
+        report.append("\n--- 5. RAW LANGUAGE SANITY ---\n")
+        listOf(
+            "Ответь: ПРИВЕТ",
+            "Сколько будет 2+2? Ответь только числом."
+        ).forEachIndexed { index, rawPrompt ->
+            stage("Raw language test " + (index + 1) + "/2")
+            val result = JSONObject(
+                MarfaLlamaNative.nativeGenerate(
+                    handle = handle,
+                    prompt = rawPrompt,
+                    systemPrompt = systemPrompt,
+                    maxTokens = 16
+                )
+            )
+            val error = result.optString("error").trim()
+            if (error.isNotBlank()) throw Exception("Raw language test " + (index + 1) + ": " + error)
+            report.append("raw").append(index + 1).append(": text=")
+                .append(result.optString("text").replace("\\n", " ").trim())
+                .append(", promptMs=").append(result.optDouble("promptMs", 0.0).toLong())
+                .append(", generationMs=").append(result.optDouble("generationMs", 0.0).toLong())
+                .append(", generatedTokens=").append(result.optInt("generatedTokens", 0))
+                .append(", genTok/s=").append(result.optDouble("generationTokensPerSecond", 0.0))
+                .append("\n")
+        }
+
+        report.append("\n--- 6. SYSTEM / CPU INFO ---\n")
+        val infoResult = JSONObject(
+            MarfaLlamaNative.nativeGenerate(
+                handle = handle,
+                prompt = testPrompt,
+                systemPrompt = systemPrompt,
+                maxTokens = 1
+            )
+        )
+        val infoError = infoResult.optString("error").trim()
+        if (infoError.isNotBlank()) throw Exception("System info test: " + infoError)
+        report.append("backend=").append(infoResult.optString("backend", "unknown")).append("\n")
+        report.append("systemInfo=").append(infoResult.optString("systemInfo", "unknown")).append("\n")
+        report.append("affinity=").append(infoResult.optString("affinity", "unknown")).append("\n")
+        report.append("affinityCurrent=").append(infoResult.optString("affinityCurrent", "unknown")).append("\n")
+
+        report.append("\n=== ДИАГНОСТИКА ЗАВЕРШЕНА ===\n")
+        report.append("Текущая конфигурация оставлена: threads=4, context=768.")
+        return report.toString()
     }
 
     private fun ensureModelFile(stage: (String) -> Unit) {
