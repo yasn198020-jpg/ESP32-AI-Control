@@ -1,16 +1,17 @@
 package com.yasn198020.aicontrol
-import android.app.ActivityManager
+
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.ResultReceiver
 import android.provider.OpenableColumns
 import com.yasn198020.aicontrol.core.Device
 import com.yasn198020.aicontrol.core.WidgetState
-import dev.ffmpegkit.llama.Llama
-import dev.ffmpegkit.llama.LlamaConfig
-import dev.ffmpegkit.llama.LlamaModel
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -20,145 +21,101 @@ import java.util.Locale
 class GemmaLocalEngine private constructor(private val appContext: Context) {
     companion object {
         private const val MODEL_FILE_NAME = "marfa-gemma.gguf"
-        private const val CONTEXT_SIZE = 2048
-        private const val THREADS = 4
-        private const val MAX_TOKENS = 320
+        private const val REQUEST_TIMEOUT_MS = 120_000L
         @Volatile private var instance: GemmaLocalEngine? = null
+
         fun get(context: Context): GemmaLocalEngine =
             instance ?: synchronized(this) {
                 instance ?: GemmaLocalEngine(context.applicationContext).also { instance = it }
             }
     }
 
-    private val mutex = Mutex()
     private val modelFile: File
         get() = File(
             appContext.getExternalFilesDir("models") ?: File(appContext.filesDir, "models"),
             MODEL_FILE_NAME
         )
 
-    private var loadedPath = ""
-    private var loadedModel: LlamaModel? = null
-
     fun isModelInstalled(): Boolean = modelFile.isFile && modelFile.length() > 1_000_000L
+
     fun statusText(): String =
         if (isModelInstalled()) "Gemma установлена • " + formatBytes(modelFile.length())
         else "Gemma не установлена. Выберите файл GGUF."
 
     suspend fun importModel(uri: Uri): Result<String> = withContext(Dispatchers.IO) {
-        mutex.withLock {
-            try {
-                val name = queryDisplayName(uri).orEmpty()
-                if (!name.lowercase(Locale.ROOT).endsWith(".gguf")) {
-                    return@withLock Result.failure(Exception("Нужен файл модели в формате GGUF"))
-                }
-                val parent = modelFile.parentFile
-                    ?: return@withLock Result.failure(Exception("Нет каталога модели"))
-                if (!parent.exists() && !parent.mkdirs()) {
-                    return@withLock Result.failure(Exception("Не удалось создать каталог модели"))
-                }
-
-                val temp = File(parent, MODEL_FILE_NAME + ".part")
-                appContext.contentResolver.openInputStream(uri)?.use { input ->
-                    temp.outputStream().use { output -> input.copyTo(output, DEFAULT_BUFFER_SIZE) }
-                } ?: return@withLock Result.failure(Exception("Не удалось открыть файл модели"))
-
-                if (!temp.isFile || temp.length() <= 1_000_000L) {
-                    temp.delete()
-                    return@withLock Result.failure(Exception("Файл модели слишком маленький или повреждён"))
-                }
-
-                loadedModel?.let { runCatching { Llama.releaseModel(it) } }
-                loadedModel = null
-                loadedPath = ""
-                if (modelFile.exists() && !modelFile.delete()) {
-                    temp.delete()
-                    return@withLock Result.failure(Exception("Не удалось заменить предыдущую модель"))
-                }
-                if (!temp.renameTo(modelFile)) {
-                    temp.delete()
-                    return@withLock Result.failure(Exception("Не удалось сохранить модель"))
-                }
-                Result.success(statusText())
-            } catch (e: Throwable) {
-                Result.failure(Exception(e.message ?: "Ошибка импорта модели", e))
+        try {
+            val name = queryDisplayName(uri).orEmpty()
+            if (!name.lowercase(Locale.ROOT).endsWith(".gguf")) {
+                return@withContext Result.failure(Exception("Нужен файл модели в формате GGUF"))
             }
+            val parent = modelFile.parentFile
+                ?: return@withContext Result.failure(Exception("Нет каталога модели"))
+            if (!parent.exists() && !parent.mkdirs()) {
+                return@withContext Result.failure(Exception("Не удалось создать каталог модели"))
+            }
+
+            val temp = File(parent, MODEL_FILE_NAME + ".part")
+            appContext.contentResolver.openInputStream(uri)?.use { input ->
+                temp.outputStream().use { output -> input.copyTo(output, DEFAULT_BUFFER_SIZE) }
+            } ?: return@withContext Result.failure(Exception("Не удалось открыть файл модели"))
+
+            if (!temp.isFile || temp.length() <= 1_000_000L) {
+                temp.delete()
+                return@withContext Result.failure(Exception("Файл модели слишком маленький или повреждён"))
+            }
+            if (modelFile.exists() && !modelFile.delete()) {
+                temp.delete()
+                return@withContext Result.failure(Exception("Не удалось заменить предыдущую модель"))
+            }
+            if (!temp.renameTo(modelFile)) {
+                temp.delete()
+                return@withContext Result.failure(Exception("Не удалось сохранить модель"))
+            }
+            Result.success(statusText())
+        } catch (e: Throwable) {
+            Result.failure(Exception(e.message ?: "Ошибка импорта модели", e))
         }
     }
 
     suspend fun interpret(command: String, devices: List<Device>): Result<LocalCommandResult> =
-        mutex.withLock {
-            if (!isModelInstalled()) return@withLock Result.failure(Exception("Gemma не установлена"))
-            try {
-                val model = loadModelLocked()
-                val catalog = buildCatalog(devices)
-                val systemPrompt = """
-                    Ты локальный семантический интерпретатор голосовых команд IoTManager.
-                    Пользователь говорит по-русски естественно, с любыми падежами, формами слов и разговорными фразами.
-                    Только пойми смысл и выбери существующий объект из CATALOG.
-                    НИКОГДА не выполняй MQTT и не придумывай ID.
-                    Для управления выбирай логический виджет состояния/управления, а не физическое реле/GPIO/выход,
-                    если пользователь явно не сказал управлять именно реле или выходом.
-                    Дальнейшую зависимость к реле, ручному режиму и сценарию обработает приложение.
-                    Учитывай контекст: помидор/помидора/помидоров/помидорами — один смысловой контекст.
-                    Вкладка, имя устройства и название виджета вместе описывают объект.
-                    "закрой дверь" означает дверь, а не любой элемент со словом "закрыть".
-                    При нескольких одинаково подходящих объектах верни clarify.
-                    Результат: control, read_value, clarify или not_found.
-                    Верни ТОЛЬКО JSON:
-                    {"kind":"control|read_value|clarify|not_found","widgetId":"","value":"","delayMs":0,"reply":""}
-                """.trimIndent()
+        withContext(Dispatchers.IO) {
+            if (!isModelInstalled()) {
+                return@withContext Result.failure(Exception("Gemma не установлена"))
+            }
 
-                val result = Llama.complete(
-                    model = model,
-                    prompt = "КОМАНДА:\n" + command + "\n\nCATALOG:\n" + catalog,
-                    systemPrompt = systemPrompt,
-                    maxTokens = MAX_TOKENS
-                )
-                parseAndValidate(result.text, command, devices)
+            val catalog = buildCatalog(devices)
+            val resultDeferred = CompletableDeferred<Result<String>>()
+            val receiver = object : ResultReceiver(Handler(Looper.getMainLooper())) {
+                override fun onReceiveResult(resultCode: Int, resultData: Bundle?) {
+                    val error = resultData?.getString("error")
+                    if (resultCode == 0 && error.isNullOrBlank()) {
+                        resultDeferred.complete(Result.success(resultData?.getString("text").orEmpty()))
+                    } else {
+                        resultDeferred.complete(
+                            Result.failure(Exception(error ?: "Ошибка Gemma"))
+                        )
+                    }
+                }
+            }
+
+            try {
+                val intent = Intent(appContext, GemmaInferenceService::class.java)
+                    .putExtra(GemmaInferenceService.EXTRA_COMMAND, command)
+                    .putExtra(GemmaInferenceService.EXTRA_CATALOG, catalog)
+                    .putExtra(GemmaInferenceService.EXTRA_RESULT, receiver)
+                appContext.startService(intent)
+
+                val rawResult = kotlinx.coroutines.withTimeout(REQUEST_TIMEOUT_MS) {
+                    resultDeferred.await()
+                }
+                val raw = rawResult.getOrElse {
+                    return@withContext Result.failure(it)
+                }
+                parseAndValidate(raw, command, devices)
             } catch (e: Throwable) {
                 Result.failure(Exception(e.message ?: "Ошибка Gemma", e))
             }
         }
-
-    private suspend fun loadModelLocked(): LlamaModel {
-        val path = modelFile.absolutePath
-        loadedModel?.let { if (loadedPath == path) return it }
-
-        // Gemma 3 4B needs a large native allocation. Check free RAM before
-        // entering llama.cpp so Android can report a clean error instead of
-        // killing the whole application process.
-        val memory = appContext.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-        val info = ActivityManager.MemoryInfo()
-        memory.getMemoryInfo(info)
-        val modelBytes = modelFile.length()
-        val estimatedRequired = maxOf(
-            2_500L * 1024L * 1024L,
-            modelBytes * 5L / 4L + 512L * 1024L * 1024L
-        )
-        if (info.availMem < estimatedRequired) {
-            throw Exception(
-                "Недостаточно оперативной памяти для Gemma: свободно " +
-                    formatBytes(info.availMem) + ", требуется примерно " +
-                    formatBytes(estimatedRequired)
-            )
-        }
-
-        loadedModel?.let { runCatching { Llama.releaseModel(it) } }
-        loadedModel = Llama.loadModel(
-            path,
-            LlamaConfig(
-                contextSize = CONTEXT_SIZE,
-                threads = THREADS,
-                gpuLayers = 0,
-                temperature = 0.15f,
-                topP = 0.9f,
-                topK = 40
-            )
-        )
-        loadedPath = path
-        return loadedModel!!
-    }
 
     private fun buildCatalog(devices: List<Device>): String {
         val array = JSONArray()
