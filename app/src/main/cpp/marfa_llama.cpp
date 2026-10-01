@@ -4,9 +4,16 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <cerrno>
+#include <cstring>
+#include <fstream>
 #include <sstream>
 #include <string>
 #include <vector>
+
+#if defined(__ANDROID__)
+#include <sched.h>
+#endif
 
 #include "llama.h"
 
@@ -28,6 +35,57 @@ void logInfo(const std::string & message) {
 
 void logError(const std::string & message) {
     __android_log_print(ANDROID_LOG_ERROR, TAG, "%s", message.c_str());
+}
+
+bool pinToPerformanceCores(int & selectedThreads, std::string & description) {
+#if defined(__ANDROID__)
+    struct CoreInfo { int cpu; long long freq; };
+    std::vector<CoreInfo> cores;
+    for (int cpu = 0; cpu < 32; ++cpu) {
+        std::ifstream in("/sys/devices/system/cpu/cpu" + std::to_string(cpu) +
+                         "/cpufreq/cpuinfo_max_freq");
+        long long freq = 0;
+        if (in) in >> freq;
+        if (freq > 0) cores.push_back({cpu, freq});
+    }
+    if (cores.size() < 2) {
+        description = "affinity=unavailable";
+        return false;
+    }
+    std::sort(cores.begin(), cores.end(), [](const CoreInfo & a, const CoreInfo & b) {
+        if (a.freq != b.freq) return a.freq > b.freq;
+        return a.cpu > b.cpu;
+    });
+    const long long bestFreq = cores.front().freq;
+    std::vector<int> best;
+    for (const auto & core : cores) {
+        if (core.freq == bestFreq) best.push_back(core.cpu);
+    }
+    if (best.size() < 2) {
+        best.clear();
+        best.push_back(cores[0].cpu);
+        best.push_back(cores[1].cpu);
+    }
+
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    for (int cpu : best) CPU_SET(cpu, &set);
+
+    if (sched_setaffinity(0, sizeof(set), &set) != 0) {
+        description = "affinity=failed:" + std::string(std::strerror(errno));
+        return false;
+    }
+
+    selectedThreads = std::min(selectedThreads, static_cast<int>(best.size()));
+    description = "affinity=big[" + std::to_string(best[0]) + "," +
+                  std::to_string(best[1]) + "],freq=" +
+                  std::to_string(bestFreq) + ",threads=" +
+                  std::to_string(selectedThreads);
+    return true;
+#else
+    description = "affinity=non-Android";
+    return false;
+#endif
 }
 
 std::string jsonEscape(const std::string & value) {
@@ -245,6 +303,11 @@ Java_com_yasn198020_aicontrol_MarfaLlamaNative_nativeLoadModel(
 
     llama_backend_init();
 
+    int effectiveThreads = std::max(1, static_cast<int>(threads));
+    std::string affinityInfo;
+    pinToPerformanceCores(effectiveThreads, affinityInfo);
+    logInfo("CPU tuning: " + affinityInfo);
+
     llama_model_params modelParams = llama_model_default_params();
     modelParams.n_gpu_layers = 0;
 
@@ -261,8 +324,8 @@ Java_com_yasn198020_aicontrol_MarfaLlamaNative_nativeLoadModel(
     contextParams.n_ctx = static_cast<uint32_t>(std::max(128, static_cast<int>(contextSize)));
     contextParams.n_batch = static_cast<uint32_t>(std::max(32, std::min(BATCH_SIZE, static_cast<int>(contextParams.n_ctx))));
     contextParams.n_ubatch = contextParams.n_batch;
-    contextParams.n_threads = std::max(1, static_cast<int>(threads));
-    contextParams.n_threads_batch = std::max(1, static_cast<int>(threads));
+    contextParams.n_threads = effectiveThreads;
+    contextParams.n_threads_batch = effectiveThreads;
     contextParams.no_perf = false;
 
     llama_context * context = llama_init_from_model(model, contextParams);
@@ -281,7 +344,8 @@ Java_com_yasn198020_aicontrol_MarfaLlamaNative_nativeLoadModel(
     const std::string info =
             "Native llama.cpp loaded: version=" + std::string(llama_version()) +
             ", threads=" + std::to_string(engine->threads) +
-            ", context=" + std::to_string(engine->context_size);
+            ", context=" + std::to_string(engine->context_size) +
+            ", " + affinityInfo;
     logInfo(info);
 
     return reinterpret_cast<jlong>(engine);
@@ -346,6 +410,9 @@ Java_com_yasn198020_aicontrol_MarfaLlamaNative_nativeGenerate(
         return env->NewStringUTF("{\"error\":\"prompt decode failed\"}");
     }
 
+    const auto tPrompt = std::chrono::steady_clock::now();
+    const double promptSeconds = std::chrono::duration_cast<std::chrono::duration<double>>(tPrompt - t0).count();
+
     auto samplerParams = llama_sampler_chain_default_params();
     samplerParams.no_perf = false;
     llama_sampler * sampler = llama_sampler_chain_init(samplerParams);
@@ -382,6 +449,10 @@ Java_com_yasn198020_aicontrol_MarfaLlamaNative_nativeGenerate(
 
     const double tokensPerSecond =
             seconds > 0.0 ? static_cast<double>(generated) / seconds : 0.0;
+    const double generationSeconds =
+            seconds - promptSeconds;
+    const double generationTokensPerSecond =
+            generationSeconds > 0.0 ? static_cast<double>(generated) / generationSeconds : 0.0;
 
     llama_sampler_free(sampler);
 
