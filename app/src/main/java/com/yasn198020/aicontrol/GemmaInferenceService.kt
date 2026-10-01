@@ -156,11 +156,14 @@ CATALOG fields: id, device, page, title, type.
                         if (fullDiagnostics) {
                             stage("Запуск ВСЕХ диагностических тестов")
                             val report = runFullNativeDiagnostics(::stage)
+                            // Diagnostics recreate the native engine for several configurations.
+                            // The original handle can therefore point to a freed NativeEngine.
+                            val iotHandle = loadNativeModel(4, 768)
                             val iotCommand = "Открой дверь помидоров"
                             stage("IoT native test: " + iotCommand)
                             val iotJson = JSONObject(
                                 MarfaLlamaNative.nativeGenerate(
-                                    handle = handle,
+                                    handle = iotHandle,
                                     prompt = "КОМАНДА:\n" + iotCommand + "\n\nCATALOG:\n" + catalog,
                                     systemPrompt = CHAT_SYSTEM_PROMPT,
                                     maxTokens = MAX_TOKENS
