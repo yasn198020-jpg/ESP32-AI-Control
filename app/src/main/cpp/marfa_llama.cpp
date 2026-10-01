@@ -418,17 +418,20 @@ Java_com_yasn198020_aicontrol_MarfaLlamaNative_nativeGenerate(
     env->ReleaseStringUTFChars(jPrompt, promptChars);
     env->ReleaseStringUTFChars(jSystemPrompt, systemChars);
 
+    const auto tStart = std::chrono::steady_clock::now();
     std::string formatted;
     if (!formatChat(engine->model, systemPrompt, userPrompt, formatted)) {
         return env->NewStringUTF("{\"error\":\"chat template failed\"}");
     }
 
+    const auto tFormatted = std::chrono::steady_clock::now();
     const llama_vocab * vocab = llama_model_get_vocab(engine->model);
     std::vector<llama_token> promptTokens;
     if (!tokenizePrompt(vocab, formatted, promptTokens)) {
         return env->NewStringUTF("{\"error\":\"tokenization failed\"}");
     }
 
+    const auto tTokenized = std::chrono::steady_clock::now();
     const int maxNewTokens = std::max(1, static_cast<int>(maxTokens));
     const int requiredContext = static_cast<int>(promptTokens.size()) + maxNewTokens + 4;
     if (requiredContext > engine->context_size) {
@@ -505,6 +508,9 @@ Java_com_yasn198020_aicontrol_MarfaLlamaNative_nativeGenerate(
         << ",\"promptTokens\":" << promptTokens.size()
         << ",\"generatedTokens\":" << generated
         << ",\"promptMs\":" << (promptSeconds * 1000.0)
+        << ",\"formatMs\":" << (std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(tFormatted - tStart).count())
+        << ",\"tokenizeMs\":" << (std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(tTokenized - tFormatted).count())
+        << ",\"decodePromptMs\":" << (promptSeconds * 1000.0)
         << ",\"generationMs\":" << (generationSeconds * 1000.0)
         << ",\"generationTokensPerSecond\":" << generationTokensPerSecond
         << ",\"effectiveThreads\":" << engine->threads
