@@ -28,6 +28,16 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
+      - name: Setup Android SDK, NDK and CMake
+        uses: android-actions/setup-android@v4
+        with:
+          log-accepted-android-sdk-licenses: false
+
+      - name: Install native build toolchain
+        run: |
+          set -euo pipefail
+          sdkmanager "ndk;29.0.13113456" "cmake;3.31.6"
+
       - name: Build debug APK
         run: |
           set -euo pipefail
