@@ -315,8 +315,18 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
             "останови","остановить","покажи","скажи","узнай","какая","какое","какие",
             "сколько","температура","температур","градус","градуса","через","спустя",
             "пожалуйста","марфа","там","здесь","у","в","на","для","где","около","возле","рядом","и","а","то","же")
+        val dictionary = mapOf(
+            // Temporary diagnostic alias: if this makes an emoji-named 🍅 page
+            // resolve from "помидор/помидора/помидоров", the failure is in
+            // lexical/context matching rather than the Gemma runtime.
+            "помидор" to "tomato",
+            "помидора" to "tomato",
+            "помидоров" to "tomato",
+            "помидорами" to "tomato"
+        )
         return normalizedValue.lowercase(Locale("ru","RU")).replace('ё','е')
             .replace(Regex("[^a-zа-я0-9]+"), " ").trim().split(Regex("\\s+"))
+            .map { dictionary[it] ?: it }
             .map { stem(it) }.filter { it.length >= 3 && it !in stop && !it.all(Char::isDigit) }.toSet()
     }
 
