@@ -65,33 +65,28 @@ CATALOG fields: id, device, page, title, type.
     }
 
     private fun buildIoTPrompt(command: String, catalog: String): String {
-        // Keep the task itself at the end of the user message. Small local models
-        // tend to copy an output schema when the schema appears before the data.
         return """
-ЗАДАЧА: выбери ОДИН существующий объект из CATALOG для команды пользователя.
+ЗАДАЧА: выбери один объект из CATALOG для команды пользователя.
 
-КОМАНДА ПОЛЬЗОВАТЕЛЯ:
+КОМАНДА:
 $command
 
-CATALOG:
-$catalog
+CATALOG содержит кандидатов с полем index. Выбирай ТОЛЬКО index из CATALOG.
+index — это номер кандидата, а не ID устройства и не ID виджета.
 
 ПРАВИЛА:
-1. Сначала найди объект по смыслу команды: предмет, страница, устройство и контекст.
-2. Формы одного слова считаются одним смыслом: дверь/двери/дверью; помидор/помидора/помидорами и аналогично для любых слов.
-3. Слово действия (открыть, закрыть, включить, выключить) НЕ является названием объекта.
-4. Для управления выбери логический объект, а не физическое реле.
-5. widgetId должен быть СТРОГО одним из id в CATALOG. Никогда не придумывай id.
-6. Если объект найден, kind должен быть ровно "control".
-7. Для "открой/включи" value ровно "1"; для "закрой/выключи" value ровно "0".
-8. Если подходящего объекта нет, kind ровно "not_found", widgetId пустой.
-9. Если есть несколько равнозначных объектов, kind ровно "clarify", widgetId пустой.
-10. delayMs = 0, если задержки нет.
+- Понимай смысл, падежи, окончания и контекст любых слов. Не используй фиксированный словарь предметов.
+- Действие "открыть/закрыть/включить/выключить" не является названием объекта.
+- Выбирай логический объект, а не физическое реле.
+- Для найденного объекта: kind="control", candidateIndex=его index.
+- Открыть/включить: value="1". Закрыть/выключить: value="0".
+- Если подходящего объекта нет: kind="not_found", candidateIndex=-1.
+- Если есть несколько равнозначных объектов: kind="clarify", candidateIndex=-1.
+- delayMs=0.
 
-Ответь СЕЙЧАС только одним JSON-объектом. Не пиши объяснений.
-Пример допустимого ответа при найденном объекте:
-{"kind":"control","widgetId":"ID_ИЗ_CATALOG","value":"1","delayMs":0,"reply":""}
-Заменяй ID_ИЗ_CATALOG только на реальный id из CATALOG.
+Ответь только JSON. Не копируй этот текст и не пиши ID.
+Пример:
+{"kind":"control","candidateIndex":0,"value":"1","delayMs":0,"reply":""}
 """.trimIndent()
     }
 
@@ -155,7 +150,7 @@ $catalog
                         val prompt = if (rawPrompt.isNotBlank()) {
                             rawPrompt
                         } else {
-                            "КОМАНДА:\n" + command + "\n\nCATALOG:\n" + catalog
+                            buildIoTPrompt(command, catalog)
                         }
                         val systemPrompt = if (rawPrompt.isNotBlank()) {
                             "Ты обычный русскоязычный помощник. Отвечай естественно и кратко."
