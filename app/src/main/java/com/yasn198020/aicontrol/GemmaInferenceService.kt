@@ -25,13 +25,14 @@ class GemmaInferenceService : Service() {
         const val EXTRA_COMMAND = "command"
         const val EXTRA_CATALOG = "catalog"
         const val EXTRA_RESULT = "result"
+        const val EXTRA_RAW_PROMPT = "raw_prompt"
 
         private const val MODEL_FILE_NAME = "marfa-gemma.gguf"
         private const val CONTEXT_SIZE = 768
         private const val MAX_THREADS = 6
         private const val MAX_TOKENS = 96
 
-        private const val SYSTEM_PROMPT = """
+        private const val CHAT_SYSTEM_PROMPT = """
 Ты локальный семантический интерпретатор команд IoTManager.
 Твоя задача — понять смысл русской фразы пользователя и выбрать существующий объект.
 Учитывай падежи, окончания, разговорные формы, местоимения и смысловой контекст.
@@ -60,6 +61,7 @@ CATALOG fields: id, device, page, title, type.
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val command = intent?.getStringExtra(EXTRA_COMMAND).orEmpty()
+        val rawPrompt = intent?.getStringExtra(EXTRA_RAW_PROMPT).orEmpty()
         val catalog = intent?.getStringExtra(EXTRA_CATALOG).orEmpty()
         val receiver = if (android.os.Build.VERSION.SDK_INT >= 33) {
             intent?.getParcelableExtra(EXTRA_RESULT, ResultReceiver::class.java)
@@ -71,16 +73,25 @@ CATALOG fields: id, device, page, title, type.
         scope.launch {
             try {
                 inferenceMutex.withLock {
-                    if (command.isBlank()) throw Exception("Пустая команда")
-                    if (catalog.isBlank()) throw Exception("Пустой каталог виджетов")
+                    if (command.isBlank() && rawPrompt.isBlank()) throw Exception("Пустая команда")
+                    if (rawPrompt.isBlank() && catalog.isBlank()) throw Exception("Пустой каталог виджетов")
 
                     val model = loadModel()
-                    val result = Llama.complete(
-                        model = model,
-                        prompt = "КОМАНДА:\n" + command + "\n\nCATALOG:\n" + catalog,
-                        systemPrompt = SYSTEM_PROMPT,
-                        maxTokens = MAX_TOKENS
-                    )
+                    val result = if (rawPrompt.isNotBlank()) {
+                        Llama.complete(
+                            model = model,
+                            prompt = rawPrompt,
+                            systemPrompt = "Ты обычный русскоязычный помощник. Отвечай естественно и кратко.",
+                            maxTokens = MAX_TOKENS
+                        )
+                    } else {
+                        Llama.complete(
+                            model = model,
+                            prompt = "КОМАНДА:\n" + command + "\n\nCATALOG:\n" + catalog,
+                            systemPrompt = CHAT_SYSTEM_PROMPT,
+                            maxTokens = MAX_TOKENS
+                        )
+                    }
 
                     receiver?.send(0, Bundle().apply {
                         putString("text", result.text)
