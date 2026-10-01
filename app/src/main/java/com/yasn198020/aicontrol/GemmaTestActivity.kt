@@ -43,6 +43,14 @@ class GemmaTestActivity : Activity() {
         addTestButton(root, "3. Открой дверь помидоров") { runIoTTest("Открой дверь помидоров") }
         addTestButton(root, "Запустить все три") { runAll() }
 
+        root.addView(Button(this).apply {
+            text = "Копировать весь результат"
+            setOnClickListener {
+                val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Gemma diagnostic", output.text))
+                append("✓ Результат скопирован в буфер обмена")
+            }
+        })
         root.addView(ScrollView(this).apply { addView(output) },
             LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
         setContentView(root)
