@@ -147,10 +147,10 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
         // the difference between a logical state widget and a physical actuator.
         // This keeps candidateIndex aligned with Marfa's real IoTManager logic.
         val desiredValue = when {
-            Regex("""\\b(откры|открой|распах|подним)""", RegexOption.IGNORE_CASE).containsMatchIn(command) -> "1"
-            Regex("""\\b(закры|закрой|опуст|запечат)""", RegexOption.IGNORE_CASE).containsMatchIn(command) -> "0"
-            Regex("""\\b(включ|запусти|зажг)""", RegexOption.IGNORE_CASE).containsMatchIn(command) -> "1"
-            Regex("""\\b(выключ|останов|погаси)""", RegexOption.IGNORE_CASE).containsMatchIn(command) -> "0"
+            Regex("""\b(откры|открой|распах|подним)""", RegexOption.IGNORE_CASE).containsMatchIn(command) -> "1"
+            Regex("""\b(закры|закрой|опуст|запечат)""", RegexOption.IGNORE_CASE).containsMatchIn(command) -> "0"
+            Regex("""\b(включ|запусти|зажг)""", RegexOption.IGNORE_CASE).containsMatchIn(command) -> "1"
+            Regex("""\b(выключ|останов|погаси)""", RegexOption.IGNORE_CASE).containsMatchIn(command) -> "0"
             else -> null
         }
         val orderedCandidates = if (desiredValue != null) {
@@ -199,10 +199,10 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
         }.sortedByDescending { it.score }
 
         val desiredValue = when {
-            Regex("""\\b(откры|открой|распах|подним)""", RegexOption.IGNORE_CASE).containsMatchIn(command) -> "1"
-            Regex("""\\b(закры|закрой|опуст|запечат)""", RegexOption.IGNORE_CASE).containsMatchIn(command) -> "0"
-            Regex("""\\b(включ|запусти|зажг)""", RegexOption.IGNORE_CASE).containsMatchIn(command) -> "1"
-            Regex("""\\b(выключ|останов|погаси)""", RegexOption.IGNORE_CASE).containsMatchIn(command) -> "0"
+            Regex("""\b(откры|открой|распах|подним)""", RegexOption.IGNORE_CASE).containsMatchIn(command) -> "1"
+            Regex("""\b(закры|закрой|опуст|запечат)""", RegexOption.IGNORE_CASE).containsMatchIn(command) -> "0"
+            Regex("""\b(включ|запусти|зажг)""", RegexOption.IGNORE_CASE).containsMatchIn(command) -> "1"
+            Regex("""\b(выключ|останов|погаси)""", RegexOption.IGNORE_CASE).containsMatchIn(command) -> "0"
             else -> null
         }
         val orderedCandidates = if (desiredValue != null) {
@@ -266,10 +266,10 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
     private fun commandControlValue(command: String): String? {
         val text = command.lowercase(Locale("ru", "RU")).replace('ё', 'е')
         return when {
-            Regex("""\\b(откры|открой|открывай|распах|распахни|подним|подними)""", RegexOption.IGNORE_CASE).containsMatchIn(text) -> "1"
-            Regex("""\\b(закры|закрой|закрывай|опуст|опусти|запечат|запечатай)""", RegexOption.IGNORE_CASE).containsMatchIn(text) -> "0"
-            Regex("""\\b(включ|включи|включить|запусти|запустить|зажг|зажги)""", RegexOption.IGNORE_CASE).containsMatchIn(text) -> "1"
-            Regex("""\\b(выключ|выключи|выключить|останов|останови|погаси|погаси)""", RegexOption.IGNORE_CASE).containsMatchIn(text) -> "0"
+            Regex("""\b(откры|открой|открывай|распах|распахни|подним|подними)""", RegexOption.IGNORE_CASE).containsMatchIn(text) -> "1"
+            Regex("""\b(закры|закрой|закрывай|опуст|опусти|запечат|запечатай)""", RegexOption.IGNORE_CASE).containsMatchIn(text) -> "0"
+            Regex("""\b(включ|включи|включить|запусти|запустить|зажг|зажги)""", RegexOption.IGNORE_CASE).containsMatchIn(text) -> "1"
+            Regex("""\b(выключ|выключи|выключить|останов|останови|погаси|погаси)""", RegexOption.IGNORE_CASE).containsMatchIn(text) -> "0"
             else -> null
         }
     }
