@@ -1,5 +1,4 @@
 #include <android/log.h>
-#include <android/log.h>
 #include <jni.h>
 
 #include <algorithm>
