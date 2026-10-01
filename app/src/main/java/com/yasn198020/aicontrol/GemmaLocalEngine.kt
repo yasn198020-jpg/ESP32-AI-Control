@@ -1,6 +1,7 @@
 package com.yasn198020.aicontrol
 
 import android.content.Context
+import android.icu.lang.UCharacter
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -39,7 +40,7 @@ class GemmaLocalEngine private constructor(private val appContext: Context) {
 Если несколько объектов подходят одинаково хорошо — clarify.
 Не выполняй MQTT, сценарии, ручной режим и зависимости: это делает приложение.
 Верни ТОЛЬКО JSON без Markdown: {"kind":"control|read_value|clarify|not_found","candidateIndex":-1,"value":"","delayMs":0,"reply":""}
-CATALOG fields: id, device, page, title, type.
+CATALOG fields: index, id, device, page, title, titleSearch, type.
 """
         @Volatile private var instance: GemmaLocalEngine? = null
 
@@ -133,7 +134,7 @@ CATALOG fields: id, device, page, title, type.
         val commandTokens = semanticTokens(command)
         val candidates = devices.flatMap { device ->
             device.widgets.map { widget ->
-                val haystack = semanticTokens(device.name + " " + widget.page + " " + widget.title + " " + widget.definitionName)
+                val haystack = semanticTokens(searchableText(device.name + " " + widget.page + " " + widget.title + " " + widget.definitionName))
                 var score = commandTokens.count { it in haystack } * 10
                 if (widget.type == WidgetState.Type.TOGGLE ||
                     widget.type == WidgetState.Type.BUTTON ||
@@ -151,6 +152,7 @@ CATALOG fields: id, device, page, title, type.
                 put("device", item.device.name)
                 put("page", item.widget.page)
                 put("title", item.widget.title)
+                put("titleSearch", searchableText(item.device.name + " " + item.widget.page + " " + item.widget.title + " " + item.widget.definitionName))
                 put("type", item.widget.type.name)
             })
         }
@@ -162,7 +164,7 @@ CATALOG fields: id, device, page, title, type.
         val commandTokens = semanticTokens(command)
         return devices.flatMap { device ->
             device.widgets.map { widget ->
-                val haystack = semanticTokens(device.name + " " + widget.page + " " + widget.title + " " + widget.definitionName)
+                val haystack = semanticTokens(searchableText(device.name + " " + widget.page + " " + widget.title + " " + widget.definitionName))
                 var score = commandTokens.count { it in haystack } * 10
                 if (widget.type == WidgetState.Type.TOGGLE ||
                     widget.type == WidgetState.Type.BUTTON ||
@@ -177,13 +179,41 @@ CATALOG fields: id, device, page, title, type.
             .map { it.device to it.widget }
     }
 
+    /**
+     * Universal search representation. Original titles remain untouched.
+     * Symbols/emoji are supplemented with their Unicode standard names instead
+     * of using a hard-coded dictionary for individual objects.
+     */
+    private fun searchableText(value: String): String {
+        if (value.isBlank()) return value
+        val out = StringBuilder(value.length + 64)
+        var offset = 0
+        while (offset < value.length) {
+            val codePoint = value.codePointAt(offset)
+            val chars = String(Character.toChars(codePoint))
+            if (Character.isLetterOrDigit(codePoint) || Character.isWhitespace(codePoint)) {
+                out.append(chars)
+            } else {
+                val unicodeName = runCatching { UCharacter.getName(codePoint) }.getOrNull()
+                if (!unicodeName.isNullOrBlank()) {
+                    out.append(' ').append(unicodeName.replace('_', ' ')).append(' ')
+                } else {
+                    out.append(' ')
+                }
+            }
+            offset += Character.charCount(codePoint)
+        }
+        return out.toString()
+    }
+
     private fun semanticTokens(value: String): Set<String> {
+        val normalizedValue = searchableText(value)
         val stop = setOf("открой","открыть","открывай","закрой","закрыть","закрывай",
             "включи","включить","выключи","выключить","запусти","запустить",
             "останови","остановить","покажи","скажи","узнай","какая","какое","какие",
             "сколько","температура","температур","градус","градуса","через","спустя",
             "пожалуйста","марфа","там","здесь","у","в","на","для","где","около","возле","рядом","и","а","то","же")
-        return value.lowercase(Locale("ru","RU")).replace('ё','е')
+        return normalizedValue.lowercase(Locale("ru","RU")).replace('ё','е')
             .replace(Regex("[^a-zа-я0-9]+"), " ").trim().split(Regex("\\s+"))
             .map { stem(it) }.filter { it.length >= 3 && it !in stop && !it.all(Char::isDigit) }.toSet()
     }
