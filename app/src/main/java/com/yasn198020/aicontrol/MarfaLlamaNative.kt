@@ -34,6 +34,12 @@ object MarfaLlamaNative {
         maxTokens: Int
     ): String
 
+    external fun nativeBenchmarkPrompt(
+        handle: Long,
+        prompt: String,
+        systemPrompt: String
+    ): String
+
     external fun nativeRelease(handle: Long)
 
     external fun nativeVersion(handle: Long): String
