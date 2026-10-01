@@ -130,7 +130,13 @@ class GemmaTestActivity : Activity() {
                         resultData?.getString("text").orEmpty()
                 )
 
-                runIoTTestAfterDiagnostics()
+                val iotRaw = resultData?.getString("iot_raw")
+                val iotCommand = resultData?.getString("iot_command")
+                if (!iotRaw.isNullOrBlank() && !iotCommand.isNullOrBlank()) {
+                    validateIoTResult(iotCommand, iotRaw)
+                } else {
+                    running = false
+                }
             }
         }
 
@@ -162,31 +168,30 @@ class GemmaTestActivity : Activity() {
         timeoutHandler?.postDelayed(timeout, 600_000L)
     }
 
-    private fun runIoTTestAfterDiagnostics() {
-        append("\n🚪 IoT ТЕСТ: Открой дверь помидоров\nАнализ реального каталога IoTManager…")
+    private fun validateIoTResult(command: String, raw: String) {
+        append("\n🔎 ПРОВЕРКА IoT JSON\nСырой ответ Gemma:\n" + raw)
         scope.launch {
             val started = System.currentTimeMillis()
-            val result = GemmaLocalEngine.get(applicationContext)
-                .interpret(
-                    "Открой дверь помидоров",
-                    AppRuntime.get(applicationContext).deviceRepository.snapshot()
-                )
-
+            val result = GemmaLocalEngine.get(applicationContext).validateRawResult(
+                raw,
+                command,
+                AppRuntime.get(applicationContext).deviceRepository.snapshot()
+            )
             val elapsed = System.currentTimeMillis() - started
             val text = result.fold(
                 onSuccess = {
-                    "action=" + it.action +
+                    "✓ JSON принят приложением" +
+                        "\naction=" + it.action +
                         "\nwidgetId=" + it.widgetId +
                         "\nvalue=" + it.value +
                         "\ndelayMs=" + it.delayMs +
                         "\nreply=" + it.reply
                 },
                 onFailure = {
-                    "ОШИБКА: " + (it.message ?: it.javaClass.simpleName)
+                    "❌ JSON отклонён приложением: " + (it.message ?: it.javaClass.simpleName)
                 }
             )
-
-            append("IoT результат за " + elapsed + " мс:\n" + text)
+            append("Проверка IoT за " + elapsed + " мс:\n" + text)
             running = false
         }
     }
