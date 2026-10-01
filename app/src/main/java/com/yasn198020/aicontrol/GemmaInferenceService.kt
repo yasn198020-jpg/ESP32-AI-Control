@@ -16,6 +16,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import org.json.JSONObject
 import java.io.File
 import java.util.Locale
 
@@ -66,6 +67,12 @@ CATALOG fields: id, device, page, title, type.
     private var loadedPath = ""
     private var loadedThreads = 0
     private var loadedContext = 0
+
+    private var nativeHandle = 0L
+    private var nativePath = ""
+    private var nativeThreads = 0
+    private var nativeContext = 0
+
     private val inferenceMutex = Mutex()
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -98,29 +105,93 @@ CATALOG fields: id, device, page, title, type.
 
                     stage("Проверка облегчённой модели Gemma 3 1B")
                     ensureModelFile { message -> stage(message) }
-                    val model = loadModel(requestedThreads, requestedContext)
-                    stage("Модель загружена: " + formatBytes(modelFileSize()) + " (" + modelFileSize() + " байт), ABI=" + android.os.Build.SUPPORTED_ABIS.joinToString(",") + ", CPU=" + Runtime.getRuntime().availableProcessors())
-                    stage("Запуск ПРЯМОГО llama.cpp inference: maxTokens=$requestedMaxTokens, threads=" + (if (requestedThreads > 0) requestedThreads else "auto") + ", context=$requestedContext")
-                    val result = if (rawPrompt.isNotBlank()) {
-                        Llama.complete(
-                            model = model,
-                            prompt = rawPrompt,
-                            systemPrompt = "Ты обычный русскоязычный помощник. Отвечай естественно и кратко.",
-                            maxTokens = requestedMaxTokens
-                        )
-                    } else {
-                        Llama.complete(
-                            model = model,
-                            prompt = "КОМАНДА:\n" + command + "\n\nCATALOG:\n" + catalog,
-                            systemPrompt = CHAT_SYSTEM_PROMPT,
-                            maxTokens = MAX_TOKENS
-                        )
-                    }
 
-                    stage("Ответ получен: " + result.tokensPerSecond + " ток/с; textChars=" + result.text.length)
-                    receiver?.send(0, Bundle().apply {
-                        putString("text", result.text)
-                        putString("tokens_per_second", result.tokensPerSecond.toString())
+                    if (MarfaLlamaNative.isAvailable()) {
+                        stage("Нативный llama.cpp backend: arm64-v8a + KleidiAI")
+                        val handle = loadNativeModel(requestedThreads, requestedContext)
+                        stage(
+                            "Модель загружена native: " +
+                                formatBytes(modelFileSize()) +
+                                " (" + modelFileSize() + " байт), ABI=" +
+                                android.os.Build.SUPPORTED_ABIS.joinToString(",") +
+                                ", llama.cpp=" + MarfaLlamaNative.nativeVersion(handle)
+                        )
+
+                        val prompt = if (rawPrompt.isNotBlank()) {
+                            rawPrompt
+                        } else {
+                            "КОМАНДА:\n" + command + "\n\nCATALOG:\n" + catalog
+                        }
+                        val systemPrompt = if (rawPrompt.isNotBlank()) {
+                            "Ты обычный русскоязычный помощник. Отвечай естественно и кратко."
+                        } else {
+                            CHAT_SYSTEM_PROMPT
+                        }
+                        val maxTokens = if (rawPrompt.isNotBlank()) requestedMaxTokens else MAX_TOKENS
+
+                        stage(
+                            "Запуск НАТИВНОГО llama.cpp inference: maxTokens=" +
+                                maxTokens +
+                                ", threads=" +
+                                (if (requestedThreads > 0) requestedThreads else "auto") +
+                                ", context=$requestedContext"
+                        )
+
+                        val nativeJson = JSONObject(
+                            MarfaLlamaNative.nativeGenerate(
+                                handle = handle,
+                                prompt = prompt,
+                                systemPrompt = systemPrompt,
+                                maxTokens = maxTokens
+                            )
+                        )
+                        val nativeError = nativeJson.optString("error").trim()
+                        if (nativeError.isNotBlank()) {
+                            throw Exception("Нативный llama.cpp: $nativeError")
+                        }
+
+                        val text = nativeJson.optString("text")
+                        val tokensPerSecond = nativeJson.optDouble("tokensPerSecond", 0.0)
+                        stage(
+                            "Ответ получен native: " +
+                                tokensPerSecond + " ток/с; promptTokens=" +
+                                nativeJson.optInt("promptTokens", 0) +
+                                "; generatedTokens=" +
+                                nativeJson.optInt("generatedTokens", 0) +
+                                "; textChars=" + text.length
+                        )
+                        receiver?.send(0, Bundle().apply {
+                            putString("text", text)
+                            putString("tokens_per_second", tokensPerSecond.toString())
+                            putString("backend", "native-llama.cpp")
+                        })
+                    } else {
+                        stage("Нативный backend недоступен — резервный llama-android AAR")
+                        val model = loadModel(requestedThreads, requestedContext)
+                        stage("Модель загружена: " + formatBytes(modelFileSize()) + " (" + modelFileSize() + " байт), ABI=" + android.os.Build.SUPPORTED_ABIS.joinToString(",") + ", CPU=" + Runtime.getRuntime().availableProcessors())
+                        stage("Запуск резервного llama-android inference: maxTokens=$requestedMaxTokens, threads=" + (if (requestedThreads > 0) requestedThreads else "auto") + ", context=$requestedContext")
+                        val result = if (rawPrompt.isNotBlank()) {
+                            Llama.complete(
+                                model = model,
+                                prompt = rawPrompt,
+                                systemPrompt = "Ты обычный русскоязычный помощник. Отвечай естественно и кратко.",
+                                maxTokens = requestedMaxTokens
+                            )
+                        } else {
+                            Llama.complete(
+                                model = model,
+                                prompt = "КОМАНДА:\n" + command + "\n\nCATALOG:\n" + catalog,
+                                systemPrompt = CHAT_SYSTEM_PROMPT,
+                                maxTokens = MAX_TOKENS
+                            )
+                        }
+
+                        stage("Ответ получен AAR: " + result.tokensPerSecond + " ток/с; textChars=" + result.text.length)
+                        receiver?.send(0, Bundle().apply {
+                            putString("text", result.text)
+                            putString("tokens_per_second", result.tokensPerSecond.toString())
+                            putString("backend", "llama-android-aar")
+                        })
                     })
                 }
             } catch (t: Throwable) {
@@ -222,6 +293,46 @@ CATALOG fields: id, device, page, title, type.
         loadedThreads = cpuThreads
         loadedContext = requestedContext
         return loadedModel!!
+    }
+
+    private fun loadNativeModel(requestedThreads: Int, requestedContext: Int): Long {
+        val modelFile = File(
+            getExternalFilesDir("models") ?: File(filesDir, "models"),
+            MODEL_FILE_NAME
+        )
+        val path = modelFile.absolutePath
+        val cpuThreads = requestedThreads.takeIf { it > 0 }
+            ?: minOf(MAX_THREADS, maxOf(2, Runtime.getRuntime().availableProcessors() - 1))
+
+        if (nativeHandle != 0L &&
+            nativePath == path &&
+            nativeThreads == cpuThreads &&
+            nativeContext == requestedContext) {
+            return nativeHandle
+        }
+
+        if (!modelFile.isFile || modelFile.length() < MODEL_MIN_BYTES) {
+            throw Exception("Файл Gemma 3 1B GGUF не найден или неполный: " + formatBytes(modelFile.length()))
+        }
+
+        nativeHandle.takeIf { it != 0L }?.let {
+            runCatching { MarfaLlamaNative.nativeRelease(it) }
+        }
+
+        val handle = MarfaLlamaNative.nativeLoadModel(
+            modelPath = path,
+            threads = cpuThreads,
+            contextSize = requestedContext
+        )
+        if (handle == 0L) {
+            throw Exception("Нативный llama.cpp не смог загрузить модель")
+        }
+
+        nativeHandle = handle
+        nativePath = path
+        nativeThreads = cpuThreads
+        nativeContext = requestedContext
+        return handle
     }
 
     private fun modelFileSize(): Long {
