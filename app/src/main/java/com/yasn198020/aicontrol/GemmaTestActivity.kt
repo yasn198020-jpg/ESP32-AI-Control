@@ -55,6 +55,7 @@ class GemmaTestActivity : Activity() {
         addTestButton(root, "2. Кто такой Пушкин?") { runRawTest("Кто такой Александр Сергеевич Пушкин? Ответь кратко.") }
         addTestButton(root, "3. Открой дверь помидоров") { runIoTTest("Открой дверь помидоров") }
         addTestButton(root, "Запустить все три") { runAll() }
+        addTestButton(root, "🔬 Prompt benchmark: batch 1-35") { runPromptBenchmark() }
 
         root.addView(Button(this).apply {
             text = "Копировать весь результат"
@@ -105,6 +106,44 @@ class GemmaTestActivity : Activity() {
             return
         }
         val timeout = Runnable { append("ТАЙМАУТ: Gemma не вернула ответ за 180 секунд.") }
+        timeoutHandlers[testId] = timeout
+        Handler(Looper.getMainLooper()).postDelayed(timeout, 180_000L)
+    }
+
+    private fun runPromptBenchmark() {
+        val prompt = "Скажи одним предложением: привет."
+        val started = System.currentTimeMillis()
+        val testId = ++testSequence
+        append("\n\n🔬 PROMPT BENCHMARK\nПотоки: 4, context: 768\nBatch: 1 / 2 / 4 / 8 / 16 / 32 / 35\nЗапуск…")
+        val receiver = object : ResultReceiver(Handler(Looper.getMainLooper())) {
+            override fun onReceiveResult(resultCode: Int, resultData: Bundle?) {
+                val elapsed = System.currentTimeMillis() - started
+                if (resultCode == 2) {
+                    append("[" + (resultData?.getLong("elapsed") ?: elapsed) + " мс] " + resultData?.getString("stage").orEmpty())
+                    return
+                }
+                timeoutHandlers.remove(testId)?.let { Handler(Looper.getMainLooper()).removeCallbacks(it) }
+                val error = resultData?.getString("error")
+                val text = resultData?.getString("text").orEmpty()
+                append(if (resultCode == 0)
+                    "Benchmark за " + elapsed + " мс:\n" + text
+                else
+                    "ОШИБКА benchmark за " + elapsed + " мс:\n" + (error ?: "неизвестная ошибка"))
+            }
+        }
+        try {
+            startService(Intent(this, GemmaInferenceService::class.java)
+                .putExtra(GemmaInferenceService.EXTRA_RAW_PROMPT, prompt)
+                .putExtra(GemmaInferenceService.EXTRA_MAX_TOKENS, 1)
+                .putExtra(GemmaInferenceService.EXTRA_THREADS, 4)
+                .putExtra(GemmaInferenceService.EXTRA_CONTEXT, 768)
+                .putExtra(GemmaInferenceService.EXTRA_PROMPT_BENCHMARK, true)
+                .putExtra(GemmaInferenceService.EXTRA_RESULT, receiver))
+        } catch (t: Throwable) {
+            append("Не удалось запустить benchmark: " + (t.message ?: t.javaClass.simpleName))
+            return
+        }
+        val timeout = Runnable { append("ТАЙМАУТ: benchmark не завершился за 180 секунд.") }
         timeoutHandlers[testId] = timeout
         Handler(Looper.getMainLooper()).postDelayed(timeout, 180_000L)
     }
