@@ -83,7 +83,7 @@ class GemmaLocalEngine private constructor(private val appContext: Context) {
                 return@withContext Result.failure(Exception("Gemma не установлена"))
             }
 
-            val catalog = buildCatalog(devices)
+            val catalog = buildCatalog(devices, command)
             val resultDeferred = CompletableDeferred<Result<String>>()
             val receiver = object : ResultReceiver(Handler(Looper.getMainLooper())) {
                 override fun onReceiveResult(resultCode: Int, resultData: Bundle?) {
@@ -117,24 +117,53 @@ class GemmaLocalEngine private constructor(private val appContext: Context) {
             }
         }
 
-    private fun buildCatalog(devices: List<Device>): String {
-        // Gemma only needs semantic identity. Live values, MQTT topics and full
-        // widget CONFIG stay in the deterministic app layer.
-        val array = JSONArray()
-        devices.forEach { device ->
-            device.widgets.forEach { widget ->
-                array.put(JSONObject().apply {
-                    put("id", widget.id)
-                    put("device", device.name)
-                    put("page", widget.page)
-                    put("title", widget.title)
-                    put("type", widget.type.name)
-                })
+    private fun buildCatalog(devices: List<Device>, command: String = ""): String {
+        data class Candidate(val device: Device, val widget: WidgetState, val score: Int)
+        val commandTokens = semanticTokens(command)
+        val candidates = devices.flatMap { device ->
+            device.widgets.map { widget ->
+                val haystack = semanticTokens(device.name + " " + widget.page + " " + widget.title + " " + widget.definitionName)
+                var score = commandTokens.count { it in haystack } * 10
+                if (widget.type == WidgetState.Type.TOGGLE ||
+                    widget.type == WidgetState.Type.BUTTON ||
+                    widget.type == WidgetState.Type.INPUT) score += 2
+                Candidate(device, widget, score)
             }
+        }.sortedByDescending { it.score }
+        val selected = if (commandTokens.isEmpty()) candidates.take(24)
+        else candidates.filter { it.score > 0 }.take(24).ifEmpty { candidates.take(24) }
+        val array = JSONArray()
+        selected.forEach { item ->
+            array.put(JSONObject().apply {
+                put("id", item.widget.id)
+                put("device", item.device.name)
+                put("page", item.widget.page)
+                put("title", item.widget.title)
+                put("type", item.widget.type.name)
+            })
         }
         return array.toString()
     }
 
+    private fun semanticTokens(value: String): Set<String> {
+        val stop = setOf("открой","открыть","открывай","закрой","закрыть","закрывай",
+            "включи","включить","выключи","выключить","запусти","запустить",
+            "останови","остановить","покажи","скажи","узнай","какая","какое","какие",
+            "сколько","температура","температур","градус","градуса","через","спустя",
+            "пожалуйста","марфа","там","здесь","у","в","на","для","где","около","возле","рядом","и","а","то","же")
+        return value.lowercase(Locale("ru","RU")).replace('ё','е')
+            .replace(Regex("[^a-zа-я0-9]+"), " ").trim().split(Regex("\\s+"))
+            .map { stem(it) }.filter { it.length >= 3 && it !in stop && !it.all(Char::isDigit) }.toSet()
+    }
+
+    private fun stem(word: String): String {
+        val endings = listOf("иями","ами","ого","ему","ому","ыми","ими","ая","яя","ое","ее","ые","ие",
+            "ать","ить","еть","ять","ой","ый","ий","ов","ев","ам","ям","ах","ях","ы","и","а","я","о","е")
+        for (ending in endings) {
+            if (word.length > ending.length + 2 && word.endsWith(ending)) return word.removeSuffix(ending)
+        }
+        return word
+    }
     private fun parseAndValidate(rawText: String, originalCommand: String, devices: List<Device>): Result<LocalCommandResult> {
         val jsonText = extractJson(rawText) ?: return Result.failure(Exception("Gemma вернула не JSON"))
         val json = runCatching { JSONObject(jsonText) }
