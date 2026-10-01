@@ -147,6 +147,7 @@ CATALOG fields: id, device, page, title, type.
         val array = JSONArray()
         selected.forEach { item ->
             array.put(JSONObject().apply {
+                put("index", array.length())
                 put("id", item.widget.id)
                 put("device", item.device.name)
                 put("page", item.widget.page)
@@ -155,6 +156,26 @@ CATALOG fields: id, device, page, title, type.
             })
         }
         return array.toString()
+    }
+
+    private fun buildCandidatePairs(devices: List<Device>, command: String): List<Pair<Device, WidgetState>> {
+        data class Candidate(val device: Device, val widget: WidgetState, val score: Int)
+        val commandTokens = semanticTokens(command)
+        return devices.flatMap { device ->
+            device.widgets.map { widget ->
+                val haystack = semanticTokens(device.name + " " + widget.page + " " + widget.title + " " + widget.definitionName)
+                var score = commandTokens.count { it in haystack } * 10
+                if (widget.type == WidgetState.Type.TOGGLE ||
+                    widget.type == WidgetState.Type.BUTTON ||
+                    widget.type == WidgetState.Type.INPUT) score += 2
+                Candidate(device, widget, score)
+            }
+        }.sortedByDescending { it.score }
+            .let { all ->
+                if (commandTokens.isEmpty()) all.take(24)
+                else all.filter { it.score > 0 }.take(24).ifEmpty { all.take(24) }
+            }
+            .map { it.device to it.widget }
     }
 
     private fun semanticTokens(value: String): Set<String> {
@@ -184,6 +205,7 @@ CATALOG fields: id, device, page, title, type.
             .getOrElse { return Result.failure(Exception("Gemma вернула некорректный JSON")) }
         val kind = json.optString("kind").lowercase(Locale.ROOT)
         val widgetId = json.optString("widgetId").trim()
+        val candidateIndex = json.optInt("candidateIndex", -1)
         val modelValue = json.optString("value").trim()
         val reply = json.optString("reply").trim()
 
@@ -200,10 +222,16 @@ CATALOG fields: id, device, page, title, type.
             ))
         }
 
-        val pair = devices.asSequence()
-            .flatMap { device -> device.widgets.asSequence().map { device to it } }
-            .firstOrNull { it.second.id == widgetId }
-            ?: return Result.failure(Exception("Gemma выбрала отсутствующий widgetId: " + widgetId))
+        val pair = if (candidateIndex >= 0) {
+            buildCandidatePairs(devices, originalCommand).getOrNull(candidateIndex)
+        } else {
+            devices.asSequence()
+                .flatMap { device -> device.widgets.asSequence().map { device to it } }
+                .firstOrNull { it.second.id == widgetId }
+        } ?: return Result.failure(Exception(
+            if (candidateIndex >= 0) "Gemma выбрала недопустимый candidateIndex: $candidateIndex"
+            else "Gemma выбрала отсутствующий widgetId: $widgetId"
+        ))
 
         val device = pair.first
         val widget = pair.second
