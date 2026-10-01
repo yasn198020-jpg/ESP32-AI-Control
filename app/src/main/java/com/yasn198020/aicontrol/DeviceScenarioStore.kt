@@ -291,6 +291,24 @@ class DeviceScenarioManager(
         )
     }
 
+    fun resolveLogicalTarget(
+        targetWidgetId: String,
+        desiredValue: String,
+        devices: List<com.yasn198020.aicontrol.core.Device>
+    ): Pair<String, String>? {
+        refreshModels()
+        val models = store.all()
+            .filter { it.enabled }
+            .mapNotNull { item -> refreshModel(item)?.let { item to it } }
+            .filter { (_, model) -> model.parserErrors.isEmpty() }
+        return IoTScenarioCommandPlanner.resolveLogicalTargetFromActuator(
+            targetWidgetId = targetWidgetId,
+            desiredValue = desiredValue,
+            devices = devices,
+            models = models
+        )
+    }
+
     private fun refreshModel(item: StoredDeviceScenario): DeviceScenarioModel? {
         val oldSource = sourceCache[item.id]
         if (oldSource == item.source) return parsed[item.id]
