@@ -329,7 +329,8 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
                     widget.type != WidgetState.Type.INPUT) {
                     Result.failure(Exception("Недоступный для управления виджет: " + widget.id))
                 } else {
-                    val commandValue = commandControlValue(originalCommand)\n                    val value = commandValue ?: normalizeControlValue(modelValue, originalCommand, widget)
+                    val commandValue = commandControlValue(originalCommand)
+                    val value = commandValue ?: normalizeControlValue(modelValue, originalCommand, widget)
                     val modelDelay = json.optLong("delayMs", 0L).coerceAtLeast(0L)
                     val fallbackDelay = if (modelDelay <= 0L)
                         LocalCommandManager().interpret(originalCommand, devices).delayMs
