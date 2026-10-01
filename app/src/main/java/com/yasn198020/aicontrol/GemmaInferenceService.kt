@@ -168,6 +168,10 @@ CATALOG fields: id, device, page, title, type.
                                 nativeJson.optInt("effectiveThreads", 0) +
                                 "; affinity=" +
                                 nativeJson.optString("affinity", "unknown") +
+                                "; affinityCurrent=" +
+                                nativeJson.optString("affinityCurrent", "unknown") +
+                                "; systemInfo=" +
+                                nativeJson.optString("systemInfo", "unknown") +
                                 "; textChars=" + text.length
                         )
                         receiver?.send(0, Bundle().apply {
