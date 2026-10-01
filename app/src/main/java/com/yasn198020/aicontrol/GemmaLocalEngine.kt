@@ -263,6 +263,17 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
             .map { stem(it) }.filter { it.length >= 3 && it !in stop && !it.all(Char::isDigit) }.toSet()
     }
 
+    private fun commandControlValue(command: String): String? {
+        val text = command.lowercase(Locale("ru", "RU")).replace('ё', 'е')
+        return when {
+            Regex("""\\b(откры|открой|открывай|распах|распахни|подним|подними)""", RegexOption.IGNORE_CASE).containsMatchIn(text) -> "1"
+            Regex("""\\b(закры|закрой|закрывай|опуст|опусти|запечат|запечатай)""", RegexOption.IGNORE_CASE).containsMatchIn(text) -> "0"
+            Regex("""\\b(включ|включи|включить|запусти|запустить|зажг|зажги)""", RegexOption.IGNORE_CASE).containsMatchIn(text) -> "1"
+            Regex("""\\b(выключ|выключи|выключить|останов|останови|погаси|погаси)""", RegexOption.IGNORE_CASE).containsMatchIn(text) -> "0"
+            else -> null
+        }
+    }
+
     private fun stem(word: String): String {
         val endings = listOf("иями","ами","ого","ему","ому","ыми","ими","ая","яя","ое","ее","ые","ие",
             "ать","ить","еть","ять","ой","ый","ий","ов","ев","ам","ям","ах","ях","ы","и","а","я","о","е")
@@ -318,7 +329,7 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
                     widget.type != WidgetState.Type.INPUT) {
                     Result.failure(Exception("Недоступный для управления виджет: " + widget.id))
                 } else {
-                    val value = normalizeControlValue(modelValue, originalCommand, widget)
+                    val commandValue = commandControlValue(originalCommand)\n                    val value = commandValue ?: normalizeControlValue(modelValue, originalCommand, widget)
                     val modelDelay = json.optLong("delayMs", 0L).coerceAtLeast(0L)
                     val fallbackDelay = if (modelDelay <= 0L)
                         LocalCommandManager().interpret(originalCommand, devices).delayMs
