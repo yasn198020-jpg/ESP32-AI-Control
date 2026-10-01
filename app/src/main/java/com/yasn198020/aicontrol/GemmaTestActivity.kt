@@ -38,7 +38,11 @@ class GemmaTestActivity : Activity() {
             setPadding(8, 8, 8, 16)
         })
 
-        addTestButton(root, "1. Расскажи анекдот") { runRawTest("Расскажи короткий смешной анекдот.") }
+        addTestButton(root, "Тест 8 токенов") { runRawTest("Скажи одним предложением: привет.", 8) }
+        addTestButton(root, "Тест 16 токенов") { runRawTest("Скажи одним предложением: привет.", 16) }
+        addTestButton(root, "Тест 32 токена") { runRawTest("Расскажи короткий смешной анекдот.", 32) }
+        addTestButton(root, "Тест 96 токенов") { runRawTest("Расскажи короткий смешной анекдот.", 96) }
+        addTestButton(root, "1. Расскажи анекдот") { runRawTest("Расскажи короткий смешной анекдот.", 16) }
         addTestButton(root, "2. Кто такой Пушкин?") { runRawTest("Кто такой Александр Сергеевич Пушкин? Ответь кратко.") }
         addTestButton(root, "3. Открой дверь помидоров") { runIoTTest("Открой дверь помидоров") }
         addTestButton(root, "Запустить все три") { runAll() }
@@ -60,7 +64,7 @@ class GemmaTestActivity : Activity() {
         root.addView(Button(this).apply { text = title; setOnClickListener { action() } })
     }
 
-    private fun runRawTest(prompt: String) {
+    private fun runRawTest(prompt: String, maxTokens: Int = 96) {
         val started = System.currentTimeMillis()
         append("\n\n▶ " + prompt + "\nЗапуск Gemma…")
         val receiver = object : ResultReceiver(Handler(Looper.getMainLooper())) {
@@ -81,6 +85,7 @@ class GemmaTestActivity : Activity() {
         try {
             startService(Intent(this, GemmaInferenceService::class.java)
                 .putExtra(GemmaInferenceService.EXTRA_RAW_PROMPT, prompt)
+                .putExtra(GemmaInferenceService.EXTRA_MAX_TOKENS, maxTokens)
                 .putExtra(GemmaInferenceService.EXTRA_RESULT, receiver))
         } catch (t: Throwable) {
             append("Не удалось запустить Gemma: " + (t.message ?: t.javaClass.simpleName))
