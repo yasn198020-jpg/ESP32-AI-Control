@@ -340,6 +340,20 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
                     widget = analytical.candidate.widget
                 }
 
+                val scenarioTarget = AppRuntime.get(appContext).deviceScenarioManager
+                    .resolveLogicalTarget(widget.id, analyticalValue, devices)
+                if (scenarioTarget != null) {
+                    val matches = devices.flatMap { candidateDevice ->
+                        candidateDevice.widgets
+                            .filter { it.id == scenarioTarget.first }
+                            .map { candidateDevice to it }
+                    }
+                    if (matches.size == 1) {
+                        device = matches.single().first
+                        widget = matches.single().second
+                    }
+                }
+
                 if (widget.type != WidgetState.Type.TOGGLE &&
                     widget.type != WidgetState.Type.BUTTON &&
                     widget.type != WidgetState.Type.INPUT) {
