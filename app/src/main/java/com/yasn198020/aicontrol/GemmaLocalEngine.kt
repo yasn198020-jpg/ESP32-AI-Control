@@ -119,13 +119,20 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
         withContext(Dispatchers.IO) {
             val catalog = buildCatalog(devices, command)
             val resultDeferred = CompletableDeferred<Result<String>>()
+            val stages = mutableListOf<String>()
             val receiver = object : ResultReceiver(Handler(Looper.getMainLooper())) {
                 override fun onReceiveResult(resultCode: Int, resultData: Bundle?) {
+                    if (resultCode == 2) {
+                        resultData?.getString("stage")?.let { stage -> synchronized(stages) { stages.add(stage) } }
+                        return
+                    }
                     val error = resultData?.getString("error")
                     if (resultCode == 0 && error.isNullOrBlank()) {
                         resultDeferred.complete(Result.success(resultData?.getString("text").orEmpty()))
                     } else {
-                        resultDeferred.complete(Result.failure(Exception("Gemma service: " + (error ?: "Ошибка Gemma"))))
+                        val stageText = synchronized(stages) { stages.joinToString(" -> ") }
+                        val detail = error ?: "Ошибка Gemma"
+                        resultDeferred.complete(Result.failure(Exception("Gemma service: $detail" + if (stageText.isBlank()) "" else "\nSTAGES: $stageText")))
                     }
                 }
             }
