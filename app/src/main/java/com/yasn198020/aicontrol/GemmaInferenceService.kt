@@ -155,7 +155,7 @@ CATALOG fields: id, device, page, title, type.
 
                         if (fullDiagnostics) {
                             stage("Запуск ВСЕХ диагностических тестов")
-                            val report = runFullNativeDiagnostics(stage)
+                            val report = runFullNativeDiagnostics(::stage)
                             receiver?.send(0, Bundle().apply {
                                 putString("text", report)
                                 putString("tokens_per_second", "diagnostic")
