@@ -1,6 +1,5 @@
 package com.yasn198020.aicontrol
 
-import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -14,11 +13,6 @@ import com.yasn198020.aicontrol.core.WidgetState
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import dev.ffmpegkit.llama.Llama
-import dev.ffmpegkit.llama.LlamaConfig
-import dev.ffmpegkit.llama.LlamaModel
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -28,9 +22,6 @@ class GemmaLocalEngine private constructor(private val appContext: Context) {
     companion object {
         private const val MODEL_FILE_NAME = "marfa-gemma.gguf"
         private const val REQUEST_TIMEOUT_MS = 30_000L
-        private const val CONTEXT_SIZE = 768
-        private const val MAX_THREADS = 6
-        private const val MAX_TOKENS = 64
         private const val SYSTEM_PROMPT = """
 Ты локальный семантический интерпретатор команд IoTManager.
 Твоя задача — понять смысл русской фразы пользователя и выбрать существующий объект.
@@ -58,10 +49,6 @@ CATALOG fields: id, device, page, title, type.
                 instance ?: GemmaLocalEngine(context.applicationContext).also { instance = it }
             }
     }
-
-    private val inferenceMutex = Mutex()
-    private var loadedModel: LlamaModel? = null
-    private var loadedPath = ""
 
     private val modelFile: File
         get() = File(
@@ -117,59 +104,34 @@ CATALOG fields: id, device, page, title, type.
             }
 
             val catalog = buildCatalog(devices, command)
-            try {
-                val raw = kotlinx.coroutines.withTimeout(REQUEST_TIMEOUT_MS) {
-                    inferenceMutex.withLock {
-                        val model = loadModel()
-                        Llama.complete(
-                            model = model,
-                            prompt = "КОМАНДА:\n" + command + "\n\nCATALOG:\n" + catalog,
-                            systemPrompt = SYSTEM_PROMPT,
-                            maxTokens = MAX_TOKENS
-                        ).text
+            val resultDeferred = CompletableDeferred<Result<String>>()
+            val receiver = object : ResultReceiver(Handler(Looper.getMainLooper())) {
+                override fun onReceiveResult(resultCode: Int, resultData: Bundle?) {
+                    val error = resultData?.getString("error")
+                    if (resultCode == 0 && error.isNullOrBlank()) {
+                        resultDeferred.complete(Result.success(resultData?.getString("text").orEmpty()))
+                    } else {
+                        resultDeferred.complete(Result.failure(Exception(error ?: "Ошибка Gemma")))
                     }
                 }
+            }
+
+            try {
+                val intent = Intent(appContext, GemmaInferenceService::class.java)
+                    .putExtra(GemmaInferenceService.EXTRA_COMMAND, command)
+                    .putExtra(GemmaInferenceService.EXTRA_CATALOG, catalog)
+                    .putExtra(GemmaInferenceService.EXTRA_RESULT, receiver)
+                appContext.startService(intent)
+
+                val rawResult = kotlinx.coroutines.withTimeout(REQUEST_TIMEOUT_MS) {
+                    resultDeferred.await()
+                }
+                val raw = rawResult.getOrElse { return@withContext Result.failure(it) }
                 parseAndValidate(raw, command, devices)
             } catch (e: Throwable) {
                 Result.failure(Exception(e.message ?: "Ошибка Gemma", e))
             }
         }
-
-    private suspend fun loadModel(): LlamaModel {
-        val path = modelFile.absolutePath
-        loadedModel?.let { if (loadedPath == path) return it }
-
-        if (!modelFile.isFile || modelFile.length() <= 1_000_000L) {
-            throw Exception("Файл Gemma GGUF не найден или повреждён")
-        }
-
-        val memory = appContext.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-        val info = ActivityManager.MemoryInfo()
-        memory.getMemoryInfo(info)
-        val required = maxOf(
-            3_500L * 1024L * 1024L,
-            modelFile.length() * 5L / 4L + 768L * 1024L * 1024L
-        )
-        if (info.availMem < required) {
-            throw Exception("Недостаточно RAM для Gemma: свободно " +
-                formatBytes(info.availMem) + ", нужно примерно " + formatBytes(required))
-        }
-
-        loadedModel?.let { runCatching { Llama.releaseModel(it) } }
-        loadedModel = Llama.loadModel(
-            path,
-            LlamaConfig(
-                contextSize = CONTEXT_SIZE,
-                threads = minOf(MAX_THREADS, maxOf(2, Runtime.getRuntime().availableProcessors() - 1)),
-                gpuLayers = 0,
-                temperature = 0.1f,
-                topP = 0.9f,
-                topK = 40
-            )
-        )
-        loadedPath = path
-        return loadedModel!!
-    }
 
     private fun buildCatalog(devices: List<Device>, command: String = ""): String {
         data class Candidate(val device: Device, val widget: WidgetState, val score: Int)
