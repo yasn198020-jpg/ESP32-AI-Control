@@ -99,8 +99,8 @@ CATALOG fields: id, device, page, title, type.
                     stage("Проверка облегчённой модели Gemma 3 1B")
                     ensureModelFile { message -> stage(message) }
                     val model = loadModel(requestedThreads, requestedContext)
-                    stage("Модель загружена: " + formatBytes(modelFileSize()) + ", ABI=" + android.os.Build.SUPPORTED_ABIS.joinToString(",") + ", CPU=" + Runtime.getRuntime().availableProcessors())
-                    stage("Запуск inference: maxTokens=$requestedMaxTokens, threads=" + (if (requestedThreads > 0) requestedThreads else "auto") + ", context=$requestedContext")
+                    stage("Модель загружена: " + formatBytes(modelFileSize()) + " (" + modelFileSize() + " байт), ABI=" + android.os.Build.SUPPORTED_ABIS.joinToString(",") + ", CPU=" + Runtime.getRuntime().availableProcessors())
+                    stage("Запуск ПРЯМОГО llama.cpp inference: maxTokens=$requestedMaxTokens, threads=" + (if (requestedThreads > 0) requestedThreads else "auto") + ", context=$requestedContext")
                     val result = if (rawPrompt.isNotBlank()) {
                         Llama.complete(
                             model = model,
@@ -117,7 +117,7 @@ CATALOG fields: id, device, page, title, type.
                         )
                     }
 
-                    stage("Ответ получен: " + result.tokensPerSecond + " ток/с")
+                    stage("Ответ получен: " + result.tokensPerSecond + " ток/с; textChars=" + result.text.length)
                     receiver?.send(0, Bundle().apply {
                         putString("text", result.text)
                         putString("tokens_per_second", result.tokensPerSecond.toString())
