@@ -34,15 +34,15 @@ android {
         externalNativeBuild {
             cmake {
                 arguments '-DCMAKE_BUILD_TYPE=Release',
-                          '-DBUILD_SHARED_LIBS=ON',
+                          '-DBUILD_SHARED_LIBS=OFF',
                           '-DLLAMA_BUILD_COMMON=ON',
                           '-DLLAMA_BUILD_APP=OFF',
                           '-DLLAMA_OPENSSL=OFF',
                           '-DGGML_NATIVE=OFF',
-                          '-DGGML_BACKEND_DL=ON',
+                          '-DGGML_BACKEND_DL=OFF',
                           '-DGGML_CPU_ALL_VARIANTS=ON',
                           '-DGGML_CPU_KLEIDIAI=ON',
-                          '-DGGML_OPENMP=ON',
+                          '-DGGML_OPENMP=OFF',
                           '-DGGML_LLAMAFILE=OFF'
             }
         }
@@ -81,7 +81,7 @@ android {
 dependencies {
     implementation 'androidx.core:core-ktx:1.15.0'
     implementation 'org.eclipse.paho:org.eclipse.paho.client.mqttv3:1.2.5'
-    // Local GGUF inference for Gemma/llama.cpp. No cloud API or NDK setup required.
+    // Local GGUF inference for Gemma/llama.cpp; the app now also builds its own arm64 JNI backend.
     implementation 'dev.ffmpegkit-maintained:llama-android:0.1.1'
     implementation 'androidx.activity:activity-compose:1.10.1'
     implementation platform('androidx.compose:compose-bom:2025.02.00')
