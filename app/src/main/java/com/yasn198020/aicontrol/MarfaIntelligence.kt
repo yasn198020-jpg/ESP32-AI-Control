@@ -131,6 +131,9 @@ class MarfaIntelligence private constructor(context: Context) {
         out.appendLine("--- 7. SCENARIO TARGET ---")
         out.appendLine(trace.scenarioTarget.ifBlank { "логическая цель сценария не найдена" })
         out.appendLine()
+        out.appendLine("--- ВРЕМЯ ПО ЭТАПАМ ---")
+        trace.timings.forEach { out.appendLine(it) }
+        out.appendLine()
         out.appendLine("--- 8. ФИНАЛЬНАЯ ВАЛИДАЦИЯ ---")
         trace.finalResult?.let {
             out.appendLine("action=${it.action}")
