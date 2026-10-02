@@ -437,9 +437,64 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
                 analyticalCandidates = analytical.candidates.map { describeCandidate(it.device.id, it.widget) }
                 analyticalClarification = analytical.clarification
                 analytical.candidate?.let { analyticalText = describeCandidate(it.device.id, it.widget) }
-                val selectedWidget = analytical.candidate?.widget ?: pair.second
-                val target = AppRuntime.get(appContext).deviceScenarioManager.resolveLogicalTarget(selectedWidget.id, analyticalValue, devices)
-                if (target != null) scenarioTarget = "ID " + target.first + " = " + target.second
+
+                /*
+                 * Gemma has already resolved the semantic object from the full
+                 * catalog. The deterministic engine may intentionally return no
+                 * candidate for symbol/emoji-only page context. In that case the
+                 * Gemma candidate is the semantic seed; do not discard it.
+                 */
+                val selectedDevice = pair.first
+                val selectedWidget = pair.second
+                if (analytical.candidate != null) {
+                    analyticalText = describeCandidate(
+                        analytical.candidate.device.id,
+                        analytical.candidate.widget
+                    )
+                } else if (isControllableWidget(selectedWidget)) {
+                    analyticalText = describeCandidate(selectedDevice.id, selectedWidget)
+                }
+
+                /*
+                 * resolveLogicalTargetFromActuator() is a reverse resolver:
+                 * actuator -> logical control. A Gemma-selected logical control
+                 * such as vbtn78 must NOT be passed through it as if it were a
+                 * relay. Scenario planning is performed by DeviceScenarioManager.
+                 */
+                val finalSeed = LocalCommandResult(
+                    action = LocalCommandAction.CONTROL,
+                    deviceId = selectedDevice.id,
+                    widgetId = selectedWidget.id,
+                    value = analyticalValue,
+                    actionItems = listOf(
+                        LocalCommandActionItem(
+                            selectedDevice.id,
+                            selectedWidget.id,
+                            analyticalValue
+                        )
+                    )
+                )
+                val plan = AppRuntime.get(appContext).deviceScenarioManager
+                    .planCommand(finalSeed, devices)
+                scenarioTarget = buildString {
+                    if (plan.prerequisites.isNotEmpty()) {
+                        append("ПРЕДУСЛОВИЯ: ")
+                        append(plan.prerequisites.joinToString(", ") {
+                            it.widgetId + "=" + it.value
+                        })
+                        append("; ")
+                    }
+                    append("ДЕЙСТВИЯ: ")
+                    append(
+                        plan.actions.joinToString(", ") {
+                            it.widgetId + "=" + it.value
+                        }
+                    )
+                    plan.blockedReason?.let {
+                        append("; БЛОК: ")
+                        append(it)
+                    }
+                }.trim()
             }
             val final = parseAndValidate(raw, command, devices)
             Result.success(GemmaChainDiagnostic(
