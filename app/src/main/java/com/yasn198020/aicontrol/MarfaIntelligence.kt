@@ -210,6 +210,17 @@ class MarfaIntelligence private constructor(context: Context) {
         if (fast.action == LocalCommandAction.CLARIFY ||
             fast.action == LocalCommandAction.NOT_FOUND) return true
 
+        // A valid deterministic control is authoritative. Do not send it to
+        // Gemma merely because the sentence contains an extra/context word.
+        // Gemma is a fallback for unresolved or genuinely ambiguous commands,
+        // not a second pass over an already resolved control.
+        if (fast.action == LocalCommandAction.CONTROL &&
+            fast.widgetId.isNotBlank() &&
+            fast.deviceId.isNotBlank() &&
+            fast.value.isNotBlank()) {
+            return false
+        }
+
         if (fast.action != LocalCommandAction.CONTROL &&
             fast.action != LocalCommandAction.READ_VALUE) return false
 
