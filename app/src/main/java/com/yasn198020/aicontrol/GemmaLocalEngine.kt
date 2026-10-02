@@ -201,6 +201,10 @@ CATALOG fields: index, id, device, pageSemantic, title, titleSearch, type.
         // correct widget inside that page (for example the door control).
         val nonLexicalPageCandidates = orderedCandidates
             .filter { isNonLexicalPage(it.widget.page) }
+            .filter { candidate ->
+                val pageTokens = semanticTokens(candidate.widget.page)
+                pageTokens.isEmpty() || pageTokens.any { it in commandTokens }
+            }
             .groupBy { it.widget.page }
             .entries
             .flatMap { (_, pageCandidates) -> pageCandidates.take(8) }
@@ -268,6 +272,10 @@ CATALOG fields: index, id, device, pageSemantic, title, titleSearch, type.
         // must point to exactly the same widget that Gemma saw.
         val nonLexicalPageCandidates = orderedCandidates
             .filter { isNonLexicalPage(it.widget.page) }
+            .filter { candidate ->
+                val pageTokens = semanticTokens(candidate.widget.page)
+                pageTokens.isEmpty() || pageTokens.any { it in commandTokens }
+            }
             .groupBy { it.widget.page }
             .entries
             .flatMap { (_, pageCandidates) -> pageCandidates.take(8) }
