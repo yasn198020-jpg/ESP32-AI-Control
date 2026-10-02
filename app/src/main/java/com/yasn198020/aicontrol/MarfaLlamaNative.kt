@@ -42,6 +42,13 @@ object MarfaLlamaNative {
         systemPrompt: String
     ): String
 
+    external fun nativeBenchmarkPromptBatch(
+        handle: Long,
+        prompt: String,
+        systemPrompt: String,
+        batchSize: Int
+    ): String
+
     external fun nativeRelease(handle: Long)
 
     external fun nativeVersion(handle: Long): String
