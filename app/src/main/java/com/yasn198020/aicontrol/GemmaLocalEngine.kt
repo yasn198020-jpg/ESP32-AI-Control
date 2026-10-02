@@ -78,7 +78,7 @@ CATALOG fields: index, id, device, pageSemantic, title, titleSearch, type.
 
     fun statusText(): String =
         if (isModelInstalled()) "Gemma установлена • " + formatBytes(modelFile.length())
-        else "Gemma 3 1B будет загружена автоматически при первом запуске."
+        else "Gemma 3 4B будет загружена автоматически при первом запуске."
 
     /** Catalog used only by the diagnostics screen to reproduce the real IoT/Gemma prompt. */
     fun diagnosticCatalog(command: String, devices: List<Device>): String =
