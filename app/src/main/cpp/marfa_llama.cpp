@@ -270,7 +270,8 @@ bool decodePrompt(NativeEngine * engine, const std::vector<llama_token> & tokens
             batch.pos[i] = processed + i;
             batch.n_seq_id[i] = 1;
             batch.seq_id[i][0] = 0;
-            // Compute logits only for the final prompt token. Computing them at the end of every batch adds unnecessary work during prompt prefill.\n            batch.logits[i] = (processed + i == static_cast<int>(tokens.size()) - 1) ? 1 : 0;
+            // Compute logits only for the final prompt token.
+            batch.logits[i] = (processed + i == static_cast<int>(tokens.size()) - 1) ? 1 : 0;
         }
 
         const int rc = llama_decode(engine->context, batch);
