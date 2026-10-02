@@ -119,7 +119,7 @@ $compactCatalog
             val out = StringBuilder()
             for (line in selected) {
                 if (out.isNotEmpty() && out.length + line.text.length + 1 > maxChars) continue
-                out.append(line.text).append('\\n')
+                out.append(line.text).append('\n')
             }
             out.toString().trim()
         }.getOrElse { catalog.take(maxChars) }
