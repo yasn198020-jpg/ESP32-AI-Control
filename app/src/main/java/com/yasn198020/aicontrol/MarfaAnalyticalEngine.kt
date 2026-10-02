@@ -199,20 +199,42 @@ class MarfaAnalyticalEngine {
         }
 
         val contextPages = if (page == null) matchingContextPages(normalized, devices) else emptyList()
-        val unknownContext = if (page == null && contextPages.isEmpty()) {
+        val contextTokens = if (page == null) contextTokens(normalized, devices) else emptyList()
+        val unknownContext = if (page == null && contextPages.isEmpty() && contextTokens.isEmpty()) {
             unknownContextWords(normalized, devices)
         } else {
             emptyList()
         }
 
+        // Context may be stored in a sensor title ("Огурцы") on a generic page such as "Температура".
+        // Match page + title + device name with the same Russian-inflection semantics
+        // used by the control resolver. This also covers arbitrary object names.
         val contextScoped = when {
             page != null -> all
+            contextTokens.isNotEmpty() -> {
+                val matching = all.filter { candidate ->
+                    val corpus = semanticSearchText(
+                        candidate.device.name + " " +
+                            candidate.widget.page + " " +
+                            candidate.widget.title + " " +
+                            candidate.widget.definitionName
+                    )
+                    contextTokens.all { token -> containsSemanticToken(corpus, token.key) }
+                }
+                if (matching.isNotEmpty()) matching else {
+                    return SensorResolution(
+                        clarification = "Я нашла датчик, но не нашла совпадение контекста «" +
+                            contextTokens.joinToString(", ") { it.original } +
+                            "». Уточните название вкладки или объекта."
+                    )
+                }
+            }
             contextPages.isNotEmpty() -> all.filter { normalize(it.widget.page) in contextPages }
             unknownContext.isNotEmpty() -> {
                 return SensorResolution(
                     clarification = "Я нашла датчик, но не нашла совпадение контекста «" +
                         unknownContext.joinToString(", ") +
-                        "». Уточните название вкладки."
+                        "». Уточните название вкладки или объекта."
                 )
             }
             else -> all
