@@ -171,6 +171,7 @@ private fun App(
     val marfaIntelligence = remember { MarfaIntelligence.get(context.applicationContext) }
     val gemmaScope = rememberCoroutineScope()
     var gemmaStatus by remember { mutableStateOf(marfaIntelligence.gemmaStatus()) }
+    var gemmaEnabled by remember { mutableStateOf(prefs.getBoolean("gemma_enabled", true)) }
     val speech = remember { TextToSpeech(context, null) }
     val trainedStore = remember { TrainedCommandStore(prefs) }
     val trainedMatcher = remember { TrainedCommandMatcher(trainedStore) }
@@ -1169,8 +1170,13 @@ private fun App(
                 Modifier.padding(padding), voicePreset, voiceRate, voicePitch,
                 availableVoices, selectedVoiceName,
                 gemmaStatus,
+                gemmaEnabled,
                 { pickGemmaModel.launch(arrayOf("*/*")) },
                 { context.startActivity(Intent(context, GemmaTestActivity::class.java)) },
+                { enabled ->
+                    gemmaEnabled = enabled
+                    prefs.edit().putBoolean("gemma_enabled", enabled).apply()
+                },
                 ::selectVoicePreset,
                 { voiceRate = it; voicePreset = "custom" },
                 { voicePitch = it; voicePreset = "custom" },
@@ -1497,8 +1503,10 @@ private fun VoiceSettingsScreen(
     voices: List<android.speech.tts.Voice>,
     selectedVoiceName: String,
     gemmaStatus: String,
+    gemmaEnabled: Boolean,
     onImportGemma: () -> Unit,
     onGemmaTest: () -> Unit,
+    onGemmaEnabledChange: (Boolean) -> Unit,
     onPreset: (String) -> Unit,
     onRate: (Float) -> Unit,
     onPitch: (Float) -> Unit,
@@ -1535,6 +1543,21 @@ private fun VoiceSettingsScreen(
             style = MaterialTheme.typography.bodySmall
         )
         Text(gemmaStatus, style = MaterialTheme.typography.bodySmall)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Использовать Gemma", fontWeight = FontWeight.Medium)
+                Text(
+                    if (gemmaEnabled) "Включена: Marfa может передавать неоднозначные команды Gemma."
+                    else "Выключена: команды идут без Gemma, через обычный локальный путь.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            Switch(checked = gemmaEnabled, onCheckedChange = onGemmaEnabledChange)
+        }
         Button(onClick = onImportGemma, modifier = Modifier.fillMaxWidth()) {
             Text("Импортировать модель GGUF")
         }
