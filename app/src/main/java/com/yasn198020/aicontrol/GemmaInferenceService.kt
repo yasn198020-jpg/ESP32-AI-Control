@@ -168,13 +168,30 @@ $compactCatalog
                 )
                 if (passiveRole.containsMatchIn(title.lowercase(Locale("ru", "RU")))) score -= 18
 
-                // A control/status object such as "открыта/закрыта дверь" is
-                // still preferable to a passive sensor when the user names the object.
-                if (title.contains("открыт", ignoreCase = true) ||
-                    title.contains("закрыт", ignoreCase = true) ||
-                    title.contains("управлен", ignoreCase = true)) {
-                    score += 8
+                // For an action command, prefer the actual action control over
+                // a status/state widget that merely describes the same object.
+                // This is generic: it works for open/close, on/off and other
+                // action verbs without hardcoding a particular device or noun.
+                val commandLower = command.lowercase(Locale("ru", "RU"))
+                val titleLower = title.lowercase(Locale("ru", "RU"))
+                val actionRequested = when {
+                    Regex("\\b(откры|открой|распах|подним)").containsMatchIn(commandLower) -> "open"
+                    Regex("\\b(закры|закрой|опуст|запечат)").containsMatchIn(commandLower) -> "close"
+                    Regex("\\b(включ|запусти|зажг)").containsMatchIn(commandLower) -> "on"
+                    Regex("\\b(выключ|останов|погаси)").containsMatchIn(commandLower) -> "off"
+                    else -> ""
                 }
+                if (actionRequested == "open" && Regex("\\b(откры|открой)").containsMatchIn(titleLower)) score += 40
+                if (actionRequested == "close" && Regex("\\b(закры|закрой)").containsMatchIn(titleLower)) score += 40
+                if (actionRequested == "on" && Regex("\\b(включ|запуск|кнопк)").containsMatchIn(titleLower)) score += 30
+                if (actionRequested == "off" && Regex("\\b(выключ|останов)").containsMatchIn(titleLower)) score += 30
+
+                // A state/status widget may contain the same noun and even the
+                // action words, but it is not itself the requested control.
+                val stateLike = Regex(
+                    "закрыт.*открыт|открыт.*закрыт|статус|состояни|концевик|состояние"
+                )
+                if (stateLike.containsMatchIn(titleLower)) score -= 28
 
                 // A semantic page match is more important than unrelated titles.
                 if (commandWords.any { word ->
