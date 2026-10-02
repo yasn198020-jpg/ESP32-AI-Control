@@ -112,7 +112,7 @@ class MarfaAnalyticalEngine {
         val contextScoped = when {
             page != null -> all
             contextPages.isNotEmpty() -> all.filter { candidate ->
-                normalize(candidate.widget.page) in contextPages
+                searchableText(candidate.widget.page).trim() in contextPages
             }
             unknownContext.isNotEmpty() -> {
                 return ControlResolution(
