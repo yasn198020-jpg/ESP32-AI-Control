@@ -121,6 +121,57 @@ CATALOG fields: index, id, page, pageSemantic, title, titleSearch, type.
         }
     }
 
+    /**
+     * Deterministic semantic fallback. Scenario-filtered candidates are resolved
+     * locally before Gemma: context narrows the page, scenario removes sensors,
+     * gates and internal actuators, then the remaining user-facing controls are
+     * ranked by the actual command words. Gemma remains only as a last resort.
+     */
+    fun interpretDeterministically(command: String, devices: List<Device>): LocalCommandResult? {
+        val candidates = buildCandidatePairs(devices, command)
+        if (candidates.isEmpty()) return null
+
+        val tokens = semanticTokens(command)
+        val desired = commandControlValue(command)
+        val scored = candidates.map { (device, widget) ->
+            val textTokens = semanticTokens(
+                widget.page + " " + widget.title + " " + widget.definitionName + " " + device.name
+            )
+            var score = tokens.count { it in textTokens } * 10
+            if (widget.type == WidgetState.Type.TOGGLE ||
+                widget.type == WidgetState.Type.BUTTON ||
+                widget.type == WidgetState.Type.INPUT) score += 2
+            if (desired != null) {
+                val title = semanticTokens(widget.title)
+                val actionWord = when (desired) {
+                    "1" -> setOf("откры", "включ", "запуск", "подним", "распах")
+                    "0" -> setOf("закры", "выключ", "останов", "опуст", "запечат")
+                    else -> emptySet()
+                }
+                if (actionWord.any { it in title }) score += 8
+            }
+            Triple(device, widget, score)
+        }.sortedByDescending { it.third }
+
+        val best = scored.firstOrNull() ?: return null
+        if (best.third <= 0) return null
+        val second = scored.getOrNull(1)
+        // Do not guess when two surviving user-facing elements are genuinely
+        // equally relevant. In that case Gemma can still arbitrate semantics.
+        if (second != null && second.third == best.third) return null
+
+        val value = desired ?: return null
+        return LocalCommandResult(
+            action = LocalCommandAction.CONTROL,
+            deviceId = best.first.id,
+            widgetId = best.second.id,
+            value = value,
+            reply = safeControlReply(command, best.second.title, value, 0L),
+            actionItems = listOf(LocalCommandActionItem(best.first.id, best.second.id, value)),
+            needsConfirmation = false
+        )
+    }
+
     suspend fun interpret(command: String, devices: List<Device>): Result<LocalCommandResult> =
         withContext(Dispatchers.IO) {
             val catalog = buildCatalog(devices, command)
