@@ -60,14 +60,14 @@ $compactCatalog
 """.trimIndent()
     }
 
-    // Do not blindly take the first N characters: the full catalog is already
-    // ordered for Marfa, but relevant objects can appear later (for example
-    // vbtn78/btn43 after several emoji-page entries). Keep the most relevant
-    // candidates while preserving their original candidateIndex.
+    // Keep Gemma input small. We score all candidates locally, normalize emoji/title
+    // once, and send only the strongest matches. This avoids a large prompt while
+    // still allowing relevant objects to appear later in the catalog.
     private fun compactCatalogForContext(
         catalog: String,
         command: String,
-        maxChars: Int = 1200
+        maxChars: Int = 520,
+        maxCandidates: Int = 8
     ): String {
         return runCatching {
             val source = JSONArray(catalog)
@@ -76,22 +76,45 @@ $compactCatalog
                 .replace('ё', 'е')
                 .split(Regex("[^a-zа-я0-9]+"))
                 .filter { it.length >= 3 }
-                .map { it.removeSuffix("ами").removeSuffix("ями").removeSuffix("ов").removeSuffix("ев")
-                    .removeSuffix("ами").removeSuffix("а").removeSuffix("ы").removeSuffix("и") }
+                .map {
+                    it.removeSuffix("ами")
+                        .removeSuffix("ями")
+                        .removeSuffix("ами")
+                        .removeSuffix("ями")
+                        .removeSuffix("ов")
+                        .removeSuffix("ев")
+                        .removeSuffix("ом")
+                        .removeSuffix("ем")
+                        .removeSuffix("ам")
+                        .removeSuffix("ям")
+                        .removeSuffix("ах")
+                        .removeSuffix("ях")
+                        .removeSuffix("а")
+                        .removeSuffix("я")
+                        .removeSuffix("ы")
+                        .removeSuffix("и")
+                        .removeSuffix("е")
+                        .removeSuffix("у")
+                        .removeSuffix("ю")
+                }
                 .toSet()
 
             data class Line(val index: Int, val text: String, val score: Int)
-            val lines = mutableListOf<Line>()
 
+            val lines = mutableListOf<Line>()
             for (i in 0 until source.length()) {
                 val item = source.optJSONObject(i) ?: continue
                 val index = item.optInt("index", i)
+
                 val pageText = item.optString("pageText").trim()
                 val semanticPage = item.optString("pageSemantic").trim()
                     .ifBlank { EmojiSemanticText.normalize(pageText) }
-                    .take(28)
-                val title = item.optString("title").trim().take(42)
+                    .take(22)
+
+                val rawTitle = item.optString("title").trim()
+                val title = EmojiSemanticText.normalize(rawTitle).take(34)
                 val type = item.optString("type").trim()
+
                 val searchable = (title + " " + semanticPage)
                     .lowercase(Locale("ru", "RU"))
                     .replace('ё', 'е')
@@ -100,22 +123,43 @@ $compactCatalog
                 commandWords.forEach { word ->
                     if (searchable.contains(word)) score += 20
                 }
-                if (type == "TOGGLE" || type == "BUTTON" || type == "INPUT") score += 2
-                if (title.contains("двер", ignoreCase = true)) score += 8
-                if (title.contains("форточ", ignoreCase = true)) score -= 4
 
-                lines += Line(index, "$index|$semanticPage|$title|$type", score)
+                // Prefer logical controls and exact object words.
+                when (type) {
+                    "TOGGLE", "BUTTON" -> score += 4
+                    "INPUT" -> score += 1
+                }
+                if (title.contains("двер", ignoreCase = true)) score += 10
+                if (title.contains("открыть", ignoreCase = true)) score += 6
+                if (title.contains("закрыть", ignoreCase = true)) score += 6
+                if (title.contains("форточ", ignoreCase = true)) score -= 5
+
+                // A semantic page match is more important than unrelated titles.
+                if (commandWords.any { word -> semanticPage.contains(word, ignoreCase = true) }) {
+                    score += 8
+                }
+
+                lines += Line(
+                    index = index,
+                    text = "$index|$semanticPage|$title|$type",
+                    score = score
+                )
             }
 
             val selected = lines
-                .sortedWith(compareByDescending<Line> { it.score }.thenBy { it.index })
-                .take(18)
+                .sortedWith(
+                    compareByDescending<Line> { it.score }
+                        .thenBy { it.index }
+                )
+                .take(maxCandidates)
 
             val out = StringBuilder()
             for (line in selected) {
+                if (line.text.length > maxChars) continue
                 if (out.isNotEmpty() && out.length + line.text.length + 1 > maxChars) continue
-                out.append(line.text).append('\n')
+                out.append(line.text).append('\\n')
             }
+
             out.toString().trim()
         }.getOrElse { catalog.take(maxChars) }
     }
