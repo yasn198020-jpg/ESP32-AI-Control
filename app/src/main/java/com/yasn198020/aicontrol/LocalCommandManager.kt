@@ -26,7 +26,9 @@ data class LocalCommandResult(
     val actionWidgetId: String = "",
     val actionValue: String = "1",
     val actionItems: List<LocalCommandActionItem> = emptyList(),
-    val needsConfirmation: Boolean = false
+    val needsConfirmation: Boolean = false,
+    /** Final Android-side scenario plan. Gemma never writes this field. */
+    val scenarioPlan: ScenarioCommandPlan? = null
 )
 
 /**
