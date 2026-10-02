@@ -52,7 +52,7 @@ class GemmaInferenceService : Service() {
     }
 
     private fun buildIoTPrompt(command: String, catalog: String): String {
-        val compactCatalog = compactCatalogForContext(catalog)
+        val compactCatalog = compactCatalogForContext(catalog, command)
         return """
 CMD:$command
 CAT:
@@ -61,26 +61,65 @@ $compactCatalog
 """.trimIndent()
     }
 
-    // Full catalog stays in the app; Gemma only needs index + semantic page + title.
-    private fun compactCatalogForContext(catalog: String, maxChars: Int = 360): String {
+    // Do not blindly take the first N characters: the full catalog is already
+    // ordered for Marfa, but relevant objects can appear later (for example
+    // vbtn78/btn43 after several emoji-page entries). Keep the most relevant
+    // candidates while preserving their original candidateIndex.
+    private fun compactCatalogForContext(
+        catalog: String,
+        command: String,
+        maxChars: Int = 1200
+    ): String {
         return runCatching {
             val source = JSONArray(catalog)
-            val out = StringBuilder()
+            val commandWords = command
+                .lowercase(Locale("ru", "RU"))
+                .replace('ё', 'е')
+                .split(Regex("[^a-zа-я0-9]+"))
+                .filter { it.length >= 3 }
+                .map { it.removeSuffix("ами").removeSuffix("ями").removeSuffix("ов").removeSuffix("ев")
+                    .removeSuffix("ами").removeSuffix("а").removeSuffix("ы").removeSuffix("и") }
+                .toSet()
+
+            data class Line(val index: Int, val text: String, val score: Int)
+            val lines = mutableListOf<Line>()
+
             for (i in 0 until source.length()) {
                 val item = source.optJSONObject(i) ?: continue
                 val index = item.optInt("index", i)
                 val pageText = item.optString("pageText").trim()
-                val title = item.optString("title").trim().take(26)
+                val title = item.optString("title").trim().take(42)
+                val type = item.optString("type").trim()
                 val emojiOnly = pageText.isNotBlank() &&
                     pageText.none { ch -> ch.isLetterOrDigit() || ch.isWhitespace() }
                 val semanticPage = if (emojiOnly) {
-                    unicodePageMeaning(pageText).take(32)
+                    unicodePageMeaning(pageText).take(28)
                 } else {
                     pageText.take(18)
                 }
-                val line = "$index|$semanticPage|$title"
-                if (out.isNotEmpty() && out.length + line.length + 1 > maxChars) break
-                out.append(line).append('\n')
+                val searchable = (title + " " + pageText + " " + semanticPage)
+                    .lowercase(Locale("ru", "RU"))
+                    .replace('ё', 'е')
+
+                var score = 0
+                commandWords.forEach { word ->
+                    if (searchable.contains(word)) score += 20
+                }
+                if (type == "TOGGLE" || type == "BUTTON" || type == "INPUT") score += 2
+                if (title.contains("двер", ignoreCase = true)) score += 8
+                if (title.contains("форточ", ignoreCase = true)) score -= 4
+
+                lines += Line(index, "$index|$semanticPage|$title|$type", score)
+            }
+
+            val selected = lines
+                .sortedWith(compareByDescending<Line> { it.score }.thenBy { it.index })
+                .take(18)
+
+            val out = StringBuilder()
+            for (line in selected) {
+                if (out.isNotEmpty() && out.length + line.text.length + 1 > maxChars) continue
+                out.append(line.text).append('\\n')
             }
             out.toString().trim()
         }.getOrElse { catalog.take(maxChars) }
