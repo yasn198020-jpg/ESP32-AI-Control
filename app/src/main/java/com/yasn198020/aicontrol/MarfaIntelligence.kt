@@ -125,6 +125,29 @@ class MarfaIntelligence private constructor(context: Context) {
             out.appendLine("Следующая стадия: Gemma не вызывается.")
             return Result.success(out.toString())
         }
+
+        val deterministic = if (fast.action == LocalCommandAction.CLARIFY || fast.action == LocalCommandAction.NOT_FOUND) {
+            gemma.interpretDeterministically(text, devices)
+        } else null
+        out.appendLine()
+        out.appendLine("--- 2. ЛОКАЛЬНЫЙ СЦЕНАРНЫЙ ПОИСК (БЕЗ GEMMA) ---")
+        if (deterministic == null) {
+            out.appendLine("Результат: не найден однозначный пользовательский элемент")
+            out.appendLine("Следующая стадия: обычный Gemma fallback")
+        } else {
+            out.appendLine("НАЙДЕНО: device=" + deterministic.deviceId + "; widget=" + deterministic.widgetId + "; value=" + deterministic.value)
+            out.appendLine("reply=" + deterministic.reply)
+            val localPlan = AppRuntime.get(appContext).deviceScenarioManager.planCommand(deterministic, devices)
+            out.appendLine("SCENARIO: " + localPlan.actions.joinToString(", ") { it.widgetId + "=" + it.value }.ifBlank { "нет" })
+            out.appendLine("ПРЕДУСЛОВИЯ: " + localPlan.prerequisites.joinToString(", ") { it.widgetId + "=" + it.value }.ifBlank { "нет" })
+            localPlan.blockedReason?.let { out.appendLine("БЛОК: " + it) } ?: out.appendLine("БЛОК: нет")
+            out.appendLine("Gemma: НЕ ЗАПУСКАЕТСЯ")
+            out.appendLine("MQTT: не отправляется в диагностическом тесте")
+            out.appendLine()
+            out.appendLine("=== СКВОЗНОЙ ТЕСТ ЗАВЕРШЕН ===")
+            out.appendLine("Ни MQTT, ни действие устройства этим тестом не выполняются.")
+            return Result.success(out.toString())
+        }
         val gemmaEnabled = isGemmaEnabled()
         val modelInstalled = gemma.isModelInstalled()
         val useGemma = gemmaEnabled && modelInstalled && shouldUseGemma(text, fast, devices)
