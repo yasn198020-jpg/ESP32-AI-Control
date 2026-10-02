@@ -346,20 +346,33 @@ CATALOG fields: index, id, device, pageSemantic, title, titleSearch, type.
             }.ifEmpty { orderedCandidates }
         }
 
-        val selectedBase = if (commandTokens.isEmpty()) contextualCandidates.take(12)
-        else contextualCandidates.filter { it.score > 0 }.take(12)
-            .ifEmpty { contextualCandidates.take(12) }
+        val isDirectAction = desiredValue != null
+        val allowInputForAction = containsAny(
+            command.lowercase(Locale("ru", "RU")),
+            "установи", "установить", "задай", "задать", "поставь", "поставить",
+            "температур", "значение", "порог", "настрой"
+        )
+        val gemmaCandidates = if (isDirectAction && !allowInputForAction) {
+            contextualCandidates.filter { it.widget.type != WidgetState.Type.INPUT }
+                .ifEmpty { contextualCandidates }
+        } else {
+            contextualCandidates
+        }
+
+        val selectedBase = if (commandTokens.isEmpty()) gemmaCandidates.take(12)
+        else gemmaCandidates.filter { it.score > 0 }.take(12)
+            .ifEmpty { gemmaCandidates.take(12) }
 
         // Keep the same candidate ordering as buildCatalog(): candidateIndex
         // must point to exactly the same widget that Gemma saw.
-        val nonLexicalPageCandidates = contextualCandidates
+        val nonLexicalPageCandidates = gemmaCandidates
             .filter { isNonLexicalPage(it.widget.page) }
             .groupBy { it.widget.page }
             .entries
             .flatMap { (_, pageCandidates) -> pageCandidates.take(8) }
             .take(24)
 
-        return (nonLexicalPageCandidates + selectedBase + contextualCandidates)
+        return (nonLexicalPageCandidates + selectedBase + gemmaCandidates)
             .distinctBy { it.widget.id }
             .take(48)
             .map { it.device to it.widget }
