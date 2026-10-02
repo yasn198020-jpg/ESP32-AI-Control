@@ -259,6 +259,16 @@ INDICES:$validIndices
                         }
                         val maxTokens = if (rawPrompt.isNotBlank()) requestedMaxTokens else MAX_TOKENS
 
+                        if (rawPrompt.isBlank()) {
+                            stage(
+                                "Prompt input: commandChars=" + command.length +
+                                    "; catalogJsonChars=" + catalog.length +
+                                    "; promptChars=" + prompt.length +
+                                    "; systemChars=" + systemPrompt.length +
+                                    "; maxTokens=" + maxTokens
+                            )
+                        }
+
                         if (promptBenchmark) {
                             stage("Запуск полного prompt benchmark: batch 1/2/4/8/16/32/35")
                             val benchmark = JSONObject(
@@ -351,6 +361,8 @@ INDICES:$validIndices
                                 nativeJson.optDouble("decodePromptMs", 0.0).toLong() +
                                 "; generationMs=" +
                                 nativeJson.optDouble("generationMs", 0.0).toLong() +
+                                "; promptTok/s=" +
+                                nativeJson.optDouble("promptTokensPerSecond", 0.0) +
                                 "; genTok/s=" +
                                 nativeJson.optDouble("generationTokensPerSecond", 0.0) +
                                 "; effectiveThreads=" +
