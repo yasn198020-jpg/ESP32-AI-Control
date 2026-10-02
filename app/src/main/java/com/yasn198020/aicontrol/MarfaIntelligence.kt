@@ -183,7 +183,8 @@ class MarfaIntelligence private constructor(context: Context) {
                 } ?: out.appendLine("БЛОК: нет")
                 out.appendLine("MQTT: не отправляется в диагностическом тесте")
             }
-        } ?: out.appendLine("ERROR=${trace.finalError ?: "неизвестно"}")        out.appendLine()
+        } ?: out.appendLine("ERROR=${trace.finalError ?: "неизвестно"}")
+        out.appendLine()
         out.appendLine("=== СКВОЗНОЙ ТЕСТ ЗАВЕРШЕН ===")
         out.appendLine("Ни MQTT, ни действие устройства этим тестом не выполняются.")
         return Result.success(out.toString())
