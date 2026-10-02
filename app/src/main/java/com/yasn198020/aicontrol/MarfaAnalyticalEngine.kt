@@ -337,9 +337,9 @@ class MarfaAnalyticalEngine {
     ): Int {
         if (exactId != null && !widget.id.equals(exactId, true)) return -100000
 
-        val title = normalize(widget.title)
-        val widgetPage = normalize(widget.page)
-        val deviceName = normalize(device.name)
+        val title = semanticSearchText(widget.title)
+        val widgetPage = semanticSearchText(widget.page)
+        val deviceName = semanticSearchText(device.name)
         var score = 0
 
         val entity = detectEntityKind(text)
@@ -352,10 +352,11 @@ class MarfaAnalyticalEngine {
         }
 
         tokenized(text).forEach { token ->
-            if (token.length >= 4) {
-                if (title.contains(token)) score += 6
-                if (widgetPage.contains(token)) score += 3
-                if (deviceName.contains(token)) score += 2
+            if (token.length >= 3) {
+                val key = contextTokenKey(token)
+                if (containsSemanticToken(title, key)) score += 6
+                if (containsSemanticToken(widgetPage, key)) score += 3
+                if (containsSemanticToken(deviceName, key)) score += 2
             }
         }
 
@@ -689,9 +690,9 @@ class MarfaAnalyticalEngine {
         device: Device,
         widget: WidgetState
     ): Int {
-        val title = normalize(widget.title)
-        val widgetPage = normalize(widget.page)
-        val deviceName = normalize(device.name)
+        val title = semanticSearchText(widget.title)
+        val widgetPage = semanticSearchText(widget.page)
+        val deviceName = semanticSearchText(device.name)
         var score = 0
 
         when (kind) {
@@ -712,10 +713,11 @@ class MarfaAnalyticalEngine {
         }
 
         tokenized(text).forEach { token ->
-            if (token.length >= 4) {
-                if (title.contains(token)) score += 5
-                if (widgetPage.contains(token)) score += 3
-                if (deviceName.contains(token)) score += 2
+            if (token.length >= 3) {
+                val key = contextTokenKey(token)
+                if (containsSemanticToken(title, key)) score += 5
+                if (containsSemanticToken(widgetPage, key)) score += 3
+                if (containsSemanticToken(deviceName, key)) score += 2
             }
         }
 
@@ -793,6 +795,19 @@ class MarfaAnalyticalEngine {
         EntityKind.LIGHT -> listOf("свет", "ламп") to listOf("свет", "ламп")
         EntityKind.IRRIGATION -> listOf("полив", "орош") to listOf("полив", "орош")
         EntityKind.GENERIC -> emptyList<String>() to emptyList()
+    }
+
+    private fun semanticSearchText(value: String): String =
+        EmojiSemanticText.normalize(value)
+            .lowercase(Locale("ru", "RU"))
+            .replace('ё', 'е')
+            .trim()
+
+    private fun containsSemanticToken(text: String, key: String): Boolean {
+        if (key.isBlank()) return false
+        return tokenized(text)
+            .map(::contextTokenKey)
+            .any { target -> key == target || lexicalMatch(ContextToken(key, key), target) }
     }
 
     private fun searchableText(value: String): String =
