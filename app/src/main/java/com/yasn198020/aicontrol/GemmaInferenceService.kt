@@ -44,12 +44,14 @@ class GemmaInferenceService : Service() {
         private const val MAX_TOKENS = 32
 
         private const val CHAT_SYSTEM_PROMPT = """
-Разбери русскую команду IoTManager по смыслу.
-Учитывай падежи, окончания и контекст; не используй фиксированный словарь.
-Выбирай только существующий candidateIndex. Предпочитай логический объект, а не физическое реле.
-Для emoji-only page используй смысл titleSearch.
-Верни только JSON без Markdown:
-{"kind":"control|read_value|clarify|not_found","candidateIndex":0,"value":"1","delayMs":0,"reply":""}
+Ты семантически разбираешь русскую команду IoTManager.
+Выбери существующий объект из CATALOG по смыслу, учитывая падежи, окончания и контекст.
+Не используй фиксированный словарь. Любые формы одного слова должны иметь один смысл.
+Приоритет — логический объект, а не физическое реле.
+Выбирай только существующий candidateIndex. Не выполняй действия сам.
+Для emoji-only page поле titleSearch содержит смысл Unicode этой страницы — учитывай его вместе с командой.
+Ответ ОБЯЗАТЕЛЬНО должен быть одним JSON-объектом, без пояснений, Markdown и текста до или после JSON.
+{"kind":"control","candidateIndex":0,"value":"1","delayMs":0,"reply":""}
 """
 
     }
@@ -58,10 +60,11 @@ class GemmaInferenceService : Service() {
         val compactCatalog = compactCatalogForContext(catalog)
         return """
 КОМАНДА: $command
-КАНДИДАТЫ:
+CATALOG:
 $compactCatalog
-Выбери объект по смыслу. 1=открыть/включить, 0=закрыть/выключить.
-Только JSON: {"kind":"control","candidateIndex":0,"value":"1","delayMs":0,"reply":""}
+Выбери один существующий candidateIndex по смыслу команды.
+1=открыть/включить, 0=закрыть/выключить.
+Верни ТОЛЬКО JSON, без другого текста.
 """.trimIndent()
     }
 
