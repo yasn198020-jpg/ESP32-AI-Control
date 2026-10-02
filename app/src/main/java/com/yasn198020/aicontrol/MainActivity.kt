@@ -171,7 +171,7 @@ private fun App(
     val marfaIntelligence = remember { MarfaIntelligence.get(context.applicationContext) }
     val gemmaScope = rememberCoroutineScope()
     var gemmaStatus by remember { mutableStateOf(marfaIntelligence.gemmaStatus()) }
-    var gemmaEnabled by remember { mutableStateOf(prefs.getBoolean("gemma_enabled", true)) }
+    var gemmaEnabled by remember { mutableStateOf(false) }
     val speech = remember { TextToSpeech(context, null) }
     val trainedStore = remember { TrainedCommandStore(prefs) }
     val trainedMatcher = remember { TrainedCommandMatcher(trainedStore) }
