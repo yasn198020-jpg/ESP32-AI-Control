@@ -431,7 +431,7 @@ Java_com_yasn198020_aicontrol_MarfaLlamaNative_nativeBenchmarkPrompt(
         return env->NewStringUTF("{\"error\":\"tokenization failed\"}");
     }
 
-    const int batchSizes[] = {1, 2, 4, 8, 16, 32, 35};
+    const int batchSizes[] = {1, 2, 4, 8, 16, 32, 64, 128, 192, 256, 512};
     std::ostringstream result;
     result.setf(std::ios::fixed);
     result.precision(2);
