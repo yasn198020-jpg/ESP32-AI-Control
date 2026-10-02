@@ -65,58 +65,41 @@ title — исходное название; titleSearch — поисковая 
     private fun buildIoTPrompt(command: String, catalog: String): String {
         val compactCatalog = compactCatalogForContext(catalog)
         return """
-КОМАНДА:
-$command
-
-CATALOG:
+КОМАНДА: $command
+КАНДИДАТЫ:
 $compactCatalog
-
-Выбери РОВНО ОДНОГО кандидата по смыслу всей команды.
-Учитывай связь слов, падежи и контекст device/page/title/titleSearch.
-Некоторые вкладки могут называться только эмодзи/символом; не исключай их из вариантов из-за отсутствия обычного текста в page.
-Действие «открыть/закрыть/включить/выключить» не является названием объекта.
-Выбирай логический объект, не физическое реле.
-
-control: открыть/включить = value 1; закрыть/выключить = value 0.
-Если кандидат подходит, обязательно выбери его index.
-Если подходящего кандидата нет: kind=not_found, candidateIndex=-1.
-delayMs=0.
-
-Ответ только JSON:
-{"kind":"control","candidateIndex":0,"value":"1","delayMs":0,"reply":""}
+Выбери один индекс по смыслу команды. Открыть/включить=1, закрыть/выключить=0.
+Если нет подходящего: not_found, candidateIndex=-1.
+Только JSON: {"kind":"control","candidateIndex":0,"value":"1","delayMs":0,"reply":""}
 """.trimIndent()
     }
 
-    /**
-     * Keeps the candidate list small enough for the 768-token context window.
-     * The catalog is already semantically ranked by GemmaLocalEngine, so we
-     * preserve the first candidates and compact verbose searchable metadata.
-     */
-    private fun compactCatalogForContext(catalog: String, maxChars: Int = 2200): String {
+    // 768-token context: keep the catalog very compact.
+    // Candidate indexes stay unchanged, including emoji-page candidates.
+    private fun compactCatalogForContext(catalog: String, maxChars: Int = 900): String {
         return runCatching {
             val source = JSONArray(catalog)
-            val result = JSONArray()
+            val out = StringBuilder()
             for (i in 0 until source.length()) {
                 val item = source.optJSONObject(i) ?: continue
-                val compact = JSONObject().apply {
-                    put("index", item.optInt("index", i))
-                    put("id", item.optString("id"))
-                    put("device", item.optString("device").take(60))
-                    put("page", item.optString("page").take(60))
-                    put("title", item.optString("title").take(80))
-                    put("titleSearch", item.optString("titleSearch").take(100))
-                    put("type", item.optString("type"))
+                val index = item.optInt("index", i)
+                val id = item.optString("id").take(20)
+                val page = item.optString("page").take(20)
+                val title = item.optString("title").take(34)
+                val search = item.optString("titleSearch")
+                    .takeIf { page.isNotBlank() && isNonLexicalPage(page) }
+                    ?.take(55)
+                    .orEmpty()
+                val line = if (search.isNotBlank()) {
+                    "$index|$id|$page|$title|$search"
+                } else {
+                    "$index|$id|$page|$title"
                 }
-                val candidateText = compact.toString()
-                val next = if (result.length() == 0) candidateText
-                else result.toString().dropLast(1) + "," + candidateText + "]"
-                if (next.length > maxChars) break
-                result.put(compact)
+                if (out.isNotEmpty() && out.length + line.length + 1 > maxChars) break
+                out.append(line).append('\n')
             }
-            result.toString()
-        }.getOrElse {
-            catalog.take(maxChars)
-        }
+            out.toString().trim()
+        }.getOrElse { catalog.take(maxChars) }
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
