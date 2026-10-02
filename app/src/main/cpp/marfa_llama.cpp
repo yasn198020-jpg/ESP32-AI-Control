@@ -22,7 +22,7 @@
 namespace {
 
 constexpr const char * TAG = "MarfaLlamaNative";
-constexpr int BATCH_SIZE = 512;
+constexpr int BATCH_SIZE = 32;
 
 struct NativeEngine {
     llama_model * model = nullptr;
