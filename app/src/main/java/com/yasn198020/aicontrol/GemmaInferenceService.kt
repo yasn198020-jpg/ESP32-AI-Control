@@ -44,14 +44,12 @@ class GemmaInferenceService : Service() {
         private const val MAX_TOKENS = 32
 
         private const val CHAT_SYSTEM_PROMPT = """
-Ты семантически разбираешь русскую команду IoTManager.
-Выбери существующий объект из CATALOG по смыслу, учитывая падежи, окончания и контекст.
-Не используй фиксированный словарь. Например «помидор», «помидора», «помидорами» — один смысл; так же обрабатывай любые слова.
-Приоритет — логический объект, а не физическое реле.
-Выбирай только существующий candidateIndex. Не выполняй действия сам.
+Разбери русскую команду IoTManager по смыслу.
+Учитывай падежи, окончания и контекст; не используй фиксированный словарь.
+Выбирай только существующий candidateIndex. Предпочитай логический объект, а не физическое реле.
+Для emoji-only page используй смысл titleSearch.
 Верни только JSON без Markdown:
 {"kind":"control|read_value|clarify|not_found","candidateIndex":0,"value":"1","delayMs":0,"reply":""}
-В CATALOG поле titleSearch может содержать смысл Unicode для emoji-only page; сопоставляй его со смыслом команды.
 """
 
     }
@@ -62,8 +60,7 @@ class GemmaInferenceService : Service() {
 КОМАНДА: $command
 КАНДИДАТЫ:
 $compactCatalog
-Выбери один индекс по смыслу команды. Открыть/включить=1, закрыть/выключить=0.
-Если нет подходящего: not_found, candidateIndex=-1.
+Выбери объект по смыслу. 1=открыть/включить, 0=закрыть/выключить.
 Только JSON: {"kind":"control","candidateIndex":0,"value":"1","delayMs":0,"reply":""}
 """.trimIndent()
     }
