@@ -261,8 +261,8 @@ class IoTScenarioLanguageTest {
         )
         val source = """
             if vbtn90 == 1 then {
-                if vbtn78 == 0 then { btn42 = 1; vbtn78 = 0; }
-                if vbtn78 == 1 then { btn43 = 1; btn43 = 0; vbtn78 = 0; }
+                if vbtn78 == 0 then { btn42 = 1; btn43 = 0; vbtn78 = 0; }
+                if vbtn78 == 1 then { btn43 = 1; btn42 = 0; vbtn78 = 1; }
             }
         """.trimIndent()
         val model = IoTScenarioSemanticAnalyzer.analyze(IoTScenarioParser.parse(source))
