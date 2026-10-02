@@ -107,7 +107,6 @@ object EmojiSemanticText {
             "hammer and wrench" to "инструменты",
             "hammer" to "инструменты",
             "door" to "дверь",
-            "door" to "дверь",
             "window" to "окно",
             "house" to "дом",
             "seedling" to "растения",
