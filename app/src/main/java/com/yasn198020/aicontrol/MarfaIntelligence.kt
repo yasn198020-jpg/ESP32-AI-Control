@@ -43,6 +43,18 @@ class MarfaIntelligence private constructor(context: Context) {
         // deterministic engine. Gemma is not invoked for every sentence.
         val fast = smartRuleParser.interpret(text, devices)
 
+        // SECOND LOCAL PATH: when FAST cannot resolve the command, use the
+        // scenario-aware catalog without any neural inference. It first removes
+        // sensors/values and scenario-only gates, then walks actuator dependencies
+        // upward and ranks the remaining user-facing controls by semantic overlap.
+        // Gemma is now only a last-resort ambiguity resolver.
+        if (fast.action == LocalCommandAction.CLARIFY || fast.action == LocalCommandAction.NOT_FOUND) {
+            val deterministic = gemma.interpretDeterministically(text, devices)
+            if (deterministic != null) {
+                return applyScenarioPlan(deterministic, devices)
+            }
+        }
+
         if (!isGemmaEnabled()) return applyScenarioPlan(fast, devices)
         if (!gemma.isModelInstalled()) return applyScenarioPlan(fast, devices)
         if (!shouldUseGemma(text, fast, devices)) return applyScenarioPlan(fast, devices)
