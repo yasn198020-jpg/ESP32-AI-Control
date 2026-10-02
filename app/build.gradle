@@ -43,10 +43,7 @@ android {
                           '-DGGML_CPU_ALL_VARIANTS=ON',
                           '-DGGML_CPU_KLEIDIAI=ON',
                           '-DGGML_OPENMP=OFF',
-                          '-DGGML_LLAMAFILE=OFF',
-                          '-DGGML_CPU=ON',
-                          '-DGGML_BACKEND_DL=ON',
-                          '-DGGML_CPU_ALL_VARIANTS=ON'
+                          '-DGGML_LLAMAFILE=OFF'
                 targets 'marfa_llama',
                         'ggml-cpu-android_armv8.0_1',
                         'ggml-cpu-android_armv8.2_1',
