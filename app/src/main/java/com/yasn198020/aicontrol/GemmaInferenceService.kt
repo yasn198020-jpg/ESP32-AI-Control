@@ -42,11 +42,11 @@ class GemmaInferenceService : Service() {
         private const val MIN_CONTEXT_SIZE = 128
         private const val MAX_CONTEXT_SIZE = 768
         private const val MAX_THREADS = 6
-        private const val MAX_TOKENS = 64
+        private const val MAX_TOKENS = 40
 
         private const val CHAT_SYSTEM_PROMPT = """
 Разбери команду IoTManager. Выбери существующий candidateIndex из CATALOG по смыслу, учитывая словоформы и страницу. Логический объект важнее реле. Emoji-страница дана словом Unicode. Не выдумывай индекс и не выполняй действие.
-Ответ РОВНО ОДНИМ JSON-ОБЪЕКТОМ, без пояснений, Markdown и текста до/после: {"kind":"control|read_value|clarify|not_found","candidateIndex":-1,"value":"","delayMs":0,"reply":""}
+Верни ТОЛЬКО один короткий JSON, без текста до/после: {"kind":"control","candidateIndex":3,"value":"1"}. kind только control/clarify/not_found; для clarify/not_found candidateIndex=-1. Не пиши reply или delayMs.
 """
 
     }
@@ -57,7 +57,7 @@ class GemmaInferenceService : Service() {
 CMD:$command
 CAT:
 $compactCatalog
-Выбери индекс. 1=открыть/включить, 0=закрыть/выключить.
+Выбери индекс. 1=открыть/включить, 0=закрыть/выключить. Только JSON: {"kind":"control","candidateIndex":N,"value":"1"}
 """.trimIndent()
     }
 
