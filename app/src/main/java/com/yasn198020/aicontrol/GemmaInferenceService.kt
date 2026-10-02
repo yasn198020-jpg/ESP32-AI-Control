@@ -41,7 +41,7 @@ class GemmaInferenceService : Service() {
         private const val MIN_CONTEXT_SIZE = 128
         private const val MAX_CONTEXT_SIZE = 768
         private const val MAX_THREADS = 6
-        private const val MAX_TOKENS = 48
+        private const val MAX_TOKENS = 32
 
         private const val CHAT_SYSTEM_PROMPT = """
 Ты семантически разбираешь русскую команду IoTManager.
