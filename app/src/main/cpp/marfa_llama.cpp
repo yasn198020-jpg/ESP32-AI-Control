@@ -341,9 +341,7 @@ Java_com_yasn198020_aicontrol_MarfaLlamaNative_nativeInitBackends(
             std::chrono::steady_clock::now() - loadStart).count();
     logInfo("Dynamic backend scan finished in " + std::to_string(loadMs) +
             " ms; registered=" + std::to_string(ggml_backend_reg_count()) +
-            ", devices=" + std::to_string(ggml_backend_dev_count()));e
-    ggml_backend_load_all_from_path(path.c_str());
-#endif
+            ", devices=" + std::to_string(ggml_backend_dev_count()));
 
     llama_backend_init();
     const size_t backendCount = ggml_backend_reg_count();
