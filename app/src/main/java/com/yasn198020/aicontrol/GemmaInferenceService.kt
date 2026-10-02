@@ -41,11 +41,12 @@ class GemmaInferenceService : Service() {
         private const val MIN_CONTEXT_SIZE = 128
         private const val MAX_CONTEXT_SIZE = 768
         private const val MAX_THREADS = 6
-        private const val MAX_TOKENS = 24
+        private const val MAX_TOKENS = 40
 
         private const val CHAT_SYSTEM_PROMPT = """
 Выбери управляющий объект IoT по смыслу команды. Учитывай словоформы и смысл страницы. Не выбирай датчик или состояние.
-Только JSON: kind=control/clarify/not_found; для control candidateIndex — число из CATALOG, value — 1 или 0; для других candidateIndex=-1.
+Верни только ОДИН корректный JSON-объект без Markdown: {"kind":"control","candidateIndex":0,"value":"1"}
+Для control candidateIndex — число из CATALOG, value — "1" или "0". Для clarify/not_found candidateIndex=-1.
 """
 
     }
@@ -62,7 +63,7 @@ CAT:
 $compactCatalog
 INDICES:$validIndices
 1=открыть/включить; 0=закрыть/выключить.
-Ответ только JSON. kind=control, candidateIndex=одно число из INDICES, value=1 или 0.
+Верни только JSON-объект без пояснений, строго в формате {"kind":"control","candidateIndex":2,"value":"1"}.
 """.trimIndent()
     }
 
