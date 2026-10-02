@@ -245,6 +245,40 @@ class IoTScenarioLanguageTest {
     }
 
     @Test
+    fun reverseResolutionAlsoHandlesCloseActuatorState() {
+        val devices = listOf(
+            Device(
+                "door",
+                "Дверь",
+                true,
+                listOf(
+                    WidgetState("vbtn90", "автомат управление", WidgetState.Type.TOGGLE, "1"),
+                    WidgetState("vbtn78", "закрыта открыта дверь", WidgetState.Type.TOGGLE, "1"),
+                    WidgetState("btn43", "открыть дверь", WidgetState.Type.BUTTON, "0"),
+                    WidgetState("btn42", "закрыть дверь", WidgetState.Type.BUTTON, "0")
+                )
+            )
+        )
+        val source = """
+            if vbtn90 == 1 then {
+                if vbtn78 == 0 then { btn42 = 1; vbtn78 = 0; }
+                if vbtn78 == 1 then { btn43 = 1; btn43 = 0; vbtn78 = 0; }
+            }
+        """.trimIndent()
+        val model = IoTScenarioSemanticAnalyzer.analyze(IoTScenarioParser.parse(source))
+
+        val resolved = IoTScenarioCommandPlanner.resolveLogicalTargetFromActuator(
+            targetWidgetId = "btn43",
+            desiredValue = "0",
+            devices = devices,
+            models = listOf(StoredDeviceScenario(title = "Door", source = source) to model)
+        )
+
+        assertEquals("vbtn78", resolved?.first)
+        assertEquals("0", resolved?.second)
+    }
+
+    @Test
     fun sensorConditionIsNotTurnedIntoAWriteAction() {
         val devices = listOf(
             Device(
