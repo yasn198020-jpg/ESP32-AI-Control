@@ -507,6 +507,7 @@ CATALOG fields: index, id, page, pageSemantic, title, titleSearch, type.
             var analyticalCandidates = emptyList<String>()
             var analyticalClarification: String? = null
             var scenarioTarget = ""
+            var authoritativeFinal: LocalCommandResult? = null
             if (kind == "control" && pair != null) {
                 val analyticalStarted = System.currentTimeMillis()
                 val analyticalValue = commandControlValue(command) ?: normalizeControlValue(modelValue, command, pair.second)
@@ -559,6 +560,9 @@ CATALOG fields: index, id, page, pageSemantic, title, titleSearch, type.
                 val plan = AppRuntime.get(appContext).deviceScenarioManager
                     .planCommand(finalSeed, devices)
                 mark("scenarioPlan", scenarioStarted)
+                // This is the final result of the Gemma fallback path.
+                // No validation/reparse is allowed after the scenario plan.
+                authoritativeFinal = finalSeed.copy(scenarioPlan = plan)
                 scenarioTarget = buildString {
                     if (plan.prerequisites.isNotEmpty()) {
                         append("ПРЕДУСЛОВИЯ: ")
@@ -579,9 +583,6 @@ CATALOG fields: index, id, page, pageSemantic, title, titleSearch, type.
                     }
                 }.trim()
             }
-            val finalStarted = System.currentTimeMillis()
-            val final = parseAndValidate(raw, command, devices)
-            mark("finalValidation", finalStarted)
             mark("TOTAL", totalStarted)
             Result.success(GemmaChainDiagnostic(
                 catalog = catalog, raw = raw, kind = kind, candidateIndex = candidateIndex,
@@ -590,7 +591,8 @@ CATALOG fields: index, id, page, pageSemantic, title, titleSearch, type.
                 gemmaWidgetTitle = pair?.second?.title.orEmpty(), gemmaPage = pair?.second?.page.orEmpty(),
                 analyticalCandidate = analyticalText, analyticalCandidates = analyticalCandidates,
                 analyticalClarification = analyticalClarification, scenarioTarget = scenarioTarget,
-                finalResult = final.getOrNull(), finalError = final.exceptionOrNull()?.message,
+                finalResult = authoritativeFinal,
+                finalError = null,
                 timings = timings.toList()
             ))
         } catch (e: Throwable) {
