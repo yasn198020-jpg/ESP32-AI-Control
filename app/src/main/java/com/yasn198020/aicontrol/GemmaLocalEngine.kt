@@ -48,17 +48,19 @@ class GemmaLocalEngine private constructor(private val appContext: Context) {
 Не требуй точного совпадения слов и не используй фиксированный словарь предметов.
 Например, «помидор», «помидора», «помидорами» должны восприниматься как один смысл,
 но тот же принцип применяй к любому другому слову и предмету.
-Связывай контекст пользователя с полями device, page и title из CATALOG.
-«закрой дверь» — это объект двери, даже если рядом есть элементы с названиями
+Связывай контекст пользователя только с вкладками page и элементами title/id из CATALOG.
+Вкладка является важным контекстом: «огурцами», «помидорами», «гаражом» и т.п. должны
+сопоставляться с названием вкладки независимо от падежа и окончания.
+«закрой дверь» — это элемент двери, даже если рядом есть элементы с названиями
 «закрыть», «открыть» или похожими словами.
-Приоритет для управления: логический объект/состояние, а не физическое реле/GPIO,
-если пользователь прямо не попросил реле, выход или канал.
+Твоя задача заканчивается выбором существующего элемента. Не анализируй сценарии,
+условия, зависимости, автоматический/ручной режим, реле или порядок выполнения.
 Не придумывай ID. Выбирай только candidateIndex из CATALOG.
 Если подходящего объекта нет — not_found.
 Если несколько объектов подходят одинаково хорошо — clarify.
 Не выполняй MQTT, сценарии, ручной режим и зависимости: это делает приложение.
 Верни ТОЛЬКО JSON без Markdown: {"kind":"control|read_value|clarify|not_found","candidateIndex":-1,"value":"","delayMs":0,"reply":""}
-CATALOG fields: index, id, device, pageSemantic, title, titleSearch, type.
+CATALOG fields: index, id, page, pageSemantic, title, titleSearch, type.
 """
         @Volatile private var instance: GemmaLocalEngine? = null
 
@@ -163,7 +165,7 @@ CATALOG fields: index, id, device, pageSemantic, title, titleSearch, type.
         val commandTokens = semanticTokens(command)
         val candidates = devices.flatMap { device ->
             device.widgets.map { widget ->
-                val haystack = semanticTokens(searchableText(device.name + " " + widget.page + " " + widget.title + " " + widget.definitionName))
+                val haystack = semanticTokens(searchableText(widget.page + " " + widget.title + " " + widget.definitionName))
                 var score = commandTokens.count { it in haystack } * 10
                 if (widget.type == WidgetState.Type.TOGGLE ||
                     widget.type == WidgetState.Type.BUTTON ||
@@ -277,9 +279,8 @@ CATALOG fields: index, id, device, pageSemantic, title, titleSearch, type.
             array.put(JSONObject().apply {
                 put("index", array.length())
                 put("id", item.widget.id)
-                put("device", item.device.name)
-                // Keep the original page for UI/diagnostics, but expose only
-                // canonical Russian semantic text to Marfa/Gemma internals.
+                // Gemma only needs the navigation context (tab) and the element itself.
+                // Device/scenario metadata is deliberately not exposed.
                 put("page", item.widget.page)
                 put("pageText", item.widget.page)
                 put("pageSemantic", EmojiSemanticText.normalize(item.widget.page))
@@ -642,42 +643,19 @@ CATALOG fields: index, id, device, pageSemantic, title, titleSearch, type.
 
         return when (kind) {
             "control" -> {
-                val commandValue = commandControlValue(originalCommand)
-                // Gemma provides semantic intent/candidate, but the deterministic
-                // resolver remains authoritative for the final IoTManager target.
-                // This prevents a similarly named actuator (for example btn178)
-                // from replacing the logical state element (for example vbtn78).
-                val analyticalValue = commandValue ?: normalizeControlValue(modelValue, originalCommand, widget)
-                val analytical = MarfaAnalyticalEngine().resolveControl(
-                    originalCommand,
-                    devices,
-                    analyticalValue
-                )
-                if (analytical.candidate != null) {
-                    device = analytical.candidate.device
-                    widget = analytical.candidate.widget
-                }
-
-                val scenarioTarget = AppRuntime.get(appContext).deviceScenarioManager
-                    .resolveLogicalTarget(widget.id, analyticalValue, devices)
-                if (scenarioTarget != null) {
-                    val matches = devices.flatMap { candidateDevice ->
-                        candidateDevice.widgets
-                            .filter { it.id == scenarioTarget.first }
-                            .map { candidateDevice to it }
-                    }
-                    if (matches.size == 1) {
-                        device = matches.single().first
-                        widget = matches.single().second
-                    }
-                }
-
+                /*
+                 * Gemma is only the semantic fallback: it selects an element
+                 * from the tab/element catalog. It must not resolve the scenario
+                 * or replace the selected ID with an actuator/logical target.
+                 * Scenario planning happens after this result in Android.
+                 */
                 if (widget.type != WidgetState.Type.TOGGLE &&
                     widget.type != WidgetState.Type.BUTTON &&
                     widget.type != WidgetState.Type.INPUT) {
                     Result.failure(Exception("Недоступный для управления виджет: " + widget.id))
                 } else {
-                    val value = commandValue ?: normalizeControlValue(modelValue, originalCommand, widget)
+                    val value = commandControlValue(originalCommand)
+                        ?: normalizeControlValue(modelValue, originalCommand, widget)
                     val modelDelay = json.optLong("delayMs", 0L).coerceAtLeast(0L)
                     val fallbackDelay = if (modelDelay <= 0L)
                         LocalCommandManager().interpret(originalCommand, devices).delayMs
