@@ -21,6 +21,8 @@ object MarfaLlamaNative {
 
     fun isAvailable(): Boolean = available
 
+    external fun nativeInitBackends(nativeLibDir: String): Boolean
+
     external fun nativeLoadModel(
         modelPath: String,
         threads: Int,
