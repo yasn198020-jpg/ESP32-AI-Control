@@ -35,7 +35,8 @@ data class GemmaChainDiagnostic(
     val analyticalClarification: String? = null,
     val scenarioTarget: String = "",
     val finalResult: LocalCommandResult? = null,
-    val finalError: String? = null
+    val finalError: String? = null,
+    val timings: List<String> = emptyList()
 )
 class GemmaLocalEngine private constructor(private val appContext: Context) {
     companion object {
@@ -118,6 +119,7 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
     suspend fun interpret(command: String, devices: List<Device>): Result<LocalCommandResult> =
         withContext(Dispatchers.IO) {
             val catalog = buildCatalog(devices, command)
+            mark("catalog", catalogStarted)
             val resultDeferred = CompletableDeferred<Result<String>>()
             val stages = mutableListOf<String>()
             val receiver = object : ResultReceiver(Handler(Looper.getMainLooper())) {
@@ -376,7 +378,14 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
     }
     suspend fun diagnoseCommand(command: String, devices: List<Device>): Result<GemmaChainDiagnostic> = withContext(Dispatchers.IO) {
         try {
+            val totalStarted = System.currentTimeMillis()
+            val timings = mutableListOf<String>()
+            fun mark(name: String, started: Long) {
+                timings.add(name + "=" + (System.currentTimeMillis() - started) + " мс")
+            }
+
             var stage = "подготовка каталога"
+            val catalogStarted = System.currentTimeMillis()
             val catalog = try { buildCatalog(devices, command) } catch (e: Throwable) {
                 throw Exception("ЭТАП " + stage + ": " + (e.message ?: e.javaClass.simpleName), e)
             }
@@ -399,6 +408,7 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
                 }
             }
             stage = "запуск GemmaInferenceService"
+            val serviceStartStarted = System.currentTimeMillis()
             try {
                 appContext.startService(Intent(appContext, GemmaInferenceService::class.java)
                     .putExtra(GemmaInferenceService.EXTRA_COMMAND, command)
@@ -407,35 +417,44 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
             } catch (e: Throwable) {
                 throw Exception("ЭТАП " + stage + ": " + (e.message ?: e.javaClass.simpleName), e)
             }
+            mark("serviceStart", serviceStartStarted)
             stage = "ожидание ответа Gemma"
+            val inferenceStarted = System.currentTimeMillis()
             val rawResult = try {
                 kotlinx.coroutines.withTimeout(REQUEST_TIMEOUT_MS) { resultDeferred.await() }
             } catch (e: Throwable) {
                 throw Exception("ЭТАП " + stage + ": " + (e.message ?: e.javaClass.simpleName), e)
             }
+            mark("gemmaWait", inferenceStarted)
             val raw = rawResult.getOrElse { return@withContext Result.failure(it) }
+            val parseStarted = System.currentTimeMillis()
             val jsonText = extractJson(raw) ?: return@withContext Result.failure(Exception("Gemma вернула не JSON"))
             val json = runCatching { JSONObject(jsonText) }.getOrElse {
                 return@withContext Result.failure(Exception("Gemma вернула некорректный JSON"))
             }
+            mark("jsonParse", parseStarted)
             val kind = json.optString("kind").lowercase(Locale.ROOT)
             val candidateIndex = json.optInt("candidateIndex", -1)
             val modelValue = json.optString("value").trim()
             val modelReply = json.optString("reply").trim()
+            val pairStarted = System.currentTimeMillis()
             val pair = if (candidateIndex >= 0) buildCandidatePairs(devices, command).getOrNull(candidateIndex) else {
                 val widgetId = json.optString("widgetId").trim()
                 devices.asSequence().flatMap { device -> device.widgets.asSequence().map { device to it } }
                     .firstOrNull { it.second.id == widgetId }
             }
+            mark("candidateMapping", pairStarted)
             var analyticalText = ""
             var analyticalCandidates = emptyList<String>()
             var analyticalClarification: String? = null
             var scenarioTarget = ""
             if (kind == "control" && pair != null) {
+                val analyticalStarted = System.currentTimeMillis()
                 val analyticalValue = commandControlValue(command) ?: normalizeControlValue(modelValue, command, pair.second)
                 val analytical = MarfaAnalyticalEngine().resolveControl(command, devices, analyticalValue)
                 analyticalCandidates = analytical.candidates.map { describeCandidate(it.device.id, it.widget) }
                 analyticalClarification = analytical.clarification
+                mark("analytical", analyticalStarted)
                 analytical.candidate?.let { analyticalText = describeCandidate(it.device.id, it.widget) }
 
                 /*
@@ -463,6 +482,7 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
                  * such as vbtn78 must NOT be passed through it as if it were a
                  * relay. Scenario planning is performed by DeviceScenarioManager.
                  */
+                val scenarioStarted = System.currentTimeMillis()
                 val finalSeed = LocalCommandResult(
                     action = LocalCommandAction.CONTROL,
                     deviceId = selectedDevice.id,
@@ -479,6 +499,7 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
                 )
                 val plan = AppRuntime.get(appContext).deviceScenarioManager
                     .planCommand(finalSeed, devices)
+                mark("scenarioPlan", scenarioStarted)
                 scenarioTarget = buildString {
                     if (plan.prerequisites.isNotEmpty()) {
                         append("ПРЕДУСЛОВИЯ: ")
@@ -499,7 +520,10 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
                     }
                 }.trim()
             }
+            val finalStarted = System.currentTimeMillis()
             val final = parseAndValidate(raw, command, devices)
+            mark("finalValidation", finalStarted)
+            mark("TOTAL", totalStarted)
             Result.success(GemmaChainDiagnostic(
                 catalog = catalog, raw = raw, kind = kind, candidateIndex = candidateIndex,
                 modelValue = modelValue, modelReply = modelReply,
@@ -507,7 +531,8 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
                 gemmaWidgetTitle = pair?.second?.title.orEmpty(), gemmaPage = pair?.second?.page.orEmpty(),
                 analyticalCandidate = analyticalText, analyticalCandidates = analyticalCandidates,
                 analyticalClarification = analyticalClarification, scenarioTarget = scenarioTarget,
-                finalResult = final.getOrNull(), finalError = final.exceptionOrNull()?.message
+                finalResult = final.getOrNull(), finalError = final.exceptionOrNull()?.message,
+                timings = timings.toList()
             ))
         } catch (e: Throwable) {
             Result.failure(Exception(e.message ?: "Ошибка сквозной диагностики Gemma", e))
