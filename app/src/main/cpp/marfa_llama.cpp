@@ -526,8 +526,8 @@ Java_com_yasn198020_aicontrol_MarfaLlamaNative_nativeGenerate(
     }
 
     const auto tTokenized = std::chrono::steady_clock::now();
-    const size_t promptChars = userPrompt.size();
-    const size_t systemChars = systemPrompt.size();
+    const size_t commandPromptChars = userPrompt.size();
+    const size_t systemPromptChars = systemPrompt.size();
     const int maxNewTokens = std::max(1, static_cast<int>(maxTokens));
     const int requiredContext = static_cast<int>(promptTokens.size()) + maxNewTokens + 4;
     if (requiredContext > engine->context_size) {
@@ -606,8 +606,8 @@ Java_com_yasn198020_aicontrol_MarfaLlamaNative_nativeGenerate(
         << ",\"promptTokens\":" << promptTokens.size()
         << ",\"generatedTokens\":" << generated
         << ",\"promptTokensPerSecond\":" << promptTokensPerSecond
-        << ",\"commandPromptChars\":" << promptChars
-        << ",\"systemPromptChars\":" << systemChars
+        << ",\"commandPromptChars\":" << commandPromptChars
+        << ",\"systemPromptChars\":" << systemPromptChars
         << ",\"formattedPromptChars\":" << formattedChars
         << ",\"contextSize\":" << engine->context_size
         << ",\"batchSize\":" << engine->batch_size
