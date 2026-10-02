@@ -18,6 +18,7 @@
 #endif
 
 #include "llama.h"
+#include "ggml-backend.h"
 
 namespace {
 
@@ -323,6 +324,23 @@ std::string tokenToPiece(const llama_vocab * vocab, llama_token token) {
 } // namespace
 
 extern "C"
+JNIEXPORT jboolean JNICALL
+Java_com_yasn198020_aicontrol_MarfaLlamaNative_nativeInitBackends(
+        JNIEnv * env,
+        jobject,
+        jstring jNativeLibDir) {
+    const char * pathChars = env->GetStringUTFChars(jNativeLibDir, nullptr);
+    if (pathChars == nullptr) return JNI_FALSE;
+    const std::string path(pathChars);
+    env->ReleaseStringUTFChars(jNativeLibDir, pathChars);
+
+    logInfo("Loading dynamic CPU backends from: " + path);
+    ggml_backend_load_all_from_path(path.c_str());
+    llama_backend_init();
+    return JNI_TRUE;
+}
+
+extern "C"
 JNIEXPORT jlong JNICALL
 Java_com_yasn198020_aicontrol_MarfaLlamaNative_nativeLoadModel(
         JNIEnv * env,
@@ -337,8 +355,6 @@ Java_com_yasn198020_aicontrol_MarfaLlamaNative_nativeLoadModel(
 
     const std::string modelPath(modelPathChars);
     env->ReleaseStringUTFChars(jModelPath, modelPathChars);
-
-    llama_backend_init();
 
     const std::string systemInfo = llama_print_system_info();
     logInfo("System info: " + systemInfo);
