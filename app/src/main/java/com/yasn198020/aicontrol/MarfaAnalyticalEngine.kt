@@ -447,7 +447,11 @@ class MarfaAnalyticalEngine {
 
         return tokens
             .filterNot { isSelectionToken(it.original) }
-            .filter { token -> pageTokens.none { lexicalMatch(token, it) } }
+            .filter { token -> pageTokens.none { pageToken ->
+                token.key == pageToken ||
+                    (token.key.length >= 5 && pageToken.length >= 5 &&
+                        (token.key.startsWith(pageToken) || pageToken.startsWith(token.key)))
+            } }
             .distinct()
             .map { it.original }
             .toList()
@@ -744,6 +748,12 @@ class MarfaAnalyticalEngine {
         EntityKind.IRRIGATION -> listOf("полив", "орош") to listOf("полив", "орош")
         EntityKind.GENERIC -> emptyList<String>() to emptyList()
     }
+
+    private fun searchableText(value: String): String =
+        EmojiSemanticText.normalize(value)
+            .lowercase(Locale("ru", "RU"))
+            .replace('ё', 'е')
+            .trim()
 
     private fun isNonLexicalPage(page: String): Boolean {
         if (page.isBlank()) return false
