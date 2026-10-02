@@ -43,46 +43,48 @@ class MarfaIntelligence private constructor(context: Context) {
         // deterministic engine. Gemma is not invoked for every sentence.
         val fast = smartRuleParser.interpret(text, devices)
 
-        if (!isGemmaEnabled()) return fast
-        if (!gemma.isModelInstalled()) return fast
-        if (!shouldUseGemma(text, fast, devices)) return fast
+        if (!isGemmaEnabled()) return applyScenarioPlan(fast, devices)
+        if (!gemma.isModelInstalled()) return applyScenarioPlan(fast, devices)
+        if (!shouldUseGemma(text, fast, devices)) return applyScenarioPlan(fast, devices)
 
-        return gemma.interpret(text, devices).getOrElse {
+        val semanticResult = gemma.interpret(text, devices).getOrElse {
             // Gemma is optional. Any model/JNI/runtime error falls back to the
             // already working local command engine.
             fast
         }.let { gemmaResult ->
-            /*
-             * Scenario reasoning must never inherit an incorrect OPEN/CLOSE
-             * value from the LLM. The action verb is deterministic and is
-             * already understood by the local parser. Gemma may resolve the
-             * spoken context/element, but the scenario engine is the source of
-             * truth for dependencies, mode gates and the physical actuator.
-             */
             if (gemmaResult.action != LocalCommandAction.CONTROL) {
                 gemmaResult
             } else {
+                // The verb/value remains deterministic in Android. Gemma only
+                // supplies the logical element ID.
                 val authoritativeValue = fast.value.ifBlank { commandValue(text) }
-                if (authoritativeValue.isBlank()) {
-                    gemmaResult
-                } else {
-                    gemmaResult.copy(
-                        value = authoritativeValue,
-                        actionItems = gemmaResult.actionItems.map {
-                            it.copy(value = authoritativeValue)
-                        }.ifEmpty {
-                            listOf(
-                                LocalCommandActionItem(
-                                    gemmaResult.deviceId,
-                                    gemmaResult.widgetId,
-                                    authoritativeValue
-                                )
-                            )
+                if (authoritativeValue.isBlank()) gemmaResult else gemmaResult.copy(
+                    value = authoritativeValue,
+                    actionItems = gemmaResult.actionItems.map { it.copy(value = authoritativeValue) }
+                        .ifEmpty {
+                            listOf(LocalCommandActionItem(
+                                gemmaResult.deviceId,
+                                gemmaResult.widgetId,
+                                authoritativeValue
+                            ))
                         }
-                    )
-                }
+                )
             }
         }
+
+        // FINAL = ScenarioCommandPlan. There is deliberately no post-plan
+        // Gemma/finalValidation pass. Scenario Engine is the only authority
+        // for prerequisites, mode gates and physical actuators.
+        return applyScenarioPlan(semanticResult, devices)
+    }
+
+    private fun applyScenarioPlan(
+        result: LocalCommandResult,
+        devices: List<Device>
+    ): LocalCommandResult {
+        if (result.action != LocalCommandAction.CONTROL || result.widgetId.isBlank()) return result
+        val plan = AppRuntime.get(appContext).deviceScenarioManager.planCommand(result, devices)
+        return result.copy(scenarioPlan = plan)
     }
 
     suspend fun diagnoseCommand(command: String, devices: List<Device>): Result<String> {
