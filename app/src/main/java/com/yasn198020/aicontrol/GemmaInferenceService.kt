@@ -45,7 +45,7 @@ class GemmaInferenceService : Service() {
 
         private const val CHAT_SYSTEM_PROMPT = """
 Разбери команду IoTManager. Выбери существующий candidateIndex из CATALOG по смыслу, учитывая словоформы и смысловое имя страницы. Логический объект важнее реле. Эмодзи страницы уже переведены во внутренний короткий русский текст. Не выдумывай индекс и не выполняй действие.
-Верни ТОЛЬКО один короткий JSON, без текста до/после: {"kind":"control","candidateIndex":3,"value":"1"}. kind только control/clarify/not_found; для clarify/not_found candidateIndex=-1. Не пиши reply или delayMs.
+Верни ТОЛЬКО один короткий JSON без Markdown и без пояснений. candidateIndex ДОЛЖЕН быть конкретным целым числом из CATALOG, например 0, 1 или 2. НЕЛЬЗЯ писать N, <index>, -1 для control или выдуманный индекс. Для control используй value 1 или 0. Для clarify/not_found используй candidateIndex=-1. Не пиши reply или delayMs.
 """
 
     }
@@ -56,7 +56,7 @@ class GemmaInferenceService : Service() {
 CMD:$command
 CAT:
 $compactCatalog
-Выбери индекс. 1=открыть/включить, 0=закрыть/выключить. Только JSON: {"kind":"control","candidateIndex":N,"value":"1"}
+Выбери ОДНУ строку CATALOG и верни её индекс как число. Индекс должен точно совпадать с числом слева в строке. Не копируй пример и не пиши буквы вместо числа. 1=открыть/включить, 0=закрыть/выключить. Только JSON: {"kind":"control","candidateIndex":2,"value":"1"}
 """.trimIndent()
     }
 
