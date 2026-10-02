@@ -34,17 +34,20 @@ class GemmaInferenceService : Service() {
         const val EXTRA_PROMPT_BENCHMARK = "prompt_benchmark"
         const val EXTRA_FULL_DIAGNOSTICS = "full_diagnostics"
 
-        private const val MODEL_FILE_NAME = "marfa-gemma3-1b-q4km.gguf"
-        private const val MODEL_URL = "https://huggingface.co/ggml-org/gemma-3-1b-it-GGUF/resolve/main/gemma-3-1b-it-Q4_K_M.gguf"
-        private const val MODEL_MIN_BYTES = 700L * 1024L * 1024L
+        private const val MODEL_FILE_NAME = "marfa-gemma3-4b-q4km.gguf"
+        private const val MODEL_URL = "https://huggingface.co/ggml-org/gemma-3-4b-it-GGUF/resolve/main/gemma-3-4b-it-Q4_K_M.gguf"
+        private const val MODEL_MIN_BYTES = 2L * 1024L * 1024L * 1024L
         private const val DEFAULT_CONTEXT_SIZE = 768
         private const val MIN_CONTEXT_SIZE = 128
         private const val MAX_CONTEXT_SIZE = 768
         private const val MAX_THREADS = 6
         private const val MAX_TOKENS = 40
 
-        // Gemma 3 IT: keep the IoT task in a single USER turn.
-        private const val RAW_SYSTEM_PROMPT = "Ты обычный русскоязычный помощник. Отвечай естественно и кратко."
+        private const val CHAT_SYSTEM_PROMPT = """
+Выбери управляющий объект IoT по смыслу команды. Учитывай словоформы и смысл страницы. Не выбирай датчик или состояние.
+Верни только ОДИН корректный JSON-объект без Markdown: {"kind":"control","candidateIndex":0,"value":"1"}
+Для control candidateIndex — число из CATALOG, value — "1" или "0". Для clarify/not_found candidateIndex=-1.
+"""
 
     }
 
@@ -55,35 +58,12 @@ class GemmaInferenceService : Service() {
             .mapNotNull { it.substringBefore('|').toIntOrNull() }
             .joinToString(",")
         return """
-Выбери управляющий виджет IoT по смыслу команды.
-
-РАЗБЕРИ КОМАНДУ:
-- действие: что сделать (открыть, закрыть, включить, выключить и т.п.);
-- объект: чем управлять (дверь, форточка, свет и т.п.);
-- контекст: дополнительные слова, уточняющие страницу или группу (например, название теплицы, культуры или помещения).
-Контекст НЕ обязан встречаться в названии виджета. Не требуй буквального совпадения всех слов команды.
-
-ВЫБОР:
-- Сопоставляй смысл и словоформы, а не только точные слова.
-- Сначала найди управляющий объект, соответствующий действию + объекту.
-- Учитывай контекст страницы, чтобы выбрать правильного кандидата.
-- Выбирай только из CANDIDATES.
-- Не выбирай датчики, значения, состояния, концевики и другие пассивные элементы, если есть управляющий кандидат.
-- Если есть один подходящий управляющий кандидат, выбирай его даже при наличии дополнительных слов в команде.
-- Для открытия/включения value="1"; для закрытия/выключения value="0".
-- clarify используй только если среди CANDIDATES действительно нет подходящего управляющего кандидата или есть несколько одинаково подходящих управляющих кандидатов.
-
-Команда: $command
-CANDIDATES:
+CMD:$command
+CAT:
 $compactCatalog
-Индексы: $validIndices
-
-Ответь только одним JSON без Markdown.
-Пример:
-{"kind":"control","candidateIndex":2,"value":"1"}
-Для реального ответа используй индекс из CANDIDATES.
-Если управления действительно нет или оно неоднозначно:
-{"kind":"clarify","candidateIndex":-1,"value":""}
+INDICES:$validIndices
+1=открыть/включить; 0=закрыть/выключить.
+Верни только JSON-объект без пояснений, строго в формате {"kind":"control","candidateIndex":2,"value":"1"}.
 """.trimIndent()
     }
 
@@ -168,30 +148,13 @@ $compactCatalog
                 )
                 if (passiveRole.containsMatchIn(title.lowercase(Locale("ru", "RU")))) score -= 18
 
-                // For an action command, prefer the actual action control over
-                // a status/state widget that merely describes the same object.
-                // This is generic: it works for open/close, on/off and other
-                // action verbs without hardcoding a particular device or noun.
-                val commandLower = command.lowercase(Locale("ru", "RU"))
-                val titleLower = title.lowercase(Locale("ru", "RU"))
-                val actionRequested = when {
-                    Regex("\\b(откры|открой|распах|подним)").containsMatchIn(commandLower) -> "open"
-                    Regex("\\b(закры|закрой|опуст|запечат)").containsMatchIn(commandLower) -> "close"
-                    Regex("\\b(включ|запусти|зажг)").containsMatchIn(commandLower) -> "on"
-                    Regex("\\b(выключ|останов|погаси)").containsMatchIn(commandLower) -> "off"
-                    else -> ""
+                // A control/status object such as "открыта/закрыта дверь" is
+                // still preferable to a passive sensor when the user names the object.
+                if (title.contains("открыт", ignoreCase = true) ||
+                    title.contains("закрыт", ignoreCase = true) ||
+                    title.contains("управлен", ignoreCase = true)) {
+                    score += 8
                 }
-                if (actionRequested == "open" && Regex("\\b(откры|открой)").containsMatchIn(titleLower)) score += 40
-                if (actionRequested == "close" && Regex("\\b(закры|закрой)").containsMatchIn(titleLower)) score += 40
-                if (actionRequested == "on" && Regex("\\b(включ|запуск|кнопк)").containsMatchIn(titleLower)) score += 30
-                if (actionRequested == "off" && Regex("\\b(выключ|останов)").containsMatchIn(titleLower)) score += 30
-
-                // A state/status widget may contain the same noun and even the
-                // action words, but it is not itself the requested control.
-                val stateLike = Regex(
-                    "закрыт.*открыт|открыт.*закрыт|статус|состояни|концевик|состояние"
-                )
-                if (stateLike.containsMatchIn(titleLower)) score -= 28
 
                 // A semantic page match is more important than unrelated titles.
                 if (commandWords.any { word ->
@@ -291,9 +254,9 @@ $compactCatalog
                             buildIoTPrompt(command, catalog)
                         }
                         val systemPrompt = if (rawPrompt.isNotBlank()) {
-                            RAW_SYSTEM_PROMPT
+                            "Ты обычный русскоязычный помощник. Отвечай естественно и кратко."
                         } else {
-                            ""
+                            CHAT_SYSTEM_PROMPT
                         }
                         val maxTokens = if (rawPrompt.isNotBlank()) requestedMaxTokens else MAX_TOKENS
 
@@ -303,7 +266,6 @@ $compactCatalog
                                     "; catalogJsonChars=" + catalog.length +
                                     "; promptChars=" + prompt.length +
                                     "; systemChars=" + systemPrompt.length +
-                                    "; gemmaPromptMode=" + (if (systemPrompt.isBlank()) "single-user" else "system+user") +
                                     "; maxTokens=" + maxTokens
                             )
                         }
@@ -336,7 +298,7 @@ $compactCatalog
                                 "Real IoT prompt input: commandChars=" + iotCommand.length +
                                     "; catalogJsonChars=" + catalog.length +
                                     "; promptChars=" + iotPrompt.length +
-                                    "; systemChars=" + "".length +
+                                    "; systemChars=" + CHAT_SYSTEM_PROMPT.length +
                                     "; maxTokens=" + MAX_TOKENS
                             )
                             val report = runFullNativeDiagnostics(::stage, iotPrompt)
@@ -346,7 +308,7 @@ $compactCatalog
                                 MarfaLlamaNative.nativeGenerate(
                                     handle = iotHandle,
                                     prompt = iotPrompt,
-                                    systemPrompt = "",
+                                    systemPrompt = CHAT_SYSTEM_PROMPT,
                                     maxTokens = MAX_TOKENS
                                 )
                             )
@@ -454,7 +416,7 @@ $compactCatalog
                             Llama.complete(
                                 model = model,
                                 prompt = "КОМАНДА:\n" + command + "\n\nCATALOG:\n" + compactCatalogForContext(catalog, command),
-                                systemPrompt = "",
+                                systemPrompt = CHAT_SYSTEM_PROMPT,
                                 maxTokens = MAX_TOKENS
                             )
                         }
@@ -550,7 +512,7 @@ $compactCatalog
                 MarfaLlamaNative.nativeBenchmarkPromptBatch(
                     handle = handle,
                     prompt = realIotPrompt,
-                    systemPrompt = "",
+                    systemPrompt = CHAT_SYSTEM_PROMPT,
                     batchSize = batchSize
                 )
             )
