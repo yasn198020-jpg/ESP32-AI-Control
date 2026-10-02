@@ -230,21 +230,41 @@ CATALOG fields: index, id, device, pageSemantic, title, titleSearch, type.
             }.ifEmpty { orderedCandidates }
         }
 
-        val selectedBase = if (commandTokens.isEmpty()) contextualCandidates.take(12)
-        else contextualCandidates.filter { it.score > 0 }.take(12)
-            .ifEmpty { contextualCandidates.take(12) }
+        /*
+         * For an action command, numeric/input widgets such as
+         * "температура открытия двери" are configuration parameters, not the
+         * object being opened. They can contain the same noun and therefore
+         * otherwise steal Gemma's candidate index. Keep them only when the user
+         * explicitly asks to set a value/temperature.
+         */
+        val isDirectAction = desiredValue != null
+        val allowInputForAction = containsAny(
+            command.lowercase(Locale("ru", "RU")),
+            "установи", "установить", "задай", "задать", "поставь", "поставить",
+            "температур", "значение", "порог", "настрой"
+        )
+        val gemmaCandidates = if (isDirectAction && !allowInputForAction) {
+            contextualCandidates.filter { it.widget.type != WidgetState.Type.INPUT }
+                .ifEmpty { contextualCandidates }
+        } else {
+            contextualCandidates
+        }
+
+        val selectedBase = if (commandTokens.isEmpty()) gemmaCandidates.take(12)
+        else gemmaCandidates.filter { it.score > 0 }.take(12)
+            .ifEmpty { gemmaCandidates.take(12) }
 
         // Emoji-only pages are included only when they belong to the selected
         // semantic context. Generic non-context pages never leak back through
         // the final fallback list.
-        val nonLexicalPageCandidates = contextualCandidates
+        val nonLexicalPageCandidates = gemmaCandidates
             .filter { isNonLexicalPage(it.widget.page) }
             .groupBy { it.widget.page }
             .entries
             .flatMap { (_, pageCandidates) -> pageCandidates.take(8) }
             .take(24)
 
-        val selected = (nonLexicalPageCandidates + selectedBase + contextualCandidates)
+        val selected = (nonLexicalPageCandidates + selectedBase + gemmaCandidates)
             .distinctBy { it.widget.id }
             .take(48)
 
