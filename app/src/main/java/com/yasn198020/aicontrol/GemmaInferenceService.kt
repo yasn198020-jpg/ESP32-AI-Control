@@ -34,9 +34,9 @@ class GemmaInferenceService : Service() {
         const val EXTRA_PROMPT_BENCHMARK = "prompt_benchmark"
         const val EXTRA_FULL_DIAGNOSTICS = "full_diagnostics"
 
-        private const val MODEL_FILE_NAME = "marfa-gemma3-1b-q4km.gguf"
-        private const val MODEL_URL = "https://huggingface.co/ggml-org/gemma-3-1b-it-GGUF/resolve/main/gemma-3-1b-it-Q4_K_M.gguf"
-        private const val MODEL_MIN_BYTES = 700L * 1024L * 1024L
+        private const val MODEL_FILE_NAME = "marfa-gemma3-4b-q4km.gguf"
+        private const val MODEL_URL = "https://huggingface.co/ggml-org/gemma-3-4b-it-GGUF/resolve/main/gemma-3-4b-it-Q4_K_M.gguf"
+        private const val MODEL_MIN_BYTES = 2L * 1024L * 1024L * 1024L
         private const val DEFAULT_CONTEXT_SIZE = 768
         private const val MIN_CONTEXT_SIZE = 128
         private const val MAX_CONTEXT_SIZE = 768
