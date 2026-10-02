@@ -78,16 +78,17 @@ $compactCatalog
                 val item = source.optJSONObject(i) ?: continue
                 val index = item.optInt("index", i)
                 val id = item.optString("id").take(16)
-                val page = item.optString("page").take(12)
+                val pageCode = item.optString("page").take(12)
+                val pageText = item.optString("pageText")
                 val title = item.optString("title").take(24)
                 val search = item.optString("titleSearch")
-                    .takeIf { page.isNotBlank() && page.none { it.isLetterOrDigit() || it.isWhitespace() } }
+                    .takeIf { pageText.isNotBlank() && pageText.none { ch -> ch.isLetterOrDigit() || ch.isWhitespace() } }
                     ?.take(35)
                     .orEmpty()
                 val line = if (search.isNotBlank()) {
-                    "$index|$id|$page|$title|$search"
+                    "$index|$id|$pageCode|$title|$search"
                 } else {
-                    "$index|$id|$page|$title"
+                    "$index|$id|$pageCode|$title"
                 }
                 if (out.isNotEmpty() && out.length + line.length + 1 > maxChars) break
                 out.append(line).append('\n')
