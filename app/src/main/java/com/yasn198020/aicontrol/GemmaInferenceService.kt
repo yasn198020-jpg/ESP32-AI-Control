@@ -336,7 +336,7 @@ $compactCatalog
                         } else {
                             Llama.complete(
                                 model = model,
-                                prompt = "КОМАНДА:\n" + command + "\n\nCATALOG:\n" + compactCatalogForContext(catalog),
+                                prompt = "КОМАНДА:\n" + command + "\n\nCATALOG:\n" + compactCatalogForContext(catalog, command),
                                 systemPrompt = CHAT_SYSTEM_PROMPT,
                                 maxTokens = MAX_TOKENS
                             )
