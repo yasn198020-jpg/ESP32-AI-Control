@@ -296,7 +296,6 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
                 val unicodeName = runCatching { UCharacter.getName(codePoint) }.getOrNull()
                 if (!unicodeName.isNullOrBlank()) {
                     out.append(' ').append("U+").append(codePoint.toString(16).uppercase(Locale.ROOT)).append(' ')
-                if (!unicodeName.isNullOrBlank()) {
                     out.append(unicodeName.replace('_', ' ')).append(' ')
                 } else {
                     out.append(' ')
