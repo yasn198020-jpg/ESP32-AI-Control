@@ -154,8 +154,36 @@ class MarfaIntelligence private constructor(context: Context) {
             out.appendLine("delayMs=${it.delayMs}")
             out.appendLine("reply=${it.reply}")
             out.appendLine("needsConfirmation=${it.needsConfirmation}")
-        } ?: out.appendLine("ERROR=${trace.finalError ?: "неизвестно"}")
-        out.appendLine()
+            out.appendLine("actionItems=" + it.actionItems.joinToString(", ") {
+                it.widgetId + "=" + it.value
+            })
+
+            val executionPlan = if (it.action == LocalCommandAction.CONTROL) {
+                AppRuntime.get(context).deviceScenarioManager.planCommand(
+                    it,
+                    devices
+                )
+            } else null
+
+            if (executionPlan != null) {
+                out.appendLine()
+                out.appendLine("--- 9. ФИНАЛЬНЫЙ ПЛАН ИСПОЛНЕНИЯ ---")
+                out.appendLine(
+                    "ДЕЙСТВИЯ: " + executionPlan.actions.joinToString(", ") {
+                        it.widgetId + "=" + it.value
+                    }
+                )
+                out.appendLine(
+                    "ПРЕДУСЛОВИЯ: " + executionPlan.prerequisites.joinToString(", ") {
+                        it.widgetId + "=" + it.value
+                    }.ifBlank { "нет" }
+                )
+                executionPlan.blockedReason?.let {
+                    out.appendLine("БЛОК: $it")
+                } ?: out.appendLine("БЛОК: нет")
+                out.appendLine("MQTT: не отправляется в диагностическом тесте")
+            }
+        } ?: out.appendLine("ERROR=${trace.finalError ?: "неизвестно"}")        out.appendLine()
         out.appendLine("=== СКВОЗНОЙ ТЕСТ ЗАВЕРШЕН ===")
         out.appendLine("Ни MQTT, ни действие устройства этим тестом не выполняются.")
         return Result.success(out.toString())
