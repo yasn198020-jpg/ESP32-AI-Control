@@ -234,7 +234,7 @@ INDICES:$validIndices
                     if (command.isBlank() && rawPrompt.isBlank()) throw Exception("Пустая команда")
                     if (rawPrompt.isBlank() && catalog.isBlank()) throw Exception("Пустой каталог виджетов")
 
-                    stage("Проверка облегчённой модели Gemma 3 1B")
+                    stage("Проверка модели Gemma 3 4B")
                     ensureModelFile { message -> stage(message) }
 
                     if (MarfaLlamaNative.isAvailable()) {
@@ -582,7 +582,7 @@ INDICES:$validIndices
         if (file.isFile && file.length() >= MODEL_MIN_BYTES) return
         file.parentFile?.mkdirs()
         val temp = File(file.parentFile, MODEL_FILE_NAME + ".download")
-        stage("Скачивание Gemma 3 1B Q4_K_M (~806 МБ)")
+        stage("Скачивание Gemma 3 4B Q4_K_M (~3,3 ГБ)")
         val connection = (java.net.URL(MODEL_URL).openConnection() as java.net.HttpURLConnection).apply {
             connectTimeout = 15_000
             readTimeout = 60_000
@@ -613,7 +613,7 @@ INDICES:$validIndices
             if (temp.length() < MODEL_MIN_BYTES) throw Exception("Скачанный GGUF слишком маленький: " + formatBytes(temp.length()))
             if (file.exists()) file.delete()
             if (!temp.renameTo(file)) throw Exception("Не удалось сохранить Gemma GGUF")
-            stage("Gemma 3 1B скачана: " + formatBytes(file.length()))
+            stage("Gemma 3 4B скачана: " + formatBytes(file.length()))
         } finally {
             connection.disconnect()
             if (temp.exists() && temp.length() < MODEL_MIN_BYTES) temp.delete()
@@ -630,7 +630,7 @@ INDICES:$validIndices
         loadedModel?.let { if (loadedPath == path && loadedThreads == cpuThreads && loadedContext == requestedContext) return it }
 
         if (!modelFile.isFile || modelFile.length() < MODEL_MIN_BYTES) {
-            throw Exception("Файл Gemma 3 1B GGUF не найден или неполный: " + formatBytes(modelFile.length()))
+            throw Exception("Файл Gemma 3 4B GGUF не найден или неполный: " + formatBytes(modelFile.length()))
         }
 
         val memory = getSystemService(ACTIVITY_SERVICE) as ActivityManager
@@ -684,7 +684,7 @@ INDICES:$validIndices
         }
 
         if (!modelFile.isFile || modelFile.length() < MODEL_MIN_BYTES) {
-            throw Exception("Файл Gemma 3 1B GGUF не найден или неполный: " + formatBytes(modelFile.length()))
+            throw Exception("Файл Gemma 3 4B GGUF не найден или неполный: " + formatBytes(modelFile.length()))
         }
 
         nativeHandle.takeIf { it != 0L }?.let {
