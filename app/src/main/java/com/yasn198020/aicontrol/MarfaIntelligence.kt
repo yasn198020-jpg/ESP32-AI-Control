@@ -15,12 +15,14 @@ class MarfaIntelligence private constructor(context: Context) {
     }
 
     private val gemma = GemmaLocalEngine.get(context)
+    private val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
     private val smartRuleParser = LocalCommandManager()
     private val trainedMatcher = TrainedCommandMatcher(
         TrainedCommandStore(context.getSharedPreferences("settings", Context.MODE_PRIVATE))
     )
 
     fun gemmaStatus(): String = gemma.statusText()
+    fun isGemmaEnabled(): Boolean = prefs.getBoolean("gemma_enabled", true)
     suspend fun importGemmaModel(uri: Uri): Result<String> = gemma.importModel(uri)
 
     suspend fun interpret(command: String, devices: List<Device>): LocalCommandResult {
@@ -40,6 +42,7 @@ class MarfaIntelligence private constructor(context: Context) {
         // deterministic engine. Gemma is not invoked for every sentence.
         val fast = smartRuleParser.interpret(text, devices)
 
+        if (!isGemmaEnabled()) return fast
         if (!gemma.isModelInstalled()) return fast
         if (!shouldUseGemma(text, fast, devices)) return fast
 
@@ -76,10 +79,12 @@ class MarfaIntelligence private constructor(context: Context) {
             out.appendLine("Следующая стадия: Gemma не вызывается.")
             return Result.success(out.toString())
         }
+        val gemmaEnabled = isGemmaEnabled()
         val modelInstalled = gemma.isModelInstalled()
-        val useGemma = modelInstalled && shouldUseGemma(text, fast, devices)
+        val useGemma = gemmaEnabled && modelInstalled && shouldUseGemma(text, fast, devices)
         out.appendLine()
         out.appendLine("--- 2. РЕШЕНИЕ MARFA INTELLIGENCE ---")
+        out.appendLine("gemmaEnabled=$gemmaEnabled")
         out.appendLine("gemmaInstalled=$modelInstalled")
         out.appendLine("shouldUseGemma=$useGemma")
         val explained = buildSet {
@@ -96,8 +101,14 @@ class MarfaIntelligence private constructor(context: Context) {
         val unknown = semanticTokens(text).filter { it !in explained }
         out.appendLine("explained=${explained.joinToString(", ").ifBlank { "нет" }}")
         out.appendLine("unknown/context=${unknown.joinToString(", ").ifBlank { "нет" }}")
-        if (!modelInstalled || !useGemma) {
-            out.appendLine(if (!modelInstalled) "Gemma не установлена — фактический путь завершится FAST PATH." else "Gemma по реальной логике приложения не запускается.")
+        if (!gemmaEnabled || !modelInstalled || !useGemma) {
+            out.appendLine(
+                when {
+                    !gemmaEnabled -> "Gemma выключена в настройках — фактический путь завершится FAST PATH."
+                    !modelInstalled -> "Gemma не установлена — фактический путь завершится FAST PATH."
+                    else -> "Gemma по реальной логике приложения не запускается."
+                }
+            )
             out.appendLine("ФИНАЛ: action=${fast.action}, deviceId=${fast.deviceId}, widgetId=${fast.widgetId}, value=${fast.value}")
             return Result.success(out.toString())
         }
