@@ -671,6 +671,23 @@ CATALOG fields: index, id, page, pageSemantic, title, titleSearch, type.
         devices: List<Device>
     ): Boolean {
         if (widgetId.isBlank()) return false
+
+        val widget = devices.asSequence()
+            .flatMap { it.widgets.asSequence() }
+            .firstOrNull { it.id == widgetId }
+            ?: return false
+
+        /*
+         * A logical state/control such as "закрыта открыта дверь" must be a
+         * stopping point, not something that we reverse-resolve further.
+         * Physical scenario actuators normally expose an action title such as
+         * "открыть дверь", "закрыть дверь", "включить насос", etc.  A title
+         * containing both opposite state words is explicitly treated as a
+         * logical state, so vbtn178 can never climb into the manual/automatic
+         * gate vbtn190.
+         */
+        if (!isScenarioActionTitle(widget.title)) return false
+
         val manager = AppRuntime.get(appContext).deviceScenarioManager
         var currentId = widgetId
         val visited = mutableSetOf<String>()
@@ -698,6 +715,23 @@ CATALOG fields: index, id, page, pageSemantic, title, titleSearch, type.
         }
 
         return currentId != widgetId
+    }
+
+    private fun isScenarioActionTitle(title: String): Boolean {
+        val text = EmojiSemanticText.normalize(title).lowercase(Locale.ROOT)
+        val open = listOf("откры", "распах", "подним", "отпер", "open", "raise", "unlock")
+            .any { text.contains(it) }
+        val close = listOf("закры", "опуст", "запечат", "запер", "close", "lower", "lock")
+            .any { text.contains(it) }
+        val on = listOf("включ", "запуст", "зажг", "старт", "enable", "start")
+            .any { text.contains(it) }
+        val off = listOf("выключ", "останов", "погас", "стоп", "disable", "stop")
+            .any { text.contains(it) }
+
+        // "открыта/закрыта", "включен/выключен" are state widgets, not
+        // physical actions, even though they contain the same stems.
+        val hasBothOppositeStates = (open && close) || (on && off)
+        return !hasBothOppositeStates && (open || close || on || off)
     }
 
     private fun describeCandidate(deviceId: String, widget: WidgetState): String =
