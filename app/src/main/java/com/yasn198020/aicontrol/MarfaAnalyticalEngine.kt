@@ -444,7 +444,10 @@ class MarfaAnalyticalEngine {
                 val matched = pageTokens.count { pageToken ->
                     commandTokens.any { commandToken -> lexicalMatch(commandToken, pageToken) }
                 }
-                if (matched == pageTokens.size) {
+                // The user's context does not need to repeat every descriptive
+                // word of the tab. "огурцов" must match "Теплиц 🥒" even though
+                // the tab also contains the word "теплиц".
+                if (matched == commandTokens.size) {
                     val pageControlScore = devices.asSequence()
                         .flatMap { device -> device.widgets.asSequence().map { device to it } }
                         .filter { (_, widget) ->
