@@ -503,19 +503,33 @@ INDICES:$validIndices
         val restoreMs = System.currentTimeMillis() - restoreStarted
 
         report.append("\n--- 4. PROMPT BATCH BENCHMARK (REAL IOT PROMPT) ---\n")
-        val benchmark = JSONObject(
-            MarfaLlamaNative.nativeBenchmarkPrompt(
-                handle = handle,
-                prompt = realIotPrompt,
-                systemPrompt = CHAT_SYSTEM_PROMPT
-            )
-        )
-        val benchmarkError = benchmark.optString("error").trim()
-        if (benchmarkError.isNotBlank()) {
-            throw Exception("Prompt benchmark: " + benchmarkError)
-        }
+        report.append("Тестируем только 32 / 64 / 128 / 256; каждый batch запускается в отдельном context.\n")
         report.append("restoreLoadMs=").append(restoreMs).append("\n")
-        report.append(benchmark.toString(2)).append("\n")
+
+        listOf(32, 64, 128, 256).forEachIndexed { index, batchSize ->
+            stage("Prompt batch ${batchSize} (${index + 1}/4)")
+            val benchmark = JSONObject(
+                MarfaLlamaNative.nativeBenchmarkPromptBatch(
+                    handle = handle,
+                    prompt = realIotPrompt,
+                    systemPrompt = CHAT_SYSTEM_PROMPT,
+                    batchSize = batchSize
+                )
+            )
+            val benchmarkError = benchmark.optString("error").trim()
+            if (benchmarkError.isNotBlank()) {
+                throw Exception("Prompt batch $batchSize: $benchmarkError")
+            }
+
+            report.append("batch=").append(batchSize)
+                .append(": promptTokens=").append(benchmark.optInt("promptTokens", 0))
+                .append(", contextInitMs=").append(benchmark.optDouble("contextInitMs", 0.0).toLong())
+                .append(", promptMs=").append(benchmark.optDouble("promptMs", 0.0).toLong())
+                .append(", tok/s=").append(benchmark.optDouble("tokPerSec", 0.0))
+                .append(", nBatch=").append(benchmark.optInt("nBatch", 0))
+                .append(", nUBatch=").append(benchmark.optInt("nUBatch", 0))
+                .append("\n")
+        }
 
         report.append("\n--- 5. RAW LANGUAGE SANITY ---\n")
         listOf(
