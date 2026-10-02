@@ -80,7 +80,7 @@ $compactCatalog
                 }
                 val line = "$index|$semanticPage|$title"
                 if (out.isNotEmpty() && out.length + line.length + 1 > maxChars) break
-                out.append(line).append('\\n')
+                out.append(line).append('\n')
             }
             out.toString().trim()
         }.getOrElse { catalog.take(maxChars) }
