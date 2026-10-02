@@ -216,11 +216,12 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
                 put("index", array.length())
                 put("id", item.widget.id)
                 put("device", item.device.name)
-                put("page", item.widget.page)
+                // Use Unicode code points, not the rendered emoji, as the page identifier.
+                put("page", unicodeCodePoints(item.widget.page))
+                put("pageText", item.widget.page)
                 put("title", item.widget.title)
-                // Put page semantics first so a compact prompt cannot cut away
-                // the Unicode meaning of a symbol/emoji-only page.
                 put("titleSearch", searchableText(item.widget.page + " " + item.widget.title + " " + item.device.name + " " + item.widget.definitionName))
+                put("pageCode", unicodeCodePoints(item.widget.page))
                 put("type", item.widget.type.name)
             })
         }
@@ -294,10 +295,31 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
             } else {
                 val unicodeName = runCatching { UCharacter.getName(codePoint) }.getOrNull()
                 if (!unicodeName.isNullOrBlank()) {
-                    out.append(' ').append(unicodeName.replace('_', ' ')).append(' ')
+                    out.append(' ').append("U+").append(codePoint.toString(16).uppercase(Locale.ROOT)).append(' ')
+                if (!unicodeName.isNullOrBlank()) {
+                    out.append(unicodeName.replace('_', ' ')).append(' ')
                 } else {
                     out.append(' ')
                 }
+            }
+            offset += Character.charCount(codePoint)
+        }
+        return out.toString()
+    }
+
+    /**
+     * Stable text-only identifier for each Unicode code point.
+     * Example: 🍅 -> U+1F345.
+     */
+    private fun unicodeCodePoints(value: String): String {
+        if (value.isBlank()) return ""
+        val out = StringBuilder()
+        var offset = 0
+        while (offset < value.length) {
+            val codePoint = value.codePointAt(offset)
+            if (!Character.isWhitespace(codePoint)) {
+                if (out.isNotEmpty()) out.append(' ')
+                out.append("U+").append(codePoint.toString(16).uppercase(Locale.ROOT))
             }
             offset += Character.charCount(codePoint)
         }
