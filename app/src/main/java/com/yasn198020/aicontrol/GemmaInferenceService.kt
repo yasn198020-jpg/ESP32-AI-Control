@@ -43,11 +43,7 @@ class GemmaInferenceService : Service() {
         private const val MAX_THREADS = 6
         private const val MAX_TOKENS = 40
 
-        private const val CHAT_SYSTEM_PROMPT = """
-Выбери управляющий объект IoT по смыслу команды. Учитывай словоформы и смысл страницы. Не выбирай датчик или состояние.
-Верни только ОДИН корректный JSON-объект без Markdown: {"kind":"control","candidateIndex":0,"value":"1"}
-Для control candidateIndex — число из CATALOG, value — "1" или "0". Для clarify/not_found candidateIndex=-1.
-"""
+        // Gemma 3 IT: keep the IoT task in a single USER turn.\n        private const val RAW_SYSTEM_PROMPT = "Ты обычный русскоязычный помощник. Отвечай естественно и кратко."
 
     }
 
@@ -58,12 +54,17 @@ class GemmaInferenceService : Service() {
             .mapNotNull { it.substringBefore('|').toIntOrNull() }
             .joinToString(",")
         return """
-CMD:$command
-CAT:
+Ты выбираешь управляющий виджет IoT по смыслу команды.
+Понимай словоформы и контекст страницы. Не выбирай датчики, значения или виджеты состояния.
+Выбирай только подходящий объект из CANDIDATES.
+Команда: $command
+CANDIDATES:
 $compactCatalog
-INDICES:$validIndices
-1=открыть/включить; 0=закрыть/выключить.
-Верни только JSON-объект без пояснений, строго в формате {"kind":"control","candidateIndex":2,"value":"1"}.
+Индексы: $validIndices
+Значение: 1=открыть/включить, 0=закрыть/выключить.
+Ответь только одним JSON без Markdown:
+{"kind":"control","candidateIndex":2,"value":"1"}
+Если подходящего или однозначного управления нет: {"kind":"clarify","candidateIndex":-1,"value":""}
 """.trimIndent()
     }
 
@@ -254,9 +255,9 @@ INDICES:$validIndices
                             buildIoTPrompt(command, catalog)
                         }
                         val systemPrompt = if (rawPrompt.isNotBlank()) {
-                            "Ты обычный русскоязычный помощник. Отвечай естественно и кратко."
+                            RAW_SYSTEM_PROMPT
                         } else {
-                            CHAT_SYSTEM_PROMPT
+                            ""
                         }
                         val maxTokens = if (rawPrompt.isNotBlank()) requestedMaxTokens else MAX_TOKENS
 
@@ -266,6 +267,7 @@ INDICES:$validIndices
                                     "; catalogJsonChars=" + catalog.length +
                                     "; promptChars=" + prompt.length +
                                     "; systemChars=" + systemPrompt.length +
+                                    "; gemmaPromptMode=" + (if (systemPrompt.isBlank()) "single-user" else "system+user") +
                                     "; maxTokens=" + maxTokens
                             )
                         }
@@ -298,7 +300,7 @@ INDICES:$validIndices
                                 "Real IoT prompt input: commandChars=" + iotCommand.length +
                                     "; catalogJsonChars=" + catalog.length +
                                     "; promptChars=" + iotPrompt.length +
-                                    "; systemChars=" + CHAT_SYSTEM_PROMPT.length +
+                                    "; systemChars=" + "".length +
                                     "; maxTokens=" + MAX_TOKENS
                             )
                             val report = runFullNativeDiagnostics(::stage, iotPrompt)
@@ -308,7 +310,7 @@ INDICES:$validIndices
                                 MarfaLlamaNative.nativeGenerate(
                                     handle = iotHandle,
                                     prompt = iotPrompt,
-                                    systemPrompt = CHAT_SYSTEM_PROMPT,
+                                    systemPrompt = "",
                                     maxTokens = MAX_TOKENS
                                 )
                             )
@@ -416,7 +418,7 @@ INDICES:$validIndices
                             Llama.complete(
                                 model = model,
                                 prompt = "КОМАНДА:\n" + command + "\n\nCATALOG:\n" + compactCatalogForContext(catalog, command),
-                                systemPrompt = CHAT_SYSTEM_PROMPT,
+                                systemPrompt = "",
                                 maxTokens = MAX_TOKENS
                             )
                         }
@@ -512,7 +514,7 @@ INDICES:$validIndices
                 MarfaLlamaNative.nativeBenchmarkPromptBatch(
                     handle = handle,
                     prompt = realIotPrompt,
-                    systemPrompt = CHAT_SYSTEM_PROMPT,
+                    systemPrompt = "",
                     batchSize = batchSize
                 )
             )
