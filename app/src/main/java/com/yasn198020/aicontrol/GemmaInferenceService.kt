@@ -68,28 +68,26 @@ $compactCatalog
 """.trimIndent()
     }
 
-    // 768-token context: keep the catalog very compact.
-    // Candidate indexes stay unchanged, including emoji-page candidates.
-    private fun compactCatalogForContext(catalog: String, maxChars: Int = 400): String {
+    // Keep the semantic catalog small enough for the 768-token context while
+    // preserving the original candidate indexes. Normal pages use their real
+    // readable names; emoji-only pages use titleSearch with Unicode names.
+    private fun compactCatalogForContext(catalog: String, maxChars: Int = 480): String {
         return runCatching {
             val source = JSONArray(catalog)
             val out = StringBuilder()
             for (i in 0 until source.length()) {
                 val item = source.optJSONObject(i) ?: continue
                 val index = item.optInt("index", i)
-                val id = item.optString("id").take(16)
-                val pageCode = item.optString("page").take(12)
-                val pageText = item.optString("pageText")
-                val title = item.optString("title").take(24)
-                val search = item.optString("titleSearch")
-                    .takeIf { pageText.isNotBlank() && pageText.none { ch -> ch.isLetterOrDigit() || ch.isWhitespace() } }
-                    ?.take(35)
-                    .orEmpty()
-                val line = if (search.isNotBlank()) {
-                    "$index|$id|$pageCode|$title|$search"
+                val pageText = item.optString("pageText").trim()
+                val title = item.optString("title").trim().take(28)
+                val emojiOnly = pageText.isNotBlank() &&
+                    pageText.none { ch -> ch.isLetterOrDigit() || ch.isWhitespace() }
+                val semanticPage = if (emojiOnly) {
+                    item.optString("titleSearch").trim().take(42)
                 } else {
-                    "$index|$id|$pageCode|$title"
+                    pageText.take(20)
                 }
+                val line = "$index|$semanticPage|$title"
                 if (out.isNotEmpty() && out.length + line.length + 1 > maxChars) break
                 out.append(line).append('\n')
             }
