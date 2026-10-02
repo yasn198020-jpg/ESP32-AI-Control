@@ -1103,7 +1103,7 @@ object IoTScenarioCommandPlanner {
         models: List<Pair<StoredDeviceScenario, DeviceScenarioModel>>
     ): Pair<String, String>? {
         val desired = normalizeValue(desiredValue)
-        if (desired != "1") return null
+        if (desired != "0" && desired != "1") return null
 
         val resolved = devices
             .flatMap { device -> device.widgets.map { it.id to (device.id to it) } }
