@@ -41,23 +41,17 @@ class GemmaInferenceService : Service() {
         private const val MIN_CONTEXT_SIZE = 128
         private const val MAX_CONTEXT_SIZE = 768
         private const val MAX_THREADS = 6
-        private const val MAX_TOKENS = 32
+        private const val MAX_TOKENS = 48
 
         private const val CHAT_SYSTEM_PROMPT = """
-Ты локальный семантический интерпретатор команд IoTManager.
-Пойми смысл русской команды и выбери существующий логический объект из CATALOG.
-Учитывай падежи, окончания, разговорные формы и контекст слов.
-Не используй фиксированный словарь предметов.
-«закрой дверь» означает объект двери, даже если рядом есть элементы «закрыть» или «открыть».
-Приоритет — логический объект/состояние, а не физическое реле/GPIO.
-Не придумывай ID. Выбирай только существующий candidateIndex.
-Если подходящий объект есть, не возвращай -1.
-Не выполняй MQTT, сценарии, ручной режим и зависимости — это делает приложение.
-Верни ТОЛЬКО JSON:
-{"kind":"control|read_value|not_found","candidateIndex":0,"value":"","delayMs":0,"reply":""}
-CATALOG: index,id,device,page,title,titleSearch,type.
-title — исходное название; titleSearch — поисковая форма, в том числе для символов/эмодзи.
-Некоторые page состоят только из эмодзи/символов. Для них titleSearch содержит Unicode-смысл символа; сопоставляй его со смыслом русской команды.
+Ты семантически разбираешь русскую команду IoTManager.
+Выбери существующий объект из CATALOG по смыслу, учитывая падежи, окончания и контекст.
+Не используй фиксированный словарь. Например «помидор», «помидора», «помидорами» — один смысл; так же обрабатывай любые слова.
+Приоритет — логический объект, а не физическое реле.
+Выбирай только существующий candidateIndex. Не выполняй действия сам.
+Верни только JSON без Markdown:
+{"kind":"control|read_value|clarify|not_found","candidateIndex":0,"value":"1","delayMs":0,"reply":""}
+В CATALOG поле titleSearch может содержать смысл Unicode для emoji-only page; сопоставляй его со смыслом команды.
 """
 
     }
@@ -76,7 +70,7 @@ $compactCatalog
 
     // 768-token context: keep the catalog very compact.
     // Candidate indexes stay unchanged, including emoji-page candidates.
-    private fun compactCatalogForContext(catalog: String, maxChars: Int = 650): String {
+    private fun compactCatalogForContext(catalog: String, maxChars: Int = 400): String {
         return runCatching {
             val source = JSONArray(catalog)
             val out = StringBuilder()
