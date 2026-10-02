@@ -34,13 +34,13 @@ android {
         externalNativeBuild {
             cmake {
                 arguments '-DCMAKE_BUILD_TYPE=Release',
-                          '-DBUILD_SHARED_LIBS=OFF',
+                          '-DBUILD_SHARED_LIBS=ON',
                           '-DLLAMA_BUILD_COMMON=ON',
                           '-DLLAMA_BUILD_APP=OFF',
                           '-DLLAMA_OPENSSL=OFF',
                           '-DGGML_NATIVE=OFF',
-                          '-DGGML_BACKEND_DL=OFF',
-                          '-DGGML_CPU_ALL_VARIANTS=OFF',
+                          '-DGGML_BACKEND_DL=ON',
+                          '-DGGML_CPU_ALL_VARIANTS=ON',
                           '-DGGML_CPU_KLEIDIAI=ON',
                           '-DGGML_OPENMP=OFF',
                           '-DGGML_LLAMAFILE=OFF'
