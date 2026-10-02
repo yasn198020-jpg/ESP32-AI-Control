@@ -76,19 +76,19 @@ $compactCatalog
 
     // 768-token context: keep the catalog very compact.
     // Candidate indexes stay unchanged, including emoji-page candidates.
-    private fun compactCatalogForContext(catalog: String, maxChars: Int = 900): String {
+    private fun compactCatalogForContext(catalog: String, maxChars: Int = 650): String {
         return runCatching {
             val source = JSONArray(catalog)
             val out = StringBuilder()
             for (i in 0 until source.length()) {
                 val item = source.optJSONObject(i) ?: continue
                 val index = item.optInt("index", i)
-                val id = item.optString("id").take(20)
-                val page = item.optString("page").take(20)
-                val title = item.optString("title").take(34)
+                val id = item.optString("id").take(16)
+                val page = item.optString("page").take(12)
+                val title = item.optString("title").take(24)
                 val search = item.optString("titleSearch")
                     .takeIf { page.isNotBlank() && page.none { it.isLetterOrDigit() || it.isWhitespace() } }
-                    ?.take(55)
+                    ?.take(35)
                     .orEmpty()
                 val line = if (search.isNotBlank()) {
                     "$index|$id|$page|$title|$search"
