@@ -51,6 +51,37 @@ class MarfaIntelligence private constructor(context: Context) {
             // Gemma is optional. Any model/JNI/runtime error falls back to the
             // already working local command engine.
             fast
+        }.let { gemmaResult ->
+            /*
+             * Scenario reasoning must never inherit an incorrect OPEN/CLOSE
+             * value from the LLM. The action verb is deterministic and is
+             * already understood by the local parser. Gemma may resolve the
+             * spoken context/element, but the scenario engine is the source of
+             * truth for dependencies, mode gates and the physical actuator.
+             */
+            if (gemmaResult.action != LocalCommandAction.CONTROL) {
+                gemmaResult
+            } else {
+                val authoritativeValue = fast.value.ifBlank { commandValue(text) }
+                if (authoritativeValue.isBlank()) {
+                    gemmaResult
+                } else {
+                    gemmaResult.copy(
+                        value = authoritativeValue,
+                        actionItems = gemmaResult.actionItems.map {
+                            it.copy(value = authoritativeValue)
+                        }.ifEmpty {
+                            listOf(
+                                LocalCommandActionItem(
+                                    gemmaResult.deviceId,
+                                    gemmaResult.widgetId,
+                                    authoritativeValue
+                                )
+                            )
+                        }
+                    )
+                }
+            }
         }
     }
 
@@ -220,6 +251,17 @@ class MarfaIntelligence private constructor(context: Context) {
             " там ", " здесь ", " где ", " у ", " около ", " возле ",
             " рядом ", " для ", " внутри ", " снаружи ", " в ", " на "
         ).any { padded.contains(it) } || n.split(" ").size >= 5
+    }
+
+    private fun commandValue(text: String): String {
+        val normalized = normalize(text)
+        return when {
+            Regex("""\b(?:открой|открыть|открывай|подними|поднять|распахни|раскрой)\b""").containsMatchIn(normalized) -> "1"
+            Regex("""\b(?:закрой|закрыть|закрывай|опусти|опустить|запечатай)\b""").containsMatchIn(normalized) -> "0"
+            Regex("""\b(?:включи|включить|включай|запусти|запустить|зажги)\b""").containsMatchIn(normalized) -> "1"
+            Regex("""\b(?:выключи|выключить|выключай|останови|остановить|погаси)\b""").containsMatchIn(normalized) -> "0"
+            else -> ""
+        }
     }
 
     private fun shouldUseGemma(
