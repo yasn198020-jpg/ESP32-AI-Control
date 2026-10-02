@@ -133,7 +133,7 @@ class GemmaTestActivity : Activity() {
                 "Потоки: 1 / 2 / 4 / 6\n" +
                 "Context: 128 / 256 / 512 / 768\n" +
                 "Tokens: 8 / 16 / 32 / 96\n" +
-                "Prompt batch: 1 / 2 / 4 / 8 / 16 / 32 / 64 / 128 / 192 / 256 / 512\n" +
+                "Prompt batch: 32 / 64 / 128 / 256\n" +
                 "Raw language: 2 теста\n" +
                 "IoT: Открой дверь помидоров\n" +
                 "Запуск…"
