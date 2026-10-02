@@ -41,22 +41,28 @@ class GemmaInferenceService : Service() {
         private const val MIN_CONTEXT_SIZE = 128
         private const val MAX_CONTEXT_SIZE = 768
         private const val MAX_THREADS = 6
-        private const val MAX_TOKENS = 40
+        private const val MAX_TOKENS = 24
 
         private const val CHAT_SYSTEM_PROMPT = """
-Разбери команду IoTManager. Выбери существующий candidateIndex из CATALOG по смыслу, учитывая словоформы и смысловое имя страницы. Логический объект важнее реле. Эмодзи страницы уже переведены во внутренний короткий русский текст. Не выдумывай индекс и не выполняй действие.
-Верни ТОЛЬКО один короткий JSON без Markdown и без пояснений. candidateIndex ДОЛЖЕН быть конкретным целым числом из CATALOG, например 0, 1 или 2. НЕЛЬЗЯ писать N, <index>, -1 для control или выдуманный индекс. Для control используй value 1 или 0. Для clarify/not_found используй candidateIndex=-1. Не пиши reply или delayMs.
+Выбери управляющий объект IoT по смыслу команды. Учитывай словоформы и смысл страницы. Не выбирай датчик или состояние.
+Только JSON: kind=control/clarify/not_found; для control candidateIndex — число из CATALOG, value — 1 или 0; для других candidateIndex=-1.
 """
 
     }
 
     private fun buildIoTPrompt(command: String, catalog: String): String {
         val compactCatalog = compactCatalogForContext(catalog, command)
+        val validIndices = compactCatalog
+            .lineSequence()
+            .mapNotNull { it.substringBefore('|').toIntOrNull() }
+            .joinToString(",")
         return """
 CMD:$command
 CAT:
 $compactCatalog
-Выбери ОДНУ строку CATALOG и верни её индекс как число. Индекс должен точно совпадать с числом слева в строке. Не копируй пример и не пиши буквы вместо числа. 1=открыть/включить, 0=закрыть/выключить. Только JSON: {"kind":"control","candidateIndex":2,"value":"1"}
+INDICES:$validIndices
+1=открыть/включить; 0=закрыть/выключить.
+Ответ только JSON. kind=control, candidateIndex=одно число из INDICES, value=1 или 0.
 """.trimIndent()
     }
 
@@ -66,8 +72,8 @@ $compactCatalog
     private fun compactCatalogForContext(
         catalog: String,
         command: String,
-        maxChars: Int = 520,
-        maxCandidates: Int = 8
+        maxChars: Int = 360,
+        maxCandidates: Int = 6
     ): String {
         return runCatching {
             val source = JSONArray(catalog)
