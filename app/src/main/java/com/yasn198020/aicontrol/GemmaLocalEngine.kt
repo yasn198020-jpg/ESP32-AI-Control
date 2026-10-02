@@ -1,7 +1,6 @@
 package com.yasn198020.aicontrol
 
 import android.content.Context
-import android.icu.lang.UCharacter
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -59,7 +58,7 @@ class GemmaLocalEngine private constructor(private val appContext: Context) {
 Если несколько объектов подходят одинаково хорошо — clarify.
 Не выполняй MQTT, сценарии, ручной режим и зависимости: это делает приложение.
 Верни ТОЛЬКО JSON без Markdown: {"kind":"control|read_value|clarify|not_found","candidateIndex":-1,"value":"","delayMs":0,"reply":""}
-CATALOG fields: index, id, device, page, title, titleSearch, type.
+CATALOG fields: index, id, device, pageSemantic, title, titleSearch, type.
 """
         @Volatile private var instance: GemmaLocalEngine? = null
 
@@ -217,12 +216,13 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
                 put("index", array.length())
                 put("id", item.widget.id)
                 put("device", item.device.name)
-                // Use Unicode code points, not the rendered emoji, as the page identifier.
-                put("page", unicodeCodePoints(item.widget.page))
+                // Keep the original page for UI/diagnostics, but expose only
+                // canonical Russian semantic text to Marfa/Gemma internals.
+                put("page", item.widget.page)
                 put("pageText", item.widget.page)
+                put("pageSemantic", EmojiSemanticText.normalize(item.widget.page))
                 put("title", item.widget.title)
                 put("titleSearch", searchableText(item.widget.page + " " + item.widget.title + " " + item.device.name + " " + item.widget.definitionName))
-                put("pageCode", unicodeCodePoints(item.widget.page))
                 put("type", item.widget.type.name)
             })
         }
@@ -280,67 +280,17 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
     }
 
     /**
-     * Universal search representation. Original titles remain untouched.
-     * Symbols/emoji are supplemented with their Unicode standard names instead
-     * of using a hard-coded dictionary for individual objects.
+     * Canonical semantic search text. Emoji remain untouched in the UI, but all
+     * internal matching uses short Russian meanings with a cached fallback.
      */
-    private fun searchableText(value: String): String {
-        if (value.isBlank()) return value
-        val out = StringBuilder(value.length + 64)
-        var offset = 0
-        while (offset < value.length) {
-            val codePoint = value.codePointAt(offset)
-            val chars = String(Character.toChars(codePoint))
-            if (Character.isLetterOrDigit(codePoint) || Character.isWhitespace(codePoint)) {
-                out.append(chars)
-            } else {
-                val unicodeName = runCatching { UCharacter.getName(codePoint) }.getOrNull()
-                if (!unicodeName.isNullOrBlank()) {
-                    out.append(' ').append("U+").append(codePoint.toString(16).uppercase(Locale.ROOT)).append(' ')
-                    out.append(unicodeName.replace('_', ' ')).append(' ')
-                } else {
-                    out.append(' ')
-                }
-            }
-            offset += Character.charCount(codePoint)
-        }
-        return out.toString()
-    }
+    private fun searchableText(value: String): String =
+        EmojiSemanticText.normalize(value)
 
     /**
-     * Stable text-only identifier for each Unicode code point.
-     * Example: 🍅 -> U+1F345.
+     * True when a page has no ordinary letters/digits. Kept for candidate grouping.
      */
-    private fun unicodeCodePoints(value: String): String {
-        if (value.isBlank()) return ""
-        val out = StringBuilder()
-        var offset = 0
-        while (offset < value.length) {
-            val codePoint = value.codePointAt(offset)
-            if (!Character.isWhitespace(codePoint)) {
-                if (out.isNotEmpty()) out.append(' ')
-                out.append("U+").append(codePoint.toString(16).uppercase(Locale.ROOT))
-            }
-            offset += Character.charCount(codePoint)
-        }
-        return out.toString()
-    }
-
-    private fun containsSymbolOrEmoji(value: String): Boolean {
-        if (value.isBlank()) return false
-        var offset = 0
-        while (offset < value.length) {
-            val codePoint = value.codePointAt(offset)
-            if (!Character.isLetterOrDigit(codePoint) && !Character.isWhitespace(codePoint)) {
-                return true
-            }
-            offset += Character.charCount(codePoint)
-        }
-        return false
-    }
-
     private fun isNonLexicalPage(page: String): Boolean =
-        page.isNotBlank() && page.none { it.isLetterOrDigit() || it.isWhitespace() }
+        page.isNotBlank() && EmojiSemanticText.isEmojiOnly(page)
 
     private fun semanticTokens(value: String): Set<String> {
         val normalizedValue = searchableText(value)
