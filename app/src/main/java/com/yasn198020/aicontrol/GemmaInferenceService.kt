@@ -157,7 +157,7 @@ $compactCatalog
             for (line in selected) {
                 if (line.text.length > maxChars) continue
                 if (out.isNotEmpty() && out.length + line.text.length + 1 > maxChars) continue
-                out.append(line.text).append('\\n')
+                out.append(line.text).append('\n')
             }
 
             out.toString().trim()
