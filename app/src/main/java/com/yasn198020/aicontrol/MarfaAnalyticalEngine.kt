@@ -125,7 +125,7 @@ class MarfaAnalyticalEngine {
         }
         // Explicit page/tab is a hard constraint.
         val scoped = if (page == null) contextScoped
-        else contextScoped.filter { normalize(it.widget.page) == page }
+        else contextScoped.filter { searchableText(it.widget.page).trim() == page }
 
         val explicitEntity = detectEntityKind(normalized)
         val entityScoped = if (explicitEntity == EntityKind.GENERIC) {
@@ -406,9 +406,10 @@ class MarfaAnalyticalEngine {
             .filter { it.isNotBlank() }
             .distinct()
             .mapNotNull { rawPage ->
-                val lexicalPage = normalize(rawPage)
-                // Only text-bearing pages can be matched deterministically here.
-                // Symbol/emoji-only pages are kept for semantic Gemma resolution.
+                // Use the same internal semantic representation as Gemma.
+                // UI keeps the original emoji, but 🍅 must behave as "помидоры"
+                // for page/context matching as well.
+                val lexicalPage = searchableText(rawPage).trim()
                 if (lexicalPage.isBlank()) return@mapNotNull null
 
                 val pageTokens = tokenized(lexicalPage)
@@ -436,7 +437,7 @@ class MarfaAnalyticalEngine {
 
         val pageTokens = devices.asSequence()
             .flatMap { it.widgets.asSequence() }
-            .map { normalize(it.page) }
+            .map { searchableText(it.page) }
             .filter { it.isNotBlank() }
             .distinct()
             .flatMap { tokenized(it).asSequence() }
