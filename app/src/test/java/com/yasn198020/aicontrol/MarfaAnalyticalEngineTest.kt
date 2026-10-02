@@ -329,5 +329,65 @@ class MarfaAnalyticalEngineTest {
         assertEquals("1", corrected.value)
     }
 
+    @Test
+    fun sensorContextInflectionMatchesWidgetTitle() {
+        val result = MarfaAnalyticalEngine().resolveSensor(
+            "скажи температуру огурцов",
+            listOf(
+                Device("d1", "Дом", true, listOf(
+                    WidgetState("t1", "Огурцы", WidgetState.Type.VALUE, "24", page = "Температура", unit = "°C"),
+                    WidgetState("t2", "Помидоры", WidgetState.Type.VALUE, "27", page = "Температура", unit = "°C"),
+                    WidgetState("t3", "Улица", WidgetState.Type.VALUE, "12", page = "Температура", unit = "°C")
+                ))
+            )
+        )
+        assertEquals("t1", result.candidate?.widget?.id)
+    }
+
+    @Test
+    fun controlContextInflectionMatchesSemanticPage() {
+        val result = MarfaAnalyticalEngine().resolveControl(
+            "открой дверь огурцов",
+            listOf(
+                Device("d1", "Дом", true, listOf(
+                    WidgetState("door1", "закрыта открыта дверь", WidgetState.Type.TOGGLE, "0", page = "Теплиц 🥒"),
+                    WidgetState("door2", "закрыта открыта дверь", WidgetState.Type.TOGGLE, "0", page = "Теплиц 🍅")
+                ))
+            ),
+            "1"
+        )
+        assertEquals("door1", result.candidate?.widget?.id)
+    }
+
+    @Test
+    fun genericContextWithoutUniqueTargetRequiresClarification() {
+        val result = MarfaCommandEngine().parse(
+            "включи огурцы",
+            listOf(
+                Device("d1", "Дом", true, listOf(
+                    WidgetState("c1", "Кнопка", WidgetState.Type.TOGGLE, "0", page = "Огурцы 1", order = 1),
+                    WidgetState("c2", "Кнопка", WidgetState.Type.TOGGLE, "0", page = "Огурцы 2", order = 2)
+                ))
+            )
+        )
+        assertEquals(LocalCommandAction.CLARIFY, result.action)
+    }
+
+    @Test
+    fun valueQuestionWithObjectNameIsResolvedLocally() {
+        val result = MarfaCommandEngine().parse(
+            "скажи температуру огурцов",
+            listOf(
+                Device("d1", "Дом", true, listOf(
+                    WidgetState("t1", "Огурцы", WidgetState.Type.VALUE, "24.5", page = "Температура", unit = "°C"),
+                    WidgetState("t2", "Помидоры", WidgetState.Type.VALUE, "27", page = "Температура", unit = "°C")
+                ))
+            )
+        )
+        assertEquals(LocalCommandAction.READ_VALUE, result.action)
+        assertEquals("t1", result.widgetId)
+        assertTrue(result.reply.contains("24,5"))
+    )
+
 
 }
