@@ -29,6 +29,7 @@ struct NativeEngine {
     llama_context * context = nullptr;
     int threads = 0;
     int context_size = 0;
+    int batch_size = 0;
     std::string affinity_info;
     std::string system_info;
 };
@@ -378,6 +379,7 @@ Java_com_yasn198020_aicontrol_MarfaLlamaNative_nativeLoadModel(
     engine->context = context;
     engine->threads = contextParams.n_threads;
     engine->context_size = static_cast<int>(contextParams.n_ctx);
+    engine->batch_size = static_cast<int>(contextParams.n_batch);
     engine->affinity_info = affinityInfo;
     engine->system_info = systemInfo;
 
@@ -385,6 +387,7 @@ Java_com_yasn198020_aicontrol_MarfaLlamaNative_nativeLoadModel(
             "Native llama.cpp loaded: version=" + std::string(llama_version()) +
             ", threads=" + std::to_string(engine->threads) +
             ", context=" + std::to_string(engine->context_size) +
+            ", batch=" + std::to_string(engine->batch_size) +
             ", " + affinityInfo;
     logInfo(info);
 
@@ -515,6 +518,7 @@ Java_com_yasn198020_aicontrol_MarfaLlamaNative_nativeGenerate(
     }
 
     const auto tFormatted = std::chrono::steady_clock::now();
+    const size_t formattedChars = formatted.size();
     const llama_vocab * vocab = llama_model_get_vocab(engine->model);
     std::vector<llama_token> promptTokens;
     if (!tokenizePrompt(vocab, formatted, promptTokens)) {
@@ -522,6 +526,8 @@ Java_com_yasn198020_aicontrol_MarfaLlamaNative_nativeGenerate(
     }
 
     const auto tTokenized = std::chrono::steady_clock::now();
+    const size_t promptChars = userPrompt.size();
+    const size_t systemChars = systemPrompt.size();
     const int maxNewTokens = std::max(1, static_cast<int>(maxTokens));
     const int requiredContext = static_cast<int>(promptTokens.size()) + maxNewTokens + 4;
     if (requiredContext > engine->context_size) {
@@ -586,6 +592,8 @@ Java_com_yasn198020_aicontrol_MarfaLlamaNative_nativeGenerate(
             seconds - promptSeconds;
     const double generationTokensPerSecond =
             generationSeconds > 0.0 ? static_cast<double>(generated) / generationSeconds : 0.0;
+    const double promptTokensPerSecond =
+            promptSeconds > 0.0 ? static_cast<double>(promptTokens.size()) / promptSeconds : 0.0;
 
     llama_sampler_free(sampler);
 
@@ -597,6 +605,12 @@ Java_com_yasn198020_aicontrol_MarfaLlamaNative_nativeGenerate(
         << "\",\"tokensPerSecond\":" << tokensPerSecond
         << ",\"promptTokens\":" << promptTokens.size()
         << ",\"generatedTokens\":" << generated
+        << ",\"promptTokensPerSecond\":" << promptTokensPerSecond
+        << ",\"commandPromptChars\":" << promptChars
+        << ",\"systemPromptChars\":" << systemChars
+        << ",\"formattedPromptChars\":" << formattedChars
+        << ",\"contextSize\":" << engine->context_size
+        << ",\"batchSize\":" << engine->batch_size
         << ",\"promptMs\":" << (promptSeconds * 1000.0)
         << ",\"formatMs\":" << (std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(tFormatted - tStart).count())
         << ",\"tokenizeMs\":" << (std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(tTokenized - tFormatted).count())
