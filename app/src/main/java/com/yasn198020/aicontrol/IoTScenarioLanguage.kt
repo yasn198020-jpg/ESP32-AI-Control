@@ -669,35 +669,79 @@ object IoTScenarioCommandPlanner {
                 .associateWith { id -> byId.getValue(id).single().second }
         }
 
-        val allModels = models.mapNotNull { (stored, model) ->
+        val parsedModels = models.mapNotNull { (stored, model) ->
             if (model.parserErrors.isNotEmpty()) null else stored to model
         }
 
         /*
-         * A scenario is optional for a command. It must only participate when
-         * the requested ELEMENT ID is actually present in that scenario.
-         *
-         * This is important because several ESPs can expose similarly named
-         * controls, while a saved scenario may describe only one logical tree.
-         * If the selected element ID is absent from every enabled scenario,
-         * scenario planning is completely bypassed and the original command
-         * is returned unchanged. In particular, an unrelated control must
-         * never be pulled into the command merely because its title happens
-         * to look similar.
+         * Explicit scenario ID index. Scenario #1 and #2 are independent.
+         * Selection is by element ID, never by load order.
          */
-        val targetIsReferencedByScenario = allModels.any { (_, model) ->
-            targetWidgetId in model.identifiers ||
-                model.rules.any { rule ->
-                    rule.actions.any { it.targetId == targetWidgetId } ||
-                        targetWidgetId in rule.condition.identifiers
-                }
+        data class ScenarioIdIndex(
+            val stored: StoredDeviceScenario,
+            val model: DeviceScenarioModel,
+            val ids: Set<String>
+        )
+
+        val scenarioIndex = parsedModels.map { (stored, model) ->
+            ScenarioIdIndex(
+                stored = stored,
+                model = model,
+                ids = (stored.sensorIds + model.identifiers).toSet()
+            )
         }
-        if (!targetIsReferencedByScenario) {
+
+        DiagnosticTrace.system(
+            "MARFA scenario ID index: " +
+                scenarioIndex.mapIndexed { number, item ->
+                    "${number + 1}=${item.ids.sorted().joinToString(",")}"
+                }.joinToString(" | ")
+        )
+
+        val matchingScenarios = scenarioIndex.filter { it.ids.contains(targetWidgetId) }
+
+        if (matchingScenarios.isEmpty()) {
             DiagnosticTrace.system(
                 "MARFA scenario bypass: element ID " + targetWidgetId +
-                    " is absent from all enabled scenarios"
+                    " is absent from every scenario ID list"
             )
             return ScenarioCommandPlan(actions = base)
+        }
+
+        val targetDeviceForBinding = targetMatches.single().first
+        val targetDeviceWidgetIds = devices
+            .firstOrNull { it.id == targetDeviceForBinding }
+            ?.widgets
+            ?.map { it.id }
+            ?.toSet()
+            ?: emptySet()
+
+        val selectedScenarios = matchingScenarios.filter { scenario ->
+            scenario.ids.any { it in targetDeviceWidgetIds }
+        }
+
+        val allModels = when {
+            selectedScenarios.size == 1 ->
+                selectedScenarios.map { it.stored to it.model }
+            selectedScenarios.size > 1 -> {
+                DiagnosticTrace.system(
+                    "MARFA scenario binding ambiguous for element ID " +
+                        targetWidgetId + ": " +
+                        selectedScenarios.joinToString { it.stored.id }
+                )
+                emptyList()
+            }
+            else -> emptyList()
+        }
+
+        if (allModels.isEmpty()) {
+            return ScenarioCommandPlan(
+                actions = base,
+                blockedReason = if (matchingScenarios.size > 1) {
+                    "Для элемента «" + targetWidgetId +
+                        "» найдено несколько сценариев; невозможно однозначно выбрать дерево управления."
+                } else null
+            )
         }
 
         /*
