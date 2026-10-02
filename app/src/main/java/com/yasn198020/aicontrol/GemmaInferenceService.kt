@@ -1,7 +1,6 @@
 package com.yasn198020.aicontrol
 
 import android.app.ActivityManager
-import android.icu.lang.UCharacter
 import android.app.Service
 import android.content.Intent
 import android.os.Bundle
@@ -45,7 +44,7 @@ class GemmaInferenceService : Service() {
         private const val MAX_TOKENS = 40
 
         private const val CHAT_SYSTEM_PROMPT = """
-Разбери команду IoTManager. Выбери существующий candidateIndex из CATALOG по смыслу, учитывая словоформы и страницу. Логический объект важнее реле. Emoji-страница дана словом Unicode. Не выдумывай индекс и не выполняй действие.
+Разбери команду IoTManager. Выбери существующий candidateIndex из CATALOG по смыслу, учитывая словоформы и смысловое имя страницы. Логический объект важнее реле. Эмодзи страницы уже переведены во внутренний короткий русский текст. Не выдумывай индекс и не выполняй действие.
 Верни ТОЛЬКО один короткий JSON, без текста до/после: {"kind":"control","candidateIndex":3,"value":"1"}. kind только control/clarify/not_found; для clarify/not_found candidateIndex=-1. Не пиши reply или delayMs.
 """
 
@@ -88,16 +87,12 @@ $compactCatalog
                 val item = source.optJSONObject(i) ?: continue
                 val index = item.optInt("index", i)
                 val pageText = item.optString("pageText").trim()
+                val semanticPage = item.optString("pageSemantic").trim()
+                    .ifBlank { EmojiSemanticText.normalize(pageText) }
+                    .take(28)
                 val title = item.optString("title").trim().take(42)
                 val type = item.optString("type").trim()
-                val emojiOnly = pageText.isNotBlank() &&
-                    pageText.none { ch -> ch.isLetterOrDigit() || ch.isWhitespace() }
-                val semanticPage = if (emojiOnly) {
-                    unicodePageMeaning(pageText).take(28)
-                } else {
-                    pageText.take(18)
-                }
-                val searchable = (title + " " + pageText + " " + semanticPage)
+                val searchable = (title + " " + semanticPage)
                     .lowercase(Locale("ru", "RU"))
                     .replace('ё', 'е')
 
@@ -123,24 +118,6 @@ $compactCatalog
             }
             out.toString().trim()
         }.getOrElse { catalog.take(maxChars) }
-    }
-
-    private fun unicodePageMeaning(page: String): String {
-        if (page.isBlank()) return ""
-        val out = StringBuilder()
-        var offset = 0
-        while (offset < page.length) {
-            val codePoint = page.codePointAt(offset)
-            if (!Character.isWhitespace(codePoint)) {
-                val name = runCatching { UCharacter.getName(codePoint) }.getOrNull()
-                if (!name.isNullOrBlank() && !name.startsWith("VARIATION SELECTOR", ignoreCase = true)) {
-                    if (out.isNotEmpty()) out.append(' ')
-                    out.append(name.replace('_', ' '))
-                }
-            }
-            offset += Character.charCount(codePoint)
-        }
-        return out.toString()
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
