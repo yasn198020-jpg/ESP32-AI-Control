@@ -242,7 +242,7 @@ class MarfaIntelligence private constructor(context: Context) {
             "через", "спустя", "пожалуйста", "марфа", "там", "здесь", "у", "в",
             "на", "для", "где", "около", "возле", "рядом", "и", "а", "то", "же"
         )
-        return normalize(value)
+        return EmojiSemanticText.normalize(value)
             .split(" ")
             .map { stem(it) }
             .filter { it.length >= 3 && it !in stop && !it.all(Char::isDigit) }
