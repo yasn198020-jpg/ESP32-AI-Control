@@ -351,6 +351,18 @@ INDICES:$validIndices
                                 nativeJson.optInt("promptTokens", 0) +
                                 "; generatedTokens=" +
                                 nativeJson.optInt("generatedTokens", 0) +
+                                "; promptTok/s=" +
+                                nativeJson.optDouble("promptTokensPerSecond", 0.0) +
+                                "; promptChars=" +
+                                nativeJson.optInt("commandPromptChars", 0) +
+                                "; systemChars=" +
+                                nativeJson.optInt("systemPromptChars", 0) +
+                                "; formattedChars=" +
+                                nativeJson.optInt("formattedPromptChars", 0) +
+                                "; context=" +
+                                nativeJson.optInt("contextSize", 0) +
+                                "; batch=" +
+                                nativeJson.optInt("batchSize", 0) +
                                 "; promptMs=" +
                                 nativeJson.optDouble("promptMs", 0.0).toLong() +
                                 "; formatMs=" +
