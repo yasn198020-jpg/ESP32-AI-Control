@@ -756,6 +756,9 @@ CATALOG fields: index, id, device, pageSemantic, title, titleSearch, type.
         }
     }
 
+    private fun containsAny(text: String, vararg words: String): Boolean =
+        words.any { text.contains(it) }
+
     private fun formatDelay(delayMs: Long): String {
         val seconds = (delayMs / 1000L).coerceAtLeast(0L)
         val minutes = seconds / 60L
