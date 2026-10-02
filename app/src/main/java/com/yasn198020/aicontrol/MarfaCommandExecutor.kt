@@ -30,7 +30,8 @@ class MarfaCommandExecutor private constructor() {
         runtime: AppRuntime,
         onReply: (String) -> Unit
     ) {
-        val initialPlan = runtime.deviceScenarioManager.planCommand(result, runtime.deviceRepository.snapshot())
+        val initialPlan = result.scenarioPlan
+            ?: runtime.deviceScenarioManager.planCommand(result, runtime.deviceRepository.snapshot())
         initialPlan.blockedReason?.let {
             onReply(it)
             return
