@@ -43,7 +43,8 @@ class GemmaInferenceService : Service() {
         private const val MAX_THREADS = 6
         private const val MAX_TOKENS = 40
 
-        // Gemma 3 IT: keep the IoT task in a single USER turn.\n        private const val RAW_SYSTEM_PROMPT = "Ты обычный русскоязычный помощник. Отвечай естественно и кратко."
+        // Gemma 3 IT: keep the IoT task in a single USER turn.
+        private const val RAW_SYSTEM_PROMPT = "Ты обычный русскоязычный помощник. Отвечай естественно и кратко."
 
     }
 
