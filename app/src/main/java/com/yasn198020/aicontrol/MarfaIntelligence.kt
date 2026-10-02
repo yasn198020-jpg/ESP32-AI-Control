@@ -111,6 +111,26 @@ class MarfaIntelligence private constructor(context: Context) {
                 }
             )
             out.appendLine("ФИНАЛ: action=${fast.action}, deviceId=${fast.deviceId}, widgetId=${fast.widgetId}, value=${fast.value}")
+
+            // FAST PATH bypasses only Gemma, never scenario resolution.
+            if (fast.action == LocalCommandAction.CONTROL) {
+                val scenarioStarted = System.currentTimeMillis()
+                val executionPlan = AppRuntime.get(appContext).deviceScenarioManager
+                    .planCommand(fast, devices)
+                out.appendLine()
+                out.appendLine("--- 7. SCENARIO TARGET / FAST PATH ---")
+                out.appendLine("ДЕЙСТВИЯ: " + executionPlan.actions.joinToString(", ") {
+                    it.widgetId + "=" + it.value
+                }.ifBlank { "нет" })
+                out.appendLine("ПРЕДУСЛОВИЯ: " + executionPlan.prerequisites.joinToString(", ") {
+                    it.widgetId + "=" + it.value
+                }.ifBlank { "нет" })
+                executionPlan.blockedReason?.let {
+                    out.appendLine("БЛОК: $it")
+                } ?: out.appendLine("БЛОК: нет")
+                out.appendLine("scenarioPlan=" + (System.currentTimeMillis() - scenarioStarted) + " мс")
+                out.appendLine("MQTT: не отправляется в диагностическом тесте")
+            }
             return Result.success(out.toString())
         }
         val trace: GemmaChainDiagnostic = gemma.diagnoseCommand(text, devices).getOrElse { return Result.failure(it) }
