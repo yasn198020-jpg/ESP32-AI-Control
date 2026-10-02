@@ -6,9 +6,6 @@
 #include <cstdint>
 #include <cerrno>
 #include <cstring>
-#if defined(__ANDROID__)
-#include <dlfcn.h>
-#endif
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -337,61 +334,28 @@ Java_com_yasn198020_aicontrol_MarfaLlamaNative_nativeInitBackends(
     const std::string path(pathChars);
     env->ReleaseStringUTFChars(jNativeLibDir, pathChars);
 
-#if defined(__ANDROID__)
-    // Android packages all ISA-specific CPU backends beside libmarfa_llama.so.
-    // llama.cpp's generic directory loader can miss them on Android, so select
-    // the best backend explicitly using each backend's runtime score.
-    const char * variants[] = {
-        "libggml-cpu-android_armv8.0_1.so",
-        "libggml-cpu-android_armv8.2_1.so",
-        "libggml-cpu-android_armv8.2_2.so",
-        "libggml-cpu-android_armv8.6_1.so",
-        "libggml-cpu-android_armv9.0_1.so",
-        "libggml-cpu-android_armv9.2_1.so",
-        "libggml-cpu-android_armv9.2_2.so"
-    };
-
-    using ScoreFn = int (*)();
-    int bestScore = -1;
-    std::string bestPath;
-
-    for (const char * variant : variants) {
-        const std::string candidate = path + "/" + variant;
-        void * handle = dlopen(candidate.c_str(), RTLD_NOW | RTLD_LOCAL);
-        if (handle == nullptr) {
-            logInfo("CPU backend unavailable: " + candidate + " error=" +
-                    std::string(dlerror() ? dlerror() : "unknown"));
-            continue;
-        }
-
-        auto scoreFn = reinterpret_cast<ScoreFn>(dlsym(handle, "ggml_backend_score"));
-        const int score = scoreFn ? scoreFn() : -1;
-        logInfo("CPU backend score: " + candidate + " = " + std::to_string(score));
-        if (score > bestScore) {
-            bestScore = score;
-            bestPath = candidate;
-        }
-        dlclose(handle);
-    }
-
-    if (bestScore < 0 || bestPath.empty()) {
-        logError("No compatible dynamic CPU backend found in: " + path);
-        return JNI_FALSE;
-    }
-
-    logInfo("Loading selected CPU backend: " + bestPath +
-            " score=" + std::to_string(bestScore));
-    if (ggml_backend_load(bestPath.c_str()) == nullptr) {
-        logError("Failed to register selected CPU backend: " + bestPath);
-        return JNI_FALSE;
-    }
-#else
+    logInfo("Loading dynamic CPU backends from: " + path);
+    const auto loadStart = std::chrono::steady_clock::now();
+    ggml_backend_load_all_from_path(path.c_str());
+    const auto loadMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - loadStart).count();
+    logInfo("Dynamic backend scan finished in " + std::to_string(loadMs) +
+            " ms; registered=" + std::to_string(ggml_backend_reg_count()) +
+            ", devices=" + std::to_string(ggml_backend_dev_count()));e
     ggml_backend_load_all_from_path(path.c_str());
 #endif
 
     llama_backend_init();
     const size_t backendCount = ggml_backend_reg_count();
-    logInfo("Backends registered: " + std::to_string(backendCount));
+    const size_t deviceCount = ggml_backend_dev_count();
+    logInfo("Backends registered: " + std::to_string(backendCount) +
+            ", devices=" + std::to_string(deviceCount));
+    for (size_t i = 0; i < deviceCount; ++i) {
+        auto * dev = ggml_backend_dev_get(i);
+        logInfo("Backend device[" + std::to_string(i) + "]: " +
+                std::string(ggml_backend_dev_name(dev)) + " / " +
+                std::string(ggml_backend_dev_description(dev)));
+    }
     return backendCount > 0 ? JNI_TRUE : JNI_FALSE;
 }
 
