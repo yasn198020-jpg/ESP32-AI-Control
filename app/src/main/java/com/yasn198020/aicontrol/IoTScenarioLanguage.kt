@@ -674,6 +674,33 @@ object IoTScenarioCommandPlanner {
         }
 
         /*
+         * A scenario is optional for a command. It must only participate when
+         * the requested ELEMENT ID is actually present in that scenario.
+         *
+         * This is important because several ESPs can expose similarly named
+         * controls, while a saved scenario may describe only one logical tree.
+         * If the selected element ID is absent from every enabled scenario,
+         * scenario planning is completely bypassed and the original command
+         * is returned unchanged. In particular, an unrelated control must
+         * never be pulled into the command merely because its title happens
+         * to look similar.
+         */
+        val targetIsReferencedByScenario = allModels.any { (_, model) ->
+            targetWidgetId in model.identifiers ||
+                model.rules.any { rule ->
+                    rule.actions.any { it.targetId == targetWidgetId } ||
+                        targetWidgetId in rule.condition.identifiers
+                }
+        }
+        if (!targetIsReferencedByScenario) {
+            DiagnosticTrace.system(
+                "MARFA scenario bypass: element ID " + targetWidgetId +
+                    " is absent from all enabled scenarios"
+            )
+            return ScenarioCommandPlan(actions = base)
+        }
+
+        /*
          * MarfaCommandEngine may initially recognize a physical control widget
          * by its title, for example "открыть дверь" -> btn43. This is only a
          * surface-level match. Before planning, reverse-resolve such an
