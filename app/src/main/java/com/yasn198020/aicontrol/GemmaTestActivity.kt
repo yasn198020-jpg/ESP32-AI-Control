@@ -133,11 +133,16 @@ class GemmaTestActivity : Activity() {
                 "Потоки: 1 / 2 / 4 / 6\n" +
                 "Context: 128 / 256 / 512 / 768\n" +
                 "Tokens: 8 / 16 / 32 / 96\n" +
-                "Prompt batch: 1 / 2 / 4 / 8 / 16 / 32 / 35\n" +
+                "Prompt batch: 1 / 2 / 4 / 8 / 16 / 32 / 64 / 128 / 192 / 256 / 512\n" +
                 "Raw language: 2 теста\n" +
                 "IoT: Открой дверь помидоров\n" +
                 "Запуск…"
         )
+
+        val iotCommand = "Открой дверь помидоров"
+        val devices = AppRuntime.get(applicationContext).deviceRepository.snapshot()
+        val iotCatalog = GemmaLocalEngine.get(applicationContext).diagnosticCatalog(iotCommand, devices)
+        append("IoT catalog для реального теста: " + iotCatalog.length + " символов")
 
         val started = System.currentTimeMillis()
         val receiver = object : ResultReceiver(Handler(Looper.getMainLooper())) {
@@ -185,10 +190,8 @@ class GemmaTestActivity : Activity() {
         try {
             startService(
                 Intent(this, GemmaInferenceService::class.java)
-                    .putExtra(
-                        GemmaInferenceService.EXTRA_RAW_PROMPT,
-                        "Скажи одним словом: тест."
-                    )
+                    .putExtra(GemmaInferenceService.EXTRA_COMMAND, iotCommand)
+                    .putExtra(GemmaInferenceService.EXTRA_CATALOG, iotCatalog)
                     .putExtra(GemmaInferenceService.EXTRA_MAX_TOKENS, 96)
                     .putExtra(GemmaInferenceService.EXTRA_THREADS, 4)
                     .putExtra(GemmaInferenceService.EXTRA_CONTEXT, 768)
