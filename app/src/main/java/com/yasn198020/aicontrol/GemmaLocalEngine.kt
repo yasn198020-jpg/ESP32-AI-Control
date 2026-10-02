@@ -172,6 +172,8 @@ CATALOG fields: index, id, page, pageSemantic, title, titleSearch, type.
                     widget.type == WidgetState.Type.INPUT) score += 2
                 Candidate(device, widget, score)
             }
+        }.filterNot { candidate ->
+            isScenarioInternalActuator(candidate.widget.id, devices)
         }.sortedByDescending { it.score }
 
         // For control commands, use the same semantic resolver that already knows
@@ -304,6 +306,8 @@ CATALOG fields: index, id, page, pageSemantic, title, titleSearch, type.
                     widget.type == WidgetState.Type.INPUT) score += 2
                 Candidate(device, widget, score)
             }
+        }.filterNot { candidate ->
+            isScenarioInternalActuator(candidate.widget.id, devices)
         }.sortedByDescending { it.score }
 
         val desiredValue = when {
@@ -598,6 +602,43 @@ CATALOG fields: index, id, page, pageSemantic, title, titleSearch, type.
         } catch (e: Throwable) {
             Result.failure(Exception(e.message ?: "Ошибка сквозной диагностики Gemma", e))
         }
+    }
+
+    /**
+     * Scenario catalog rule: start at a physical/control action element and walk
+     * upward through the scenario graph. If the scenario says that this element
+     * can be driven by another logical element, Gemma must see the logical
+     * element instead. If no upstream controller is found, the element remains
+     * a valid user-facing candidate.
+     *
+     * This deliberately does not use widget IDs, prefixes or titles as rules.
+     * The scenario resolver answers the question "can this be controlled by
+     * something above it?" for both output states.
+     */
+    private fun isScenarioInternalActuator(
+        widgetId: String,
+        devices: List<Device>
+    ): Boolean {
+        if (widgetId.isBlank()) return false
+        val manager = AppRuntime.get(appContext).deviceScenarioManager
+        val upstreamOpen = runCatching {
+            manager.resolveLogicalTarget(widgetId, "1", devices)
+        }.getOrNull()
+        val upstreamClose = runCatching {
+            manager.resolveLogicalTarget(widgetId, "0", devices)
+        }.getOrNull()
+
+        val upstream = listOfNotNull(upstreamOpen, upstreamClose)
+            .firstOrNull { it.first != widgetId && it.first.isNotBlank() }
+
+        if (upstream != null) {
+            DiagnosticTrace.system(
+                "MARFA Gemma catalog: hide internal actuator " + widgetId +
+                    " -> upstream logical " + upstream.first + "=" + upstream.second
+            )
+            return true
+        }
+        return false
     }
 
     private fun describeCandidate(deviceId: String, widget: WidgetState): String =
