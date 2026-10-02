@@ -87,7 +87,7 @@ $compactCatalog
                 val page = item.optString("page").take(20)
                 val title = item.optString("title").take(34)
                 val search = item.optString("titleSearch")
-                    .takeIf { page.isNotBlank() && isNonLexicalPage(page) }
+                    .takeIf { page.isNotBlank() && page.none { it.isLetterOrDigit() || it.isWhitespace() } }
                     ?.take(55)
                     .orEmpty()
                 val line = if (search.isNotBlank()) {
