@@ -271,7 +271,7 @@ INDICES:$validIndices
                         }
 
                         if (promptBenchmark) {
-                            stage("Запуск полного prompt benchmark: batch 1/2/4/8/16/32/35")
+                            stage("Запуск полного prompt benchmark: batch 1/2/4/8/16/32/64/128/192/256/512")
                             val benchmark = JSONObject(
                                 MarfaLlamaNative.nativeBenchmarkPrompt(
                                     handle = handle,
@@ -292,11 +292,18 @@ INDICES:$validIndices
 
                         if (fullDiagnostics) {
                             stage("Запуск ВСЕХ диагностических тестов")
-                            val report = runFullNativeDiagnostics(::stage)
-                            val iotHandle = loadNativeModel(4, 768)
-                            val iotCommand = "Открой дверь помидоров"
-                            stage("IoT native test: " + iotCommand)
+                            val iotCommand = command.ifBlank { "Открой дверь помидоров" }
                             val iotPrompt = buildIoTPrompt(iotCommand, catalog)
+                            stage(
+                                "Real IoT prompt input: commandChars=" + iotCommand.length +
+                                    "; catalogJsonChars=" + catalog.length +
+                                    "; promptChars=" + iotPrompt.length +
+                                    "; systemChars=" + CHAT_SYSTEM_PROMPT.length +
+                                    "; maxTokens=" + MAX_TOKENS
+                            )
+                            val report = runFullNativeDiagnostics(::stage, iotPrompt)
+                            val iotHandle = loadNativeModel(4, 768)
+                            stage("IoT native test: " + iotCommand)
                             val iotJson = JSONObject(
                                 MarfaLlamaNative.nativeGenerate(
                                     handle = iotHandle,
@@ -431,7 +438,7 @@ INDICES:$validIndices
         return START_NOT_STICKY
     }
 
-    private fun runFullNativeDiagnostics(stage: (String) -> Unit): String {
+    private fun runFullNativeDiagnostics(stage: (String) -> Unit, realIotPrompt: String): String {
         val systemPrompt = "Ты обычный русскоязычный помощник. Отвечай естественно и кратко."
         val testPrompt = "Скажи одним словом: тест."
         val generationPrompt = "Генерируй простую последовательность слов: один два три четыре пять шесть семь восемь девять десять."
@@ -495,12 +502,12 @@ INDICES:$validIndices
         val handle = loadNativeModel(4, 768)
         val restoreMs = System.currentTimeMillis() - restoreStarted
 
-        report.append("\n--- 4. PROMPT BATCH BENCHMARK ---\n")
+        report.append("\n--- 4. PROMPT BATCH BENCHMARK (REAL IOT PROMPT) ---\n")
         val benchmark = JSONObject(
             MarfaLlamaNative.nativeBenchmarkPrompt(
                 handle = handle,
-                prompt = testPrompt,
-                systemPrompt = systemPrompt
+                prompt = realIotPrompt,
+                systemPrompt = CHAT_SYSTEM_PROMPT
             )
         )
         val benchmarkError = benchmark.optString("error").trim()
