@@ -677,6 +677,8 @@ INDICES:$validIndices
             runCatching { MarfaLlamaNative.nativeRelease(it) }
         }
 
+        MarfaLlamaNative.nativeInitBackends(applicationInfo.nativeLibraryDir)
+
         val handle = MarfaLlamaNative.nativeLoadModel(
             modelPath = path,
             threads = cpuThreads,
