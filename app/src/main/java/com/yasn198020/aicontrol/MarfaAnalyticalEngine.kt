@@ -740,9 +740,9 @@ class MarfaAnalyticalEngine {
         tokenized(text).forEach { token ->
             if (token.length >= 3) {
                 val key = contextTokenKey(token)
-                if (containsSemanticToken(title, key)) score += 5
-                if (containsSemanticToken(widgetPage, key)) score += 3
-                if (containsSemanticToken(deviceName, key)) score += 2
+                if (containsSemanticToken(title, key)) score += 8
+                if (containsSemanticToken(widgetPage, key)) score += 5
+                if (containsSemanticToken(deviceName, key)) score += 3
             }
         }
 
