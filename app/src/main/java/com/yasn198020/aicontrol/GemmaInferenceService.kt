@@ -71,32 +71,32 @@ $compactCatalog
     ): String {
         return runCatching {
             val source = JSONArray(catalog)
+            fun stem(word: String): String =
+                word.lowercase(Locale("ru", "RU"))
+                    .replace('ё', 'е')
+                    .removeSuffix("ами").removeSuffix("ями")
+                    .removeSuffix("ого").removeSuffix("его")
+                    .removeSuffix("ому").removeSuffix("ему")
+                    .removeSuffix("ов").removeSuffix("ев")
+                    .removeSuffix("ом").removeSuffix("ем")
+                    .removeSuffix("ам").removeSuffix("ям")
+                    .removeSuffix("ах").removeSuffix("ях")
+                    .removeSuffix("ою").removeSuffix("ею")
+                    .removeSuffix("ая").removeSuffix("яя")
+                    .removeSuffix("ое").removeSuffix("ее")
+                    .removeSuffix("ые").removeSuffix("ие")
+                    .removeSuffix("ый").removeSuffix("ий")
+                    .removeSuffix("ую").removeSuffix("юю")
+                    .removeSuffix("а").removeSuffix("я")
+                    .removeSuffix("ы").removeSuffix("и")
+                    .removeSuffix("е").removeSuffix("у").removeSuffix("ю")
+                    .removeSuffix("ь").removeSuffix("й")
+                    .let { it.takeIf { s -> s.length >= 3 } ?: word }
+
             val commandWords = command
-                .lowercase(Locale("ru", "RU"))
-                .replace('ё', 'е')
-                .split(Regex("[^a-zа-я0-9]+"))
+                .split(Regex("[^a-zA-Zа-яА-Я0-9]+"))
+                .map(::stem)
                 .filter { it.length >= 3 }
-                .map {
-                    it.removeSuffix("ами")
-                        .removeSuffix("ями")
-                        .removeSuffix("ами")
-                        .removeSuffix("ями")
-                        .removeSuffix("ов")
-                        .removeSuffix("ев")
-                        .removeSuffix("ом")
-                        .removeSuffix("ем")
-                        .removeSuffix("ам")
-                        .removeSuffix("ям")
-                        .removeSuffix("ах")
-                        .removeSuffix("ях")
-                        .removeSuffix("а")
-                        .removeSuffix("я")
-                        .removeSuffix("ы")
-                        .removeSuffix("и")
-                        .removeSuffix("е")
-                        .removeSuffix("у")
-                        .removeSuffix("ю")
-                }
                 .toSet()
 
             data class Line(val index: Int, val text: String, val score: Int)
@@ -120,22 +120,42 @@ $compactCatalog
                     .replace('ё', 'е')
 
                 var score = 0
+                val searchableWords = searchable
+                    .split(Regex("[^a-zа-я0-9]+"))
+                    .map(::stem)
+                    .filter { it.length >= 3 }
+                    .toSet()
+
                 commandWords.forEach { word ->
-                    if (searchable.contains(word)) score += 20
+                    if (word in searchableWords) score += 24
+                    else if (searchableWords.any { it.startsWith(word) || word.startsWith(it) }) score += 12
                 }
 
-                // Prefer logical controls and exact object words.
+                // Prefer logical controls over status/sensor/diagnostic widgets.
                 when (type) {
-                    "TOGGLE", "BUTTON" -> score += 4
+                    "TOGGLE", "BUTTON" -> score += 5
                     "INPUT" -> score += 1
                 }
-                if (title.contains("двер", ignoreCase = true)) score += 10
-                if (title.contains("открыть", ignoreCase = true)) score += 6
-                if (title.contains("закрыть", ignoreCase = true)) score += 6
-                if (title.contains("форточ", ignoreCase = true)) score -= 5
+                val passiveRole = Regex(
+                    "концевик|датчик|температур|напряжен|измер|статус|состояни"
+                )
+                if (passiveRole.containsMatchIn(title.lowercase(Locale("ru", "RU")))) score -= 18
+
+                // A control/status object such as "открыта/закрыта дверь" is
+                // still preferable to a passive sensor when the user names the object.
+                if (title.contains("открыт", ignoreCase = true) ||
+                    title.contains("закрыт", ignoreCase = true) ||
+                    title.contains("управлен", ignoreCase = true)) {
+                    score += 8
+                }
 
                 // A semantic page match is more important than unrelated titles.
-                if (commandWords.any { word -> semanticPage.contains(word, ignoreCase = true) }) {
+                if (commandWords.any { word ->
+                        val pageWords = semanticPage
+                            .split(Regex("[^a-zа-я0-9]+"))
+                            .map(::stem)
+                        pageWords.any { it == word || it.startsWith(word) || word.startsWith(it) }
+                    }) {
                     score += 8
                 }
 
