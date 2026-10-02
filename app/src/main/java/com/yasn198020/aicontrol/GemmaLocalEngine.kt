@@ -80,6 +80,10 @@ CATALOG fields: index, id, device, pageSemantic, title, titleSearch, type.
         if (isModelInstalled()) "Gemma установлена • " + formatBytes(modelFile.length())
         else "Gemma 3 1B будет загружена автоматически при первом запуске."
 
+    /** Catalog used only by the diagnostics screen to reproduce the real IoT/Gemma prompt. */
+    fun diagnosticCatalog(command: String, devices: List<Device>): String =
+        buildCatalog(devices, command)
+
     suspend fun importModel(uri: Uri): Result<String> = withContext(Dispatchers.IO) {
         try {
             val name = queryDisplayName(uri).orEmpty()
