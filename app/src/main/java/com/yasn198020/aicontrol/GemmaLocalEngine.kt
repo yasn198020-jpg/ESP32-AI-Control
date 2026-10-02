@@ -388,13 +388,19 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
             val catalog = try { buildCatalog(devices, command) } catch (e: Throwable) {
                 throw Exception("ЭТАП " + stage + ": " + (e.message ?: e.javaClass.simpleName), e)
             }
+            mark("catalog", catalogStarted)
             val resultDeferred = CompletableDeferred<Result<String>>()
             val receiver = object : ResultReceiver(Handler(Looper.getMainLooper())) {
                 override fun onReceiveResult(resultCode: Int, resultData: Bundle?) {
                     val error = resultData?.getString("error")
                     if (resultCode == 2) {
-                        // GemmaInferenceService sends stage updates with code 2.
-                        // They are informational and must not complete the diagnostic request.
+                        val serviceStage = resultData?.getString("stage").orEmpty()
+                        val elapsed = resultData?.getLong("elapsed", -1L) ?: -1L
+                        if (serviceStage.isNotBlank()) {
+                            synchronized(timings) {
+                                timings.add("service: " + serviceStage + if (elapsed >= 0L) " [" + elapsed + " мс]" else "")
+                            }
+                        }
                         return
                     }
                     if (resultCode == 0 && error.isNullOrBlank()) {
