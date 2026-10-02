@@ -621,24 +621,32 @@ CATALOG fields: index, id, page, pageSemantic, title, titleSearch, type.
     ): Boolean {
         if (widgetId.isBlank()) return false
         val manager = AppRuntime.get(appContext).deviceScenarioManager
-        val upstreamOpen = runCatching {
-            manager.resolveLogicalTarget(widgetId, "1", devices)
-        }.getOrNull()
-        val upstreamClose = runCatching {
-            manager.resolveLogicalTarget(widgetId, "0", devices)
-        }.getOrNull()
+        var currentId = widgetId
+        val visited = mutableSetOf<String>()
 
-        val upstream = listOfNotNull(upstreamOpen, upstreamClose)
-            .firstOrNull { it.first != widgetId && it.first.isNotBlank() }
+        repeat(8) {
+            if (!visited.add(currentId)) return@repeat
 
-        if (upstream != null) {
+            val upstream = listOf("1", "0")
+                .asSequence()
+                .mapNotNull { desired ->
+                    runCatching {
+                        manager.resolveLogicalTarget(currentId, desired, devices)
+                    }.getOrNull()
+                }
+                .firstOrNull { it.first.isNotBlank() && it.first != currentId }
+
+            if (upstream == null) return@repeat
+
             DiagnosticTrace.system(
-                "MARFA Gemma catalog: hide internal actuator " + widgetId +
-                    " -> upstream logical " + upstream.first + "=" + upstream.second
+                "MARFA Gemma catalog: " + currentId +
+                    " может управляться сверху -> " + upstream.first +
+                    "=" + upstream.second
             )
-            return true
+            currentId = upstream.first
         }
-        return false
+
+        return currentId != widgetId
     }
 
     private fun describeCandidate(deviceId: String, widget: WidgetState): String =
