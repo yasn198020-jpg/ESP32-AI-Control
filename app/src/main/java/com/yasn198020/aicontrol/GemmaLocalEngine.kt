@@ -355,7 +355,14 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
     }
     suspend fun diagnoseCommand(command: String, devices: List<Device>): Result<GemmaChainDiagnostic> = withContext(Dispatchers.IO) {
         try {
-            val catalog = buildCatalog(devices, command)
+            var stage = "подготовка каталога"
+            val catalog = try {
+                buildCatalog(devices, command)
+            } catch (e: Throwable) {
+                throw Exception("ЭТАП " + stage + ": " + (e.message ?: e.javaClass.simpleName), e)
+            }
+
+            stage = "создание ResultReceiver"
             val resultDeferred = CompletableDeferred<Result<String>>()
             val receiver = object : ResultReceiver(Handler(Looper.getMainLooper())) {
                 override fun onReceiveResult(resultCode: Int, resultData: Bundle?) {
@@ -363,71 +370,32 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
                     if (resultCode == 0 && error.isNullOrBlank()) {
                         resultDeferred.complete(Result.success(resultData?.getString("text").orEmpty()))
                     } else {
-                        resultDeferred.complete(Result.failure(Exception(error ?: "Ошибка Gemma")))
+                        val keys = resultData?.keySet()?.joinToString(",").orEmpty()
+                        val detail = error ?: "error отсутствует; resultCode=" + resultCode + "; keys=[" + keys + "]"
+                        resultDeferred.complete(Result.failure(Exception("Gemma service: " + detail)))
                     }
                 }
             }
-            appContext.startService(
-                Intent(appContext, GemmaInferenceService::class.java)
-                    .putExtra(GemmaInferenceService.EXTRA_COMMAND, command)
-                    .putExtra(GemmaInferenceService.EXTRA_CATALOG, catalog)
-                    .putExtra(GemmaInferenceService.EXTRA_RESULT, receiver)
-            )
-            val rawResult = kotlinx.coroutines.withTimeout(REQUEST_TIMEOUT_MS) { resultDeferred.await() }
-            val raw = rawResult.getOrElse { return@withContext Result.failure(it) }
-            val jsonText = extractJson(raw) ?: return@withContext Result.failure(Exception("Gemma вернула не JSON"))
-            val json = runCatching { JSONObject(jsonText) }.getOrElse {
-                return@withContext Result.failure(Exception("Gemma вернула некорректный JSON"))
-            }
-            val kind = json.optString("kind").lowercase(Locale.ROOT)
-            val candidateIndex = json.optInt("candidateIndex", -1)
-            val modelValue = json.optString("value").trim()
-            val modelReply = json.optString("reply").trim()
-            val pair = if (candidateIndex >= 0) {
-                buildCandidatePairs(devices, command).getOrNull(candidateIndex)
-            } else {
-                val widgetId = json.optString("widgetId").trim()
-                devices.asSequence().flatMap { device -> device.widgets.asSequence().map { device to it } }
-                    .firstOrNull { it.second.id == widgetId }
-            }
-            var analyticalText = ""
-            var analyticalCandidates = emptyList<String>()
-            var analyticalClarification: String? = null
-            var scenarioTarget = ""
-            if (kind == "control" && pair != null) {
-                val analyticalValue = commandControlValue(command) ?: normalizeControlValue(modelValue, command, pair.second)
-                val analytical = MarfaAnalyticalEngine().resolveControl(command, devices, analyticalValue)
-                analyticalCandidates = analytical.candidates.map { describeCandidate(it.device.id, it.widget) }
-                analyticalClarification = analytical.clarification
-                analytical.candidate?.let { analyticalText = describeCandidate(it.device.id, it.widget) }
-                val selectedWidget = analytical.candidate?.widget ?: pair.second
-                val target = AppRuntime.get(appContext).deviceScenarioManager.resolveLogicalTarget(selectedWidget.id, analyticalValue, devices)
-                if (target != null) scenarioTarget = "ID ${target.first} = ${target.second}"
-            }
-            val final = parseAndValidate(raw, command, devices)
-            Result.success(GemmaChainDiagnostic(
-                catalog = catalog,
-                raw = raw,
-                kind = kind,
-                candidateIndex = candidateIndex,
-                modelValue = modelValue,
-                modelReply = modelReply,
-                gemmaDeviceId = pair?.first?.id.orEmpty(),
-                gemmaWidgetId = pair?.second?.id.orEmpty(),
-                gemmaWidgetTitle = pair?.second?.title.orEmpty(),
-                gemmaPage = pair?.second?.page.orEmpty(),
-                analyticalCandidate = analyticalText,
-                analyticalCandidates = analyticalCandidates,
-                analyticalClarification = analyticalClarification,
-                scenarioTarget = scenarioTarget,
-                finalResult = final.getOrNull(),
-                finalError = final.exceptionOrNull()?.message
-            ))
-        } catch (e: Throwable) {
-            Result.failure(Exception(e.message ?: "Ошибка сквозной диагностики Gemma", e))
-        }
-    }
 
+            stage = "запуск GemmaInferenceService"
+            try {
+                appContext.startService(
+                    Intent(appContext, GemmaInferenceService::class.java)
+                        .putExtra(GemmaInferenceService.EXTRA_COMMAND, command)
+                        .putExtra(GemmaInferenceService.EXTRA_CATALOG, catalog)
+                        .putExtra(GemmaInferenceService.EXTRA_RESULT, receiver)
+                )
+            } catch (e: Throwable) {
+                throw Exception("ЭТАП " + stage + ": " + (e.message ?: e.javaClass.simpleName), e)
+            }
+
+            stage = "ожидание ответа Gemma"
+            val rawResult = try {
+                kotlinx.coroutines.withTimeout(REQUEST_TIMEOUT_MS) { resultDeferred.await() }
+            } catch (e: Throwable) {
+                throw Exception("ЭТАП " + stage + ": " + (e.message ?: e.javaClass.simpleName), e)
+            }
+            val raw = rawResult.getOrElse { return@withContext Result.failure(it) }
     private fun describeCandidate(deviceId: String, widget: WidgetState): String =
         "device=$deviceId, widget=${widget.id}, page=${widget.page}, title=${widget.title}, type=${widget.type.name}"
 
