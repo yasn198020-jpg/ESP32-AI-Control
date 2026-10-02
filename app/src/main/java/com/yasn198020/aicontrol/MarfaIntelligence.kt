@@ -199,8 +199,9 @@ class MarfaIntelligence private constructor(context: Context) {
         out.appendLine("--- ВРЕМЯ ПО ЭТАПАМ ---")
         trace.timings.forEach { out.appendLine(it) }
         out.appendLine()
-        out.appendLine("--- 8. ФИНАЛЬНАЯ ВАЛИДАЦИЯ ---")
+        out.appendLine("--- 8. ФИНАЛЬНЫЙ ScenarioCommandPlan ---")
         trace.finalResult?.let {
+            out.appendLine("ФИНАЛ = ScenarioCommandPlan")
             out.appendLine("action=${it.action}")
             out.appendLine("deviceId=${it.deviceId}")
             out.appendLine("widgetId=${it.widgetId}")
