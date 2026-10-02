@@ -192,25 +192,59 @@ CATALOG fields: index, id, device, pageSemantic, title, titleSearch, type.
         } else {
             candidates
         }
-        val selectedBase = if (commandTokens.isEmpty()) orderedCandidates.take(12)
-        else orderedCandidates.filter { it.score > 0 }.take(12).ifEmpty { orderedCandidates.take(12) }
+        /*
+         * A spoken noun can be a namespace/context selector, not just another
+         * word to score. Find the rarest command token that occurs in page names
+         * and keep only pages carrying that token. This is generic: it works for
+         * "огурцы", "помидоры", "гараж", "спальня", etc., without a hardcoded list.
+         *
+         * Important: use page + title for the context test. Some IoTManager
+         * controls live on a generic tab such as "Кнопки автомат", while their
+         * own title still contains the semantic object.
+         */
+        val pageTokenSets = orderedCandidates
+            .map { it.widget.page to semanticTokens(it.widget.page) }
+            .distinctBy { it.first }
 
-        // Symbol/emoji-only pages are semantic namespaces. Expose several real
-        // candidates from each relevant emoji page, not just one representative.
-        // This lets Gemma first identify the page semantics and then choose the
-        // correct widget inside that page (for example the door control).
-        val nonLexicalPageCandidates = orderedCandidates
-            .filter { isNonLexicalPage(it.widget.page) }
-            .filter { candidate ->
-                val pageTokens = semanticTokens(candidate.widget.page)
-                pageTokens.isEmpty() || pageTokens.any { it in commandTokens }
+        val tokenPageFrequency = commandTokens.associateWith { token ->
+            pageTokenSets.count { (_, tokens) -> token in tokens }
+        }
+        val matchedContextTokens = commandTokens
+            .filter { tokenPageFrequency[it] ?: 0 > 0 }
+            .let { tokens ->
+                if (tokens.isEmpty()) emptySet()
+                else {
+                    val minFrequency = tokens.minOf { tokenPageFrequency[it] ?: Int.MAX_VALUE }
+                    tokens.filter { tokenPageFrequency[it] == minFrequency }.toSet()
+                }
             }
+
+        val contextualCandidates = if (matchedContextTokens.isEmpty()) {
+            orderedCandidates
+        } else {
+            orderedCandidates.filter { candidate ->
+                val contextText = semanticTokens(
+                    candidate.widget.page + " " + candidate.widget.title
+                )
+                contextText.any { it in matchedContextTokens }
+            }.ifEmpty { orderedCandidates }
+        }
+
+        val selectedBase = if (commandTokens.isEmpty()) contextualCandidates.take(12)
+        else contextualCandidates.filter { it.score > 0 }.take(12)
+            .ifEmpty { contextualCandidates.take(12) }
+
+        // Emoji-only pages are included only when they belong to the selected
+        // semantic context. Generic non-context pages never leak back through
+        // the final fallback list.
+        val nonLexicalPageCandidates = contextualCandidates
+            .filter { isNonLexicalPage(it.widget.page) }
             .groupBy { it.widget.page }
             .entries
             .flatMap { (_, pageCandidates) -> pageCandidates.take(8) }
             .take(24)
 
-        val selected = (nonLexicalPageCandidates + selectedBase + orderedCandidates)
+        val selected = (nonLexicalPageCandidates + selectedBase + contextualCandidates)
             .distinctBy { it.widget.id }
             .take(48)
 
@@ -265,23 +299,47 @@ CATALOG fields: index, id, device, pageSemantic, title, titleSearch, type.
             )
         } else candidates
 
-        val selectedBase = if (commandTokens.isEmpty()) orderedCandidates.take(12)
-        else orderedCandidates.filter { it.score > 0 }.take(12).ifEmpty { orderedCandidates.take(12) }
+        // Must be byte-for-byte equivalent in ordering to buildCatalog().
+        val pageTokenSets = orderedCandidates
+            .map { it.widget.page to semanticTokens(it.widget.page) }
+            .distinctBy { it.first }
+
+        val tokenPageFrequency = commandTokens.associateWith { token ->
+            pageTokenSets.count { (_, tokens) -> token in tokens }
+        }
+        val matchedContextTokens = commandTokens
+            .filter { tokenPageFrequency[it] ?: 0 > 0 }
+            .let { tokens ->
+                if (tokens.isEmpty()) emptySet()
+                else {
+                    val minFrequency = tokens.minOf { tokenPageFrequency[it] ?: Int.MAX_VALUE }
+                    tokens.filter { tokenPageFrequency[it] == minFrequency }.toSet()
+                }
+            }
+
+        val contextualCandidates = if (matchedContextTokens.isEmpty()) {
+            orderedCandidates
+        } else {
+            orderedCandidates.filter { candidate ->
+                semanticTokens(candidate.widget.page + " " + candidate.widget.title)
+                    .any { it in matchedContextTokens }
+            }.ifEmpty { orderedCandidates }
+        }
+
+        val selectedBase = if (commandTokens.isEmpty()) contextualCandidates.take(12)
+        else contextualCandidates.filter { it.score > 0 }.take(12)
+            .ifEmpty { contextualCandidates.take(12) }
 
         // Keep the same candidate ordering as buildCatalog(): candidateIndex
         // must point to exactly the same widget that Gemma saw.
-        val nonLexicalPageCandidates = orderedCandidates
+        val nonLexicalPageCandidates = contextualCandidates
             .filter { isNonLexicalPage(it.widget.page) }
-            .filter { candidate ->
-                val pageTokens = semanticTokens(candidate.widget.page)
-                pageTokens.isEmpty() || pageTokens.any { it in commandTokens }
-            }
             .groupBy { it.widget.page }
             .entries
             .flatMap { (_, pageCandidates) -> pageCandidates.take(8) }
             .take(24)
 
-        return (nonLexicalPageCandidates + selectedBase + orderedCandidates)
+        return (nonLexicalPageCandidates + selectedBase + contextualCandidates)
             .distinctBy { it.widget.id }
             .take(48)
             .map { it.device to it.widget }
