@@ -363,6 +363,11 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
             val receiver = object : ResultReceiver(Handler(Looper.getMainLooper())) {
                 override fun onReceiveResult(resultCode: Int, resultData: Bundle?) {
                     val error = resultData?.getString("error")
+                    if (resultCode == 2) {
+                        // GemmaInferenceService sends stage updates with code 2.
+                        // They are informational and must not complete the diagnostic request.
+                        return
+                    }
                     if (resultCode == 0 && error.isNullOrBlank()) {
                         resultDeferred.complete(Result.success(resultData?.getString("text").orEmpty()))
                     } else {
