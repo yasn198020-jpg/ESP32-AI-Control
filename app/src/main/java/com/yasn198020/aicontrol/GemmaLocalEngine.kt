@@ -119,7 +119,6 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
     suspend fun interpret(command: String, devices: List<Device>): Result<LocalCommandResult> =
         withContext(Dispatchers.IO) {
             val catalog = buildCatalog(devices, command)
-            mark("catalog", catalogStarted)
             val resultDeferred = CompletableDeferred<Result<String>>()
             val stages = mutableListOf<String>()
             val receiver = object : ResultReceiver(Handler(Looper.getMainLooper())) {
