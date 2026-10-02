@@ -1,6 +1,7 @@
 package com.yasn198020.aicontrol
 
 import android.app.ActivityManager
+import android.icu.lang.UCharacter
 import android.app.Service
 import android.content.Intent
 import android.os.Bundle
@@ -44,14 +45,8 @@ class GemmaInferenceService : Service() {
         private const val MAX_TOKENS = 32
 
         private const val CHAT_SYSTEM_PROMPT = """
-Ты семантически разбираешь русскую команду IoTManager.
-Выбери существующий объект из CATALOG по смыслу, учитывая падежи, окончания и контекст.
-Не используй фиксированный словарь. Любые формы одного слова должны иметь один смысл.
-Приоритет — логический объект, а не физическое реле.
-Выбирай только существующий candidateIndex. Не выполняй действия сам.
-Для emoji-only page поле titleSearch содержит смысл Unicode этой страницы — учитывай его вместе с командой.
-Ответ ОБЯЗАТЕЛЬНО должен быть одним JSON-объектом, без пояснений, Markdown и текста до или после JSON.
-{"kind":"control","candidateIndex":0,"value":"1","delayMs":0,"reply":""}
+Разбери команду IoTManager. Выбери существующий candidateIndex из CATALOG по смыслу, учитывая словоформы и страницу. Логический объект важнее реле. Emoji-страница дана словом Unicode. Не выдумывай индекс и не выполняй действие.
+Ответ только JSON: {"kind":"control|read_value|clarify|not_found","candidateIndex":-1,"value":"","delayMs":0,"reply":""}
 """
 
     }
@@ -59,19 +54,15 @@ class GemmaInferenceService : Service() {
     private fun buildIoTPrompt(command: String, catalog: String): String {
         val compactCatalog = compactCatalogForContext(catalog)
         return """
-КОМАНДА: $command
-CATALOG:
+CMD:$command
+CAT:
 $compactCatalog
-Выбери один существующий candidateIndex по смыслу команды.
-1=открыть/включить, 0=закрыть/выключить.
-Верни ТОЛЬКО JSON, без другого текста.
+Выбери индекс. 1=открыть/включить, 0=закрыть/выключить.
 """.trimIndent()
     }
 
-    // Keep the semantic catalog small enough for the 768-token context while
-    // preserving the original candidate indexes. Normal pages use their real
-    // readable names; emoji-only pages use titleSearch with Unicode names.
-    private fun compactCatalogForContext(catalog: String, maxChars: Int = 480): String {
+    // Full catalog stays in the app; Gemma only needs index + semantic page + title.
+    private fun compactCatalogForContext(catalog: String, maxChars: Int = 360): String {
         return runCatching {
             val source = JSONArray(catalog)
             val out = StringBuilder()
@@ -79,20 +70,38 @@ $compactCatalog
                 val item = source.optJSONObject(i) ?: continue
                 val index = item.optInt("index", i)
                 val pageText = item.optString("pageText").trim()
-                val title = item.optString("title").trim().take(28)
+                val title = item.optString("title").trim().take(26)
                 val emojiOnly = pageText.isNotBlank() &&
                     pageText.none { ch -> ch.isLetterOrDigit() || ch.isWhitespace() }
                 val semanticPage = if (emojiOnly) {
-                    item.optString("titleSearch").trim().take(42)
+                    unicodePageMeaning(pageText).take(32)
                 } else {
-                    pageText.take(20)
+                    pageText.take(18)
                 }
                 val line = "$index|$semanticPage|$title"
                 if (out.isNotEmpty() && out.length + line.length + 1 > maxChars) break
-                out.append(line).append('\n')
+                out.append(line).append('\\n')
             }
             out.toString().trim()
         }.getOrElse { catalog.take(maxChars) }
+    }
+
+    private fun unicodePageMeaning(page: String): String {
+        if (page.isBlank()) return ""
+        val out = StringBuilder()
+        var offset = 0
+        while (offset < page.length) {
+            val codePoint = page.codePointAt(offset)
+            if (!Character.isWhitespace(codePoint)) {
+                val name = runCatching { UCharacter.getName(codePoint) }.getOrNull()
+                if (!name.isNullOrBlank() && !name.startsWith("VARIATION SELECTOR", ignoreCase = true)) {
+                    if (out.isNotEmpty()) out.append(' ')
+                    out.append(name.replace('_', ' '))
+                }
+            }
+            offset += Character.charCount(codePoint)
+        }
+        return out.toString()
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
