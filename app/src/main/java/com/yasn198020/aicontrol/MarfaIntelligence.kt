@@ -101,7 +101,7 @@ class MarfaIntelligence private constructor(context: Context) {
             out.appendLine("ФИНАЛ: action=${fast.action}, deviceId=${fast.deviceId}, widgetId=${fast.widgetId}, value=${fast.value}")
             return Result.success(out.toString())
         }
-        val trace = gemma.diagnoseCommand(text, devices).getOrElse { return Result.failure(it) }
+        val trace: GemmaChainDiagnostic = gemma.diagnoseCommand(text, devices).getOrElse { return Result.failure(it) }
         out.appendLine()
         out.appendLine("--- 3. CATALOG → GEMMA ---")
         val catalogArray = org.json.JSONArray(trace.catalog)
