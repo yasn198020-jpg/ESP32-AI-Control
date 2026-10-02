@@ -39,7 +39,7 @@ data class GemmaChainDiagnostic(
 )
 class GemmaLocalEngine private constructor(private val appContext: Context) {
     companion object {
-        private const val MODEL_FILE_NAME = "marfa-gemma3-1b-q4km.gguf"
+        private const val MODEL_FILE_NAME = "marfa-gemma3-4b-q4km.gguf"
         private const val REQUEST_TIMEOUT_MS = 120_000L
         private const val SYSTEM_PROMPT = """
 Ты локальный семантический интерпретатор команд IoTManager.
