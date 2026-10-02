@@ -14,8 +14,9 @@ class MarfaIntelligence private constructor(context: Context) {
             }
     }
 
-    private val gemma = GemmaLocalEngine.get(context)
-    private val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+    private val appContext = context.applicationContext
+    private val gemma = GemmaLocalEngine.get(appContext)
+    private val prefs = appContext.getSharedPreferences("settings", Context.MODE_PRIVATE)
     private val smartRuleParser = LocalCommandManager()
     private val trainedMatcher = TrainedCommandMatcher(
         TrainedCommandStore(context.getSharedPreferences("settings", Context.MODE_PRIVATE))
@@ -159,7 +160,7 @@ class MarfaIntelligence private constructor(context: Context) {
             })
 
             val executionPlan = if (it.action == LocalCommandAction.CONTROL) {
-                AppRuntime.get(context).deviceScenarioManager.planCommand(
+                AppRuntime.get(appContext).deviceScenarioManager.planCommand(
                     it,
                     devices
                 )
