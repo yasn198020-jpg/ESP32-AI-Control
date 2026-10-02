@@ -451,7 +451,9 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
                         analytical.candidate.device.id,
                         analytical.candidate.widget
                     )
-                } else if (isControllableWidget(selectedWidget)) {
+                } else if (selectedWidget.type == WidgetState.Type.TOGGLE ||
+                    selectedWidget.type == WidgetState.Type.BUTTON ||
+                    selectedWidget.type == WidgetState.Type.INPUT) {
                     analyticalText = describeCandidate(selectedDevice.id, selectedWidget)
                 }
 
@@ -464,6 +466,7 @@ CATALOG fields: index, id, device, page, title, titleSearch, type.
                 val finalSeed = LocalCommandResult(
                     action = LocalCommandAction.CONTROL,
                     deviceId = selectedDevice.id,
+                    reply = "",
                     widgetId = selectedWidget.id,
                     value = analyticalValue,
                     actionItems = listOf(
