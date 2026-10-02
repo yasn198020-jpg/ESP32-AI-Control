@@ -421,14 +421,44 @@ class MarfaAnalyticalEngine {
                 val matched = pageTokens.count { pageToken ->
                     commandTokens.any { commandToken -> lexicalMatch(commandToken, pageToken) }
                 }
-                if (matched == pageTokens.size) lexicalPage to matched else null
+                if (matched == pageTokens.size) {
+                    val pageControlScore = devices.asSequence()
+                        .flatMap { device -> device.widgets.asSequence().map { device to it } }
+                        .filter { (_, widget) ->
+                            searchableText(widget.page).trim() == lexicalPage
+                        }
+                        .filter { (_, widget) -> isControllable(widget) }
+                        .map { (device, widget) ->
+                            controlScore(
+                                text = text,
+                                page = null,
+                                exactId = null,
+                                device = device,
+                                widget = widget,
+                                desiredValue = desiredValueFromText(text)
+                            )
+                        }
+                        .maxOrNull() ?: 0
+
+                    // Several IoTManager tabs may share the same semantic marker
+                    // (for example both "Теплиц 🥒" and "⚒️ 🥒"). The marker alone
+                    // is therefore not enough. Prefer the tab whose controls actually
+                    // match the spoken object/action. This keeps emoji pages semantic
+                    // without hard-coding any particular crop or tab name.
+                    lexicalPage to (matched * 1000 + pageControlScore)
+                } else null
             }
             .sortedWith(
                 compareByDescending<Pair<String, Int>> { it.second }
                     .thenByDescending { it.first.length }
             )
-            .map { it.first }
-            .toList()
+            .let { ranked ->
+                val bestScore = ranked.firstOrNull()?.second ?: return@let emptyList()
+                ranked
+                    .filter { it.second == bestScore }
+                    .map { it.first }
+                    .toList()
+            }
     }
 
     private fun unknownContextWords(text: String, devices: List<Device>): List<String> {
@@ -455,6 +485,22 @@ class MarfaAnalyticalEngine {
             .distinct()
             .map { it.original }
             .toList()
+    }
+
+    private fun desiredValueFromText(text: String): String? = when {
+        containsAny(
+            text,
+            "открой", "открыть", "открывай", "подними", "поднять",
+            "распахни", "раскрой", "включи", "включить", "включай",
+            "запусти", "запустить", "зажги"
+        ) -> "1"
+        containsAny(
+            text,
+            "закрой", "закрыть", "закрывай", "опусти", "опустить",
+            "запечатай", "выключи", "выключить", "выключай",
+            "останови", "остановить", "погаси"
+        ) -> "0"
+        else -> null
     }
 
     private fun isSelectionToken(token: String): Boolean {
