@@ -92,7 +92,11 @@ class MainActivity : ComponentActivity() {
                 LocalDensity provides Density(density = baseDensity.density, fontScale = fontScale)
             ) {
                 MaterialTheme(colorScheme = darkColorScheme()) {
-                    Surface(Modifier.fillMaxSize()) {
+                    Surface(
+                        Modifier
+                            .fillMaxSize()
+                            .windowInsetsPadding(WindowInsets.safeDrawing)
+                    ) {
                         App(
                             fontScale = fontScale,
                             onFontScaleChange = {
