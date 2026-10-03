@@ -169,9 +169,6 @@ private fun App(
     var pendingSmartRule by remember { mutableStateOf<LocalCommandResult?>(null) }
     var pendingControl by remember { mutableStateOf<LocalCommandResult?>(null) }
     val marfaIntelligence = remember { MarfaIntelligence.get(context.applicationContext) }
-    val gemmaScope = rememberCoroutineScope()
-    var gemmaStatus by remember { mutableStateOf(marfaIntelligence.gemmaStatus()) }
-    var gemmaEnabled by remember { mutableStateOf(false) }
     val speech = remember { TextToSpeech(context, null) }
     val trainedStore = remember { TrainedCommandStore(prefs) }
     val trainedMatcher = remember { TrainedCommandMatcher(trainedStore) }
@@ -290,19 +287,6 @@ private fun App(
     }
 
     fun addLog(message: String) { log = (log + message).takeLast(100) }
-
-    val pickGemmaModel = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri != null) {
-            gemmaScope.launch {
-                gemmaStatus = "Импортирую Gemma…"
-                val imported = marfaIntelligence.importGemmaModel(uri)
-                gemmaStatus = imported.getOrElse { "Ошибка Gemma: " + (it.message ?: "не удалось импортировать") }
-            }
-        }
-    }
-
     val requestMicPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -1169,14 +1153,6 @@ private fun App(
             else -> VoiceSettingsScreen(
                 Modifier.padding(padding), voicePreset, voiceRate, voicePitch,
                 availableVoices, selectedVoiceName,
-                gemmaStatus,
-                gemmaEnabled,
-                { pickGemmaModel.launch(arrayOf("*/*")) },
-                { context.startActivity(Intent(context, GemmaTestActivity::class.java)) },
-                { enabled ->
-                    gemmaEnabled = enabled
-                    prefs.edit().putBoolean("gemma_enabled", enabled).apply()
-                },
                 ::selectVoicePreset,
                 { voiceRate = it; voicePreset = "custom" },
                 { voicePitch = it; voicePreset = "custom" },
@@ -1502,11 +1478,6 @@ private fun VoiceSettingsScreen(
     pitch: Float,
     voices: List<android.speech.tts.Voice>,
     selectedVoiceName: String,
-    gemmaStatus: String,
-    gemmaEnabled: Boolean,
-    onImportGemma: () -> Unit,
-    onGemmaTest: () -> Unit,
-    onGemmaEnabledChange: (Boolean) -> Unit,
     onPreset: (String) -> Unit,
     onRate: (Float) -> Unit,
     onPitch: (Float) -> Unit,
@@ -1537,33 +1508,6 @@ private fun VoiceSettingsScreen(
         Text("Выберите голос из установленных на телефоне.")
 
         HorizontalDivider()
-        Text("Марфа — локальная Gemma", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-        Text(
-            "Gemma понимает естественную речь и контекст. Модель работает на телефоне и не управляет MQTT напрямую.",
-            style = MaterialTheme.typography.bodySmall
-        )
-        Text(gemmaStatus, style = MaterialTheme.typography.bodySmall)
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text("Использовать Gemma", fontWeight = FontWeight.Medium)
-                Text(
-                    if (gemmaEnabled) "Включена: Marfa может передавать неоднозначные команды Gemma."
-                    else "Выключена: команды идут без Gemma, через обычный локальный путь.",
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-            Switch(checked = gemmaEnabled, onCheckedChange = onGemmaEnabledChange)
-        }
-        Button(onClick = onImportGemma, modifier = Modifier.fillMaxWidth()) {
-            Text("Импортировать модель GGUF")
-        }
-        OutlinedButton(onClick = onGemmaTest, modifier = Modifier.fillMaxWidth()) {
-            Text("Тест Gemma (3 команды)")
-        }
 
         Text("Установленный голос", fontWeight = FontWeight.Medium)
         Box(Modifier.fillMaxWidth()) {
