@@ -183,6 +183,9 @@ class ScenarioGraphCommandResolverTest {
 
         assertEquals("cucumber", result.target?.widget?.id)
         assertTrue(result.blockedReason == null)
+        // Regression: condition widgets are blockers/inputs, never competing
+        // controllers when the semantic target is already proven.
+        assertEquals("cucumber", result.target?.widget?.id)
     }
 
 }
