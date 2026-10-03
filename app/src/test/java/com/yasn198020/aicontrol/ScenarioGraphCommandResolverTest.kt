@@ -100,6 +100,46 @@ class ScenarioGraphCommandResolverTest {
     }
 
     @Test
+    fun lowerControllerBranchesConvergingOnOneTopControllerResolveToThatTop() {
+        val devices = listOf(
+            Device(
+                "d",
+                "Теплица",
+                true,
+                listOf(
+                    WidgetState("top", "главное управление", WidgetState.Type.TOGGLE, "0"),
+                    WidgetState("left", "управление слева", WidgetState.Type.TOGGLE, "0"),
+                    WidgetState("right", "управление справа", WidgetState.Type.TOGGLE, "0"),
+                    WidgetState("relay", "реле", WidgetState.Type.BUTTON, "0")
+                )
+            )
+        )
+        val source = """
+            if top == 1 then { left = 1; }
+            if top == 1 then { right = 1; }
+            if left == 1 then { relay = 1; }
+            if right == 1 then { relay = 1; }
+        """.trimIndent()
+        val d = devices.single()
+        val result = ScenarioGraphCommandResolver().resolve(
+            candidates = listOf(
+                MarfaAnalyticalEngine.ControlCandidate(
+                    d,
+                    d.widgets.single { it.id == "relay" },
+                    10,
+                    emptyList()
+                )
+            ),
+            desiredValue = "1",
+            devices = devices,
+            models = listOf(model(source))
+        )
+
+        assertEquals("top", result.target?.widget?.id)
+        assertTrue(result.blockedReason == null)
+    }
+
+    @Test
     fun twoIndependentControllersAreNotGuessed() {
         val devices = listOf(
             Device(
