@@ -40,10 +40,17 @@ typealias ScenarioPlanResolver = (
     devices: List<Device>
 ) -> ScenarioCommandPlan
 
+typealias ScenarioGraphResolver = (
+    candidates: List<MarfaAnalyticalEngine.ControlCandidate>,
+    desiredValue: String,
+    devices: List<Device>
+) -> ScenarioGraphCommandResolution
+
 class LocalCommandManager(
-    private val scenarioPlanResolver: ScenarioPlanResolver? = null
+    private val scenarioPlanResolver: ScenarioPlanResolver? = null,
+    private val scenarioGraphResolver: ScenarioGraphResolver? = null
 ) {
-    private val engine = MarfaCommandEngine(scenarioPlanResolver)
+    private val engine = MarfaCommandEngine(scenarioPlanResolver, scenarioGraphResolver)
 
     fun interpret(command: String, devices: List<Device>): LocalCommandResult =
         engine.parse(command, devices)

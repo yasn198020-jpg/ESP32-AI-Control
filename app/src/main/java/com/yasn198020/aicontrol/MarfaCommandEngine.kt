@@ -22,7 +22,8 @@ import java.util.Locale
  * MQTT is deliberately outside this class.
  */
 class MarfaCommandEngine(
-    private val scenarioPlanResolver: ScenarioPlanResolver? = null
+    private val scenarioPlanResolver: ScenarioPlanResolver? = null,
+    private val scenarioGraphResolver: ScenarioGraphResolver? = null
 ) {
     private val analyticalEngine = MarfaAnalyticalEngine()
     private data class Candidate(val device: Device, val widget: WidgetState, val score: Int)
@@ -68,7 +69,33 @@ class MarfaCommandEngine(
         if (action != null) {
             val time = parseTime(text)
             val resolution = analyticalEngine.resolveControl(text, devices, action.value)
-            val analyticalTarget = resolution.candidate
+
+            /*
+             * Scenario graph is the authoritative second stage. The lexical
+             * resolver only supplies possible nodes; the graph decides who
+             * controls the requested state and which elements are blockers.
+             */
+            val graph = scenarioGraphResolver?.invoke(
+                resolution.candidates,
+                action.value,
+                devices
+            )
+
+            if (graph?.blockedReason != null) {
+                val graphCandidates = graph.alternatives.ifEmpty { resolution.candidates }
+                pendingClarification = PendingClarification.Control(
+                    originalText = text,
+                    action = action,
+                    candidates = graphCandidates.map { Candidate(it.device, it.widget, it.score) }
+                )
+                return LocalCommandResult(
+                    LocalCommandAction.CLARIFY,
+                    reply = graph.blockedReason
+                )
+            }
+
+            val analyticalTarget = graph?.target
+                ?: resolution.candidate
                 ?: scenarioDisambiguate(
                     resolution = resolution,
                     action = action,
@@ -115,7 +142,14 @@ class MarfaCommandEngine(
                 reply = controlReply(action, chosen.widget.title, delay, actions.size),
                 delayMs = delay,
                 actionItems = actions,
-                needsConfirmation = true
+                needsConfirmation = true,
+                scenarioPlan = graph?.let {
+                    ScenarioCommandPlan(
+                        actions = actions,
+                        prerequisites = it.prerequisites,
+                        resolvedByScenario = it.resolvedByScenario
+                    )
+                }
             ))
         }
 

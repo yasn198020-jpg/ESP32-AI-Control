@@ -168,4 +168,29 @@ class MarfaDialogueCoreTest {
         assertTrue(MarfaDialogueLanguage.isSmartRuleConfirmation("сохрани"))
         assertTrue(MarfaDialogueLanguage.isSmartRuleRejection("не сохраняй"))
     }
+    @Test
+    fun blockedScenarioNeverTurnsIntoConfirmation() = kotlinx.coroutines.runBlocking {
+        val devices = doors()
+        val blocked = LocalCommandResult(
+            action = LocalCommandAction.CONTROL,
+            deviceId = "greenhouse",
+            widgetId = "door-1",
+            value = "1",
+            reply = "Открываю дверь",
+            needsConfirmation = true,
+            scenarioPlan = ScenarioCommandPlan(
+                actions = listOf(LocalCommandActionItem("greenhouse", "door-1", "1")),
+                blockedReason = "Не удалось однозначно определить зависимость команды.",
+                resolvedByScenario = true
+            )
+        )
+        val dialogue = MarfaDialogueCore { _, _ -> blocked }
+
+        val result = dialogue.process("открой дверь", devices)
+
+        assertEquals(MarfaDialogueCore.OutcomeKind.CONTINUE, result.kind)
+        assertEquals(LocalCommandAction.CLARIFY, result.result?.action)
+        assertTrue(result.reply.contains("Не удалось"))
+    }
+
 }
