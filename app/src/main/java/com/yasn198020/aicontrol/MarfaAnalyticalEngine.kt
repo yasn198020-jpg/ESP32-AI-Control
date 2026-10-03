@@ -83,7 +83,7 @@ class MarfaAnalyticalEngine {
 
         // Context comes from actual IoTManager page/tab names.
         // Text pages are resolved deterministically. Pages made only of symbols/emoji
-        // are semantic context and are intentionally handed to Gemma instead of
+        // are semantic context and are handled by the deterministic semantic resolver instead of
         // being rejected as "unknown" by lexical matching.
         val contextPages = if (page == null) matchingContextPages(normalized, devices) else emptyList()
         val contextTokens = if (page == null) contextTokens(normalized, devices) else emptyList()
@@ -100,7 +100,7 @@ class MarfaAnalyticalEngine {
 
         // If the command contains context but the available page is emoji/symbol-only,
         // lexical analysis must NOT invent a candidate and must NOT ask the user to clarify.
-        // Return an empty resolution so the semantic Gemma result remains authoritative.
+        // Return an empty resolution so the caller can decide without guessing.
         if (page == null &&
             contextPages.isEmpty() &&
             contextTokens.isNotEmpty() &&
@@ -429,7 +429,7 @@ class MarfaAnalyticalEngine {
             .filter { it.isNotBlank() }
             .distinct()
             .mapNotNull { rawPage ->
-                // Use the same internal semantic representation as Gemma.
+                // Use the same internal semantic representation as the local resolver.
                 // UI keeps the original emoji, but 🍅 must behave as "помидоры"
                 // for page/context matching as well.
                 val lexicalPage = searchableText(rawPage).trim()
