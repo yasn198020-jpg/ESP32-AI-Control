@@ -3,6 +3,8 @@ package com.yasn198020.aicontrol
 import com.yasn198020.aicontrol.core.Device
 import com.yasn198020.aicontrol.core.WidgetState
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -474,7 +476,7 @@ class MarfaCommandEngineTest {
             ))
         )
 
-        val engine = MarfaCommandEngine { result, _ ->
+        val engine = MarfaCommandEngine(scenarioPlanResolver = { result, _ ->
             when (result.widgetId) {
                 "control" -> ScenarioCommandPlan(
                     actions = result.actionItems,
@@ -490,7 +492,7 @@ class MarfaCommandEngineTest {
                 )
                 else -> ScenarioCommandPlan(actions = result.actionItems)
             }
-        }
+        })
 
         val result = engine.parse("открой огурцы", devices)
 
@@ -509,7 +511,7 @@ class MarfaCommandEngineTest {
             ))
         )
 
-        val engine = MarfaCommandEngine { result, _ ->
+        val engine = MarfaCommandEngine(scenarioPlanResolver = { result, _ ->
             when (result.widgetId) {
                 "control" -> ScenarioCommandPlan(
                     actions = result.actionItems,
@@ -521,7 +523,7 @@ class MarfaCommandEngineTest {
                 )
                 else -> ScenarioCommandPlan(actions = result.actionItems)
             }
-        }
+        })
 
         val result = engine.parse("закрой огурцы", devices)
 
@@ -539,7 +541,7 @@ class MarfaCommandEngineTest {
             ))
         )
 
-        val engine = MarfaCommandEngine { result, _ ->
+        val engine = MarfaCommandEngine(scenarioPlanResolver = { result, _ ->
             if (result.widgetId == "door") {
                 ScenarioCommandPlan(
                     actions = result.actionItems,
@@ -548,7 +550,7 @@ class MarfaCommandEngineTest {
             } else {
                 ScenarioCommandPlan(actions = result.actionItems)
             }
-        }
+        })
 
         val result = engine.parse("открой огурцы", devices)
 
