@@ -35,7 +35,8 @@ class MarfaAnalyticalEngine {
         val device: Device,
         val widget: WidgetState,
         val score: Int,
-        val reasons: List<String>
+        val reasons: List<String>,
+        val directSemanticTarget: Boolean = false
     )
 
     data class ControlResolution(

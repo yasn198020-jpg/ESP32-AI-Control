@@ -46,7 +46,20 @@ class ScenarioGraphCommandResolver {
         val enabledModels = models.filter { it.first.enabled && it.second.valid }
         if (enabledModels.isEmpty()) return ScenarioGraphCommandResolution()
 
+        // If lexical analysis found a direct semantic target, the scenario
+        // graph must resolve that object only. Action words such as "закрой"
+        // must never promote an unrelated "закрытие двери" or "закрытие
+        // форточки" into a competing target.
+        val semanticCandidates = candidates.filter { it.directSemanticTarget }
+        val graphInput = if (semanticCandidates.isNotEmpty()) semanticCandidates else candidates
+
         // target -> elements that occur in the target's scenario conditions.
+        // A scenario condition is not automatically a controller relationship.
+        // We first identify action targets, then validate each candidate as a
+        // control only when a rule explicitly writes that candidate or the
+        // candidate is a direct semantic target whose state is represented by
+        // the rule. This prevents sensors/feedback/parallel controls from
+        // becoming parents merely because they appear in the same condition.
         val parents = linkedMapOf<String, MutableSet<String>>()
         val rulesByTarget = linkedMapOf<String, MutableList<DeviceScenarioRule>>()
 
@@ -55,10 +68,10 @@ class ScenarioGraphCommandResolver {
                 rule.actions.forEach { action ->
                     rulesByTarget.getOrPut(action.targetId) { mutableListOf() } += rule
                     rule.condition.identifiers.forEach { identifier ->
-                        if (identifier != action.targetId) {
-                            parents.getOrPut(action.targetId) { linkedSetOf() } += identifier
-                        }
+                    if (identifier != action.targetId) {
+                        parents.getOrPut(action.targetId) { linkedSetOf() } += identifier
                     }
+                }
                 }
             }
         }
@@ -109,7 +122,16 @@ class ScenarioGraphCommandResolver {
                 val controllerParents = parents[current]
                     .orEmpty()
                     .mapNotNull { nodes[it] }
-                    .filter { isControllable(it.widget) && !isModeWidget(it.widget) }
+                    .filter { parent ->
+                        isControllable(parent.widget) &&
+                            !isModeWidget(parent.widget) &&
+                            canActuallyControl(
+                                controller = parent.widget,
+                                affectedId = current,
+                                rulesByTarget = rulesByTarget,
+                                nodes = nodes
+                            )
+                    }
                     .distinctBy { it.widget.id }
 
                 if (controllerParents.size > 1) {
@@ -180,6 +202,27 @@ class ScenarioGraphCommandResolver {
         val items: List<ScenarioPrerequisite>,
         val blockedReason: String? = null
     )
+
+    /**
+     * A node mentioned in a condition can be a sensor, feedback, or an
+     * unrelated gate. It is a controller only when the scenario contains a
+     * writable action path whose target is the affected state and the
+     * candidate's value participates in that rule as the controlling input.
+     */
+    private fun canActuallyControl(
+        controller: WidgetState,
+        affectedId: String,
+        rulesByTarget: Map<String, List<DeviceScenarioRule>>,
+        nodes: Map<String, Node>
+    ): Boolean {
+        if (nodes[controller.id] == null) return false
+        return rulesByTarget[affectedId].orEmpty().any { rule ->
+            rule.condition.identifiers.contains(controller.id) &&
+                rule.actions.any { it.targetId == affectedId } &&
+                isControllable(controller) &&
+                !isModeWidget(controller)
+        }
+    }
 
     private fun findBlockers(
         target: Node,
