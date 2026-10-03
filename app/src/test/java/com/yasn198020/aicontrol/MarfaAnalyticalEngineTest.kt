@@ -385,6 +385,30 @@ class MarfaAnalyticalEngineTest {
     }
 
     @Test
+    fun offContextIgnoresFeedbackWidgetsAndKeepsRealControl() {
+        val result = MarfaAnalyticalEngine().resolveControl(
+            "выключи огурцы",
+            listOf(
+                Device("d1", "Дом", true, listOf(
+                    WidgetState("door", "закрыта открыта дверь", WidgetState.Type.TOGGLE, "0", page = "Теплиц 🥒"),
+                    WidgetState("vent", "закрыта открыта форточка", WidgetState.Type.TOGGLE, "0", page = "Теплиц 🥒"),
+                    WidgetState("auto", "автомат управление", WidgetState.Type.TOGGLE, "1", page = "Теплиц 🥒"),
+                    WidgetState("limitDoor", "концевик двери", WidgetState.Type.TOGGLE, "0", page = "Теплиц 🥒"),
+                    WidgetState("limitVent", "концевик форточки", WidgetState.Type.TOGGLE, "0", page = "Теплиц 🥒")
+                ))
+            ),
+            "0"
+        )
+        assertEquals("auto", result.candidate?.widget?.id)
+        assertTrue(result.candidates.none {
+            it.widget.id == "door" ||
+                it.widget.id == "vent" ||
+                it.widget.id == "limitDoor" ||
+                it.widget.id == "limitVent"
+        })
+    }
+
+    @Test
     fun genericContextWithoutUniqueTargetRequiresClarification() {
         val result = MarfaCommandEngine().parse(
             "включи огурцы",
