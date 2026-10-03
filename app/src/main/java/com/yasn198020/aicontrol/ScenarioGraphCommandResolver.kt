@@ -77,6 +77,7 @@ class ScenarioGraphCommandResolver {
 
         val paths = candidates.mapNotNull { candidate ->
             val start = nodes[candidate.widget.id] ?: return@mapNotNull null
+            if (isObservationWidget(start.widget)) return@mapNotNull null
 
             val topPaths = findTopPaths(
                 startId = start.widget.id,
@@ -115,7 +116,7 @@ class ScenarioGraphCommandResolver {
             )
         }
 
-        if (paths.isEmpty()) return directFallback(candidates)
+        if (paths.isEmpty()) return ScenarioGraphCommandResolution()
 
         val strongPaths = paths.filter { it.strong }
         val effectivePaths = if (strongPaths.isNotEmpty()) strongPaths else paths
