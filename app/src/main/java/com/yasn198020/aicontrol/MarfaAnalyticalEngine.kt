@@ -523,7 +523,7 @@ class MarfaAnalyticalEngine {
                     .thenByDescending { it.first.length }
             )
             .let { ranked ->
-                if (ranked.isEmpty()) return@let emptyList()
+                if (ranked.none()) return@let emptyList()
 
                 /*
                  * Context is global: the same semantic object may legitimately
