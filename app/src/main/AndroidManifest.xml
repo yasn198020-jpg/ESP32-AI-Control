@@ -83,7 +83,7 @@
         <activity
             android:name=".MarfaTestActivity"
             android:exported="false"
-            android:theme="@style/Theme.App.NoActionBar" />
+            android:theme="@style/Theme.App.MarfaTest" />
 
         <activity
             android:name=".MainActivity"
