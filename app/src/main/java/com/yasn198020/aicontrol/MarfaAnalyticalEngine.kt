@@ -911,11 +911,25 @@ class MarfaAnalyticalEngine {
     ): Boolean {
         if (desiredValue != "1" && desiredValue != "0") return true
 
+        val title = semanticSearchText(widget.title)
+
         /*
-         * Feedback widgets and automatic-mode selectors should be excluded
-         * only when the user is actually asking to open/close a physical object.
-         * For "включи/выключи автомат" the automatic-mode widget is the target
-         * and must remain eligible.
+         * Feedback/status widgets are never command targets. This filtering is
+         * intentionally independent of the verb: "выключи огурцы" must not turn
+         * into a clarification containing end switches or state indicators just
+         * because those widgets are also TOGGLE/BUTTON controls.
+         */
+        if (containsAny(title, "концевик", "концевой", "конечный")) return false
+
+        val isStateIndicator =
+            (title.contains("открыт") && title.contains("закрыт")) ||
+                containsAny(title, "состояние", "статус", "индикатор", "положение")
+        if (isStateIndicator) return false
+
+        /*
+         * Automatic-mode controls are special: they are valid targets for
+         * "включи/выключи автомат", but not for a physical open/close command
+         * unless the widget itself explicitly represents that object's action.
          */
         val isOpenCloseCommand = containsAny(
             commandText,
@@ -923,20 +937,7 @@ class MarfaAnalyticalEngine {
             "распахни", "раскрой", "закрой", "закрыть", "закрывай",
             "опусти", "опустить", "запечатай"
         )
-        if (!isOpenCloseCommand) return true
-
-        val title = semanticSearchText(widget.title)
-
-        // Feedback/status elements are observable state, not command targets.
-        // They must never enter clarification merely because they are technically
-        // represented as TOGGLE/BUTTON widgets.
-        if (containsAny(title, "концевик", "концевой", "конечный")) return false
-        val isStateIndicator =
-            (title.contains("открыт") && title.contains("закрыт")) ||
-                containsAny(title, "состояние", "статус", "индикатор", "положение")
-        if (isStateIndicator) return false
-
-        if (containsAny(title, "автомат", "режим")) {
+        if (isOpenCloseCommand && containsAny(title, "автомат", "режим")) {
             val hasOpenCloseSemantics = containsAny(
                 title,
                 "открыт", "открыть", "открой", "закрыт", "закрыть", "закрой",
