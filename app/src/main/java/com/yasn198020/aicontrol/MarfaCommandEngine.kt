@@ -75,8 +75,9 @@ class MarfaCommandEngine(
              * resolver only supplies possible nodes; the graph decides who
              * controls the requested state and which elements are blockers.
              */
-            val graphCandidates = resolution.candidate?.let { listOf(it) }
-                ?: resolution.candidates
+            val graphCandidates = resolution.candidates.ifEmpty {
+                resolution.candidate?.let { listOf(it) }.orEmpty()
+            }
             val graph = scenarioGraphResolver?.invoke(
                 graphCandidates,
                 action.value,
