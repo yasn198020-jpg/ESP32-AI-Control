@@ -385,7 +385,7 @@ class MarfaAnalyticalEngineTest {
     }
 
     @Test
-    fun explicitAutomaticCommandDoesNotOfferDoorOrVentControls() {
+    fun genericSemanticTargetWinsWithoutSpecialCaseForAutomaticMode() {
         val result = MarfaAnalyticalEngine().resolveControl(
             "включи автомат помидор",
             listOf(
@@ -399,10 +399,8 @@ class MarfaAnalyticalEngineTest {
             "1"
         )
         assertEquals("auto", result.candidate?.widget?.id)
-        assertTrue(result.candidates.all { it.widget.title.contains("автомат") })
-        assertTrue(result.candidates.none {
-            it.widget.id == "door" || it.widget.id == "vent"
-        })
+        assertTrue(result.candidates.any { it.widget.id == "auto" })
+        assertTrue(result.candidates.none { it.widget.id == "otherAuto" })
     }
 
     @Test
