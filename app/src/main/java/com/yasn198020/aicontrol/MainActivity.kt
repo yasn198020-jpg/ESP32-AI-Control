@@ -171,9 +171,12 @@ private fun App(
     var devices by remember { mutableStateOf(emptyList<Device>()) }
     var voiceText by remember { mutableStateOf("") }
     var voiceStatus by remember { mutableStateOf("Нажмите 🎤 и скажите команду") }
-    var pendingSmartRule by remember { mutableStateOf<LocalCommandResult?>(null) }
-    var pendingControl by remember { mutableStateOf<LocalCommandResult?>(null) }
     val marfaIntelligence = remember { MarfaIntelligence.get(context.applicationContext) }
+    val marfaDialogue = remember {
+        MarfaDialogueCore { command, snapshot ->
+            marfaIntelligence.interpret(command, snapshot)
+        }
+    }
     val speech = remember { TextToSpeech(context, null) }
     val trainedStore = remember { TrainedCommandStore(prefs) }
     val trainedMatcher = remember { TrainedCommandMatcher(trainedStore) }
@@ -565,209 +568,188 @@ private fun App(
 
         voiceStatus = "Анализ команды…"
 
-        pendingControl?.let { pending ->
-            val normalized = command.lowercase(Locale("ru", "RU")).trim().replace("ё", "е")
-            when {
-                normalized in setOf("да", "давай", "выполняй", "выполни", "подтверждаю", "верно", "точно", "сделай") || normalized.contains("давай") -> {
-                    pendingControl = null
-                    MarfaCommandExecutor.get().execute(pending, runtime) { reply ->
-                        android.os.Handler(android.os.Looper.getMainLooper()).post {
-                            voiceStatus = reply
-                            speakDialogue(reply, TextToSpeech.QUEUE_FLUSH, null, "marfa-command-confirmed")
-                        }
-                    }
-                    voiceManager.stop()
-                    return@LaunchedEffect
-                }
-                normalized in setOf("нет", "отмена", "отменить", "не надо", "не делай", "не выполняй", "стоп") || normalized.contains("отмен") || normalized.contains("не выполняй") -> {
-                    pendingControl = null
-                    voiceStatus = "Хорошо, не выполняю"
-                    speakDialogue(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "marfa-command-cancelled")
-                    voiceManager.stop()
-                    return@LaunchedEffect
-                }
-                else -> {
-                    voiceStatus = "Выполнить это? Скажите да или нет"
-                    speakDialogue(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "marfa-command-ask-again")
-                    return@LaunchedEffect
-                }
-            }
-        }
-
-        pendingSmartRule?.let { pending ->
-            val normalized = command.lowercase(Locale("ru", "RU")).trim().replace("ё", "е")
-            when {
-                normalized in setOf("да", "сохрани", "сохранить", "подтверждаю", "верно", "правильно", "согласен", "согласна") -> {
-                    pendingSmartRule = null
-                    val scenario = Scenario(
-                        title = "Марфа: " + pending.reply.removePrefix("Поняла правило: "),
-                        deviceId = pending.conditionDeviceId,
-                        widgetId = pending.conditionWidgetId,
-                        operator = pending.conditionOperator,
-                        threshold = pending.conditionThreshold,
-                        message = pending.reply,
-                        actionType = "MQTT_CONTROL",
-                        actionDeviceId = pending.actionDeviceId,
-                        actionWidgetId = pending.actionWidgetId,
-                        actionValue = pending.actionValue,
-                        actions = listOf(
-                            ScenarioAction(pending.actionDeviceId, pending.actionWidgetId, pending.actionValue)
-                        ),
-                        notificationEnabled = true,
-                        conditions = listOf(
-                            ScenarioCondition(
-                                pending.conditionDeviceId,
-                                pending.conditionWidgetId,
-                                pending.conditionOperator,
-                                pending.conditionThreshold
-                            )
-                        )
-                    )
-                    runtime.scenarioStore.add(scenario)
-                    voiceStatus = pending.reply + ". Правило сохранено."
-                    speakDialogue(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "smart-rule-confirmed")
-                    voiceManager.stop()
-                    return@LaunchedEffect
-                }
-                normalized in setOf("нет", "отмена", "отменить", "не сохраняй", "не сохранять", "не надо") -> {
-                    pendingSmartRule = null
-                    voiceStatus = "Правило не сохранено"
-                    speakDialogue(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "smart-rule-cancelled")
-                    voiceManager.stop()
-                    return@LaunchedEffect
-                }
-                else -> {
-                    voiceStatus = "Сохранить предыдущее правило? Скажите да или нет"
-                    speakDialogue(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "smart-rule-ask-again")
-                    return@LaunchedEffect
-                }
-            }
-        }
-
-        // Parse once only to detect smart rules. Existing trained phrases keep
-        // priority for all ordinary commands, as they did in the stable build.
-        // Never leave the UI stuck on "Анализ" when the local model reports
-        // an ordinary Kotlin/Java error.
-        val result = try {
-            marfaIntelligence.interpret(command, devices)
+        val turn = try {
+            marfaDialogue.process(command, devices)
         } catch (e: Throwable) {
-            android.util.Log.e("MARFA_ENGINE", "interpret failed", e)
+            android.util.Log.e("MARFA_ENGINE", "dialogue failed", e)
             voiceStatus = "Ошибка анализа: " + (e.message ?: "неизвестная ошибка")
             speakDialogue(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "marfa-analysis-error")
             voiceManager.stop()
             return@LaunchedEffect
         }
+
+        val result = turn.result
         android.util.Log.d(
-            "MARFA_ENGINE",
+            "MARFA_DIALOGUE",
             "command=" + command +
-                " action=" + result.action +
-                " delayMs=" + result.delayMs +
-                " actions=" + result.actionItems.size
+                " kind=" + turn.kind +
+                " action=" + (result?.action ?: "none") +
+                " delayMs=" + (result?.delayMs ?: 0L) +
+                " actions=" + (result?.actionItems?.size ?: 0)
         )
 
-        if (result.action == LocalCommandAction.SMART_RULE) {
-            pendingSmartRule = result
-            voiceStatus = result.reply + ". Сохранить это правило? Скажите да или нет"
-            speakDialogue(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "smart-rule-ask")
-        } else if (result.action == LocalCommandAction.CONTROL && result.needsConfirmation) {
-            pendingControl = result
-            voiceStatus = "Поняла. " + result.reply + ". Выполнить? Скажите да или нет"
-            speakDialogue(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "marfa-command-ask")
-        } else {
-            val trainedActions = trainedMatcher.matchAll(command)
-            android.util.Log.d(
-                "MARFA_TRAINED",
-                "priority command=" + command + " matches=" + trainedActions.size
-            )
+        when (turn.kind) {
+            MarfaDialogueCore.OutcomeKind.CONTINUE -> {
+                voiceStatus = turn.reply
+                speakDialogue(turn.reply, TextToSpeech.QUEUE_FLUSH, null, "marfa-dialogue")
+            }
 
-            if (trainedActions.isNotEmpty()) {
-                var sent = 0
-                var skipped = 0
+            MarfaDialogueCore.OutcomeKind.CANCEL -> {
+                voiceStatus = turn.reply
+                speakDialogue(turn.reply, TextToSpeech.QUEUE_FLUSH, null, "marfa-dialogue-cancelled")
+                voiceManager.stop()
+            }
 
-                trainedActions.forEach { trained ->
-                    val widget = devices.firstOrNull { it.id == trained.deviceId }
-                        ?.widgets?.firstOrNull { it.id == trained.widgetId }
-
-                    if (widget == null) {
-                        skipped++
-                    } else if (trained.value == TRAINED_READ_VALUE) {
-                        if (widget.type == WidgetState.Type.VALUE ||
-                            widget.type == WidgetState.Type.STATUS
-                        ) {
-                            val raw = widget.value.trim()
-                            val spoken = if (raw.isBlank() || raw == "—") {
-                                widget.title + ": значение пока неизвестно"
-                            } else {
-                                widget.title + ": " +
-                                    formatTemperatureForSpeech(raw, widget.unit)
-                            }
-                            voiceStatus = spoken
-                            speakDialogue(
-                                spoken,
-                                if (sent == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD,
-                                null,
-                                "trained-value-" + sent
-                            )
-                            sent++
-                        } else {
-                            skipped++
-                        }
-                    } else if (
-                        widget.type == WidgetState.Type.TOGGLE ||
-                        widget.type == WidgetState.Type.BUTTON ||
-                        widget.type == WidgetState.Type.INPUT
-                    ) {
-                        if (sendWidget(trained.deviceId, trained.widgetId, trained.value)) {
-                            sent++
-                        } else {
-                            skipped++
-                        }
-                    } else {
-                        skipped++
-                    }
+            MarfaDialogueCore.OutcomeKind.SAVE_SMART_RULE -> {
+                val rule = result
+                if (rule == null) {
+                    voiceStatus = "Не удалось сохранить правило"
+                    speakDialogue(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "marfa-analysis-error")
+                    voiceManager.stop()
+                    return@LaunchedEffect
                 }
 
-                voiceStatus = if (skipped == 0) {
-                    "Выполнено действий: " + sent
-                } else {
-                    "Выполнено действий: " + sent + ", пропущено: " + skipped
+                val scenario = Scenario(
+                    title = "Марфа: " + rule.reply.removePrefix("Поняла правило: "),
+                    deviceId = rule.conditionDeviceId,
+                    widgetId = rule.conditionWidgetId,
+                    operator = rule.conditionOperator,
+                    threshold = rule.conditionThreshold,
+                    message = rule.reply,
+                    actionType = "MQTT_CONTROL",
+                    actionDeviceId = rule.actionDeviceId,
+                    actionWidgetId = rule.actionWidgetId,
+                    actionValue = rule.actionValue,
+                    actions = listOf(
+                        ScenarioAction(rule.actionDeviceId, rule.actionWidgetId, rule.actionValue)
+                    ),
+                    notificationEnabled = true,
+                    conditions = listOf(
+                        ScenarioCondition(
+                            rule.conditionDeviceId,
+                            rule.conditionWidgetId,
+                            rule.conditionOperator,
+                            rule.conditionThreshold
+                        )
+                    )
+                )
+                runtime.scenarioStore.add(scenario)
+                voiceStatus = rule.reply + ". Правило сохранено."
+                speakDialogue(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "smart-rule-confirmed")
+                voiceManager.stop()
+            }
+
+            MarfaDialogueCore.OutcomeKind.EXECUTE_CONTROL -> {
+                val control = result
+                if (control == null) {
+                    voiceStatus = "Не удалось определить действие"
+                    speakDialogue(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "marfa-analysis-error")
+                    voiceManager.stop()
+                    return@LaunchedEffect
+                }
+
+                MarfaCommandExecutor.get().execute(control, runtime) { reply ->
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        voiceStatus = reply
+                        speakDialogue(
+                            reply,
+                            TextToSpeech.QUEUE_FLUSH,
+                            null,
+                            "marfa-command-" + System.nanoTime()
+                        )
+                    }
                 }
                 voiceManager.stop()
-            } else {
-                when (result.action) {
-                    LocalCommandAction.CONTROL -> {
-                        MarfaCommandExecutor.get().execute(result, runtime) { reply ->
-                            android.os.Handler(android.os.Looper.getMainLooper()).post {
-                                voiceStatus = reply
-                                speakDialogue(
-                                    reply,
-                                    TextToSpeech.QUEUE_FLUSH,
-                                    null,
-                                    "marfa-command-" + System.nanoTime()
-                                )
+            }
+
+            MarfaDialogueCore.OutcomeKind.ANSWER -> {
+                val naturalResult = result
+                if (naturalResult != null &&
+                    naturalResult.action == LocalCommandAction.NOT_FOUND &&
+                    naturalResult.reply.isBlank()
+                ) {
+                    // Saved/trained phrases deliberately stay outside the semantic
+                    // resolver. The central dialogue core has already handled all
+                    // clarification/confirmation state before we reach this branch.
+                    val trainedActions = trainedMatcher.matchAll(command)
+                    android.util.Log.d(
+                        "MARFA_TRAINED",
+                        "priority command=" + command + " matches=" + trainedActions.size
+                    )
+
+                    if (trainedActions.isNotEmpty()) {
+                        var sent = 0
+                        var skipped = 0
+
+                        trainedActions.forEach { trained ->
+                            val widget = devices.firstOrNull { it.id == trained.deviceId }
+                                ?.widgets?.firstOrNull { it.id == trained.widgetId }
+
+                            if (widget == null) {
+                                skipped++
+                            } else if (trained.value == TRAINED_READ_VALUE) {
+                                if (widget.type == WidgetState.Type.VALUE ||
+                                    widget.type == WidgetState.Type.STATUS
+                                ) {
+                                    val raw = widget.value.trim()
+                                    val spoken = if (raw.isBlank() || raw == "—") {
+                                        widget.title + ": значение пока неизвестно"
+                                    } else {
+                                        widget.title + ": " +
+                                            formatTemperatureForSpeech(raw, widget.unit)
+                                    }
+                                    voiceStatus = spoken
+                                    speakDialogue(
+                                        spoken,
+                                        if (sent == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD,
+                                        null,
+                                        "trained-value-" + sent
+                                    )
+                                    sent++
+                                } else {
+                                    skipped++
+                                }
+                            } else if (
+                                widget.type == WidgetState.Type.TOGGLE ||
+                                widget.type == WidgetState.Type.BUTTON ||
+                                widget.type == WidgetState.Type.INPUT
+                            ) {
+                                if (sendWidget(trained.deviceId, trained.widgetId, trained.value)) {
+                                    sent++
+                                } else {
+                                    skipped++
+                                }
+                            } else {
+                                skipped++
                             }
                         }
+
+                        voiceStatus = if (skipped == 0) {
+                            "Выполнено действий: " + sent
+                        } else {
+                            "Выполнено действий: " + sent + ", пропущено: " + skipped
+                        }
+                        voiceManager.stop()
+                    } else {
+                        voiceStatus = "Не поняла команду"
+                        speakDialogue(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "marfa-not-found")
                         voiceManager.stop()
                     }
-
-                    LocalCommandAction.READ_VALUE -> {
-                        voiceStatus = result.reply
-                        speakDialogue(result.reply, TextToSpeech.QUEUE_FLUSH, null, "marfa-value")
-                        voiceManager.stop()
+                } else {
+                    voiceStatus = naturalResult?.reply.orEmpty()
+                    if (voiceStatus.isNotBlank()) {
+                        speakDialogue(
+                            voiceStatus,
+                            TextToSpeech.QUEUE_FLUSH,
+                            null,
+                            when (naturalResult?.action) {
+                                LocalCommandAction.READ_VALUE -> "marfa-value"
+                                LocalCommandAction.CLARIFY -> "marfa-clarify"
+                                else -> "marfa-answer"
+                            }
+                        )
                     }
-
-                    LocalCommandAction.CLARIFY -> {
-                        voiceStatus = result.reply
-                        speakDialogue(result.reply, TextToSpeech.QUEUE_FLUSH, null, "marfa-clarify")
-                    }
-
-                    LocalCommandAction.NOT_FOUND -> {
-                        voiceStatus = result.reply
-                        speakDialogue(result.reply, TextToSpeech.QUEUE_FLUSH, null, "marfa-not-found")
-                        voiceManager.stop()
-                    }
-
-                    LocalCommandAction.SMART_RULE -> Unit
+                    voiceManager.stop()
                 }
             }
         }
