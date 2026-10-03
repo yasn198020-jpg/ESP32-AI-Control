@@ -160,6 +160,16 @@ class MarfaAnalyticalEngine {
 
         val best = candidates.first()
         val second = candidates.getOrNull(1)
+
+        // A unique candidate inside an explicitly resolved semantic context is
+        // already unambiguous. Do not reject it merely because its lexical score
+        // is low: "огурцами" may identify the page even when the control title
+        // itself is generic ("автомат управления").
+        val contextResolved = page != null || contextPages.size == 1
+        if (candidates.size == 1 && contextResolved) {
+            return ControlResolution(candidate = best, candidates = candidates)
+        }
+
         val tied = candidates.count { it.score == best.score } > 1
         val weak = best.score < 22
         val tooClose = second != null &&
@@ -267,6 +277,14 @@ class MarfaAnalyticalEngine {
 
         val best = candidates.first()
         val second = candidates.getOrNull(1)
+
+        // The same rule applies to sensors: once the spoken context resolves
+        // to exactly one sensor, a low lexical score is not ambiguity.
+        val contextResolved = page != null || contextPages.size == 1
+        if (candidates.size == 1 && contextResolved) {
+            return SensorResolution(candidate = best, candidates = candidates)
+        }
+
         val tied = candidates.count { it.score == best.score } > 1
         val weak = best.score < 16
         val tooClose = second != null &&
