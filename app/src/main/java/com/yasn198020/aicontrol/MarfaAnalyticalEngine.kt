@@ -992,11 +992,25 @@ class MarfaAnalyticalEngine {
         if (desiredValue == "0" && hasOpen && !hasClose) return false
 
         if (directionalCommand && !hasOpen && !hasClose &&
-            !hasDirectSemanticTarget(widget, commandText)) {
+            !hasRequestedObjectMatch(widget, commandText)) {
             return false
         }
 
         return true
+    }
+
+    private fun hasRequestedObjectMatch(widget: WidgetState, commandText: String): Boolean {
+        val normalizedCommand = semanticSearchText(commandText)
+        val kind = detectEntityKind(normalizedCommand)
+        if (kind != EntityKind.GENERIC && entityMatches(kind, widget)) return true
+
+        val widgetText = semanticSearchText(
+            widget.title + " " + widget.definitionName + " " + widget.configJson
+        )
+        return tokenized(normalizedCommand).any { token ->
+            if (token.length < 2) false
+            else containsSemanticToken(widgetText, contextTokenKey(token))
+        }
     }
 
     private fun isControllable(widget: WidgetState): Boolean =
