@@ -523,10 +523,23 @@ class MarfaAnalyticalEngine {
                     .thenByDescending { it.first.length }
             )
             .let { ranked ->
-                val bestScore = ranked.firstOrNull()?.second ?: return@let emptyList()
+                if (ranked.isEmpty()) return@let emptyList()
+
+                /*
+                 * Context is global: the same semantic object may legitimately
+                 * exist on several IoTManager tabs. Do not collapse it to the
+                 * single highest-scoring tab. Keep every tab that actually
+                 * matches the spoken context, then let the control resolver
+                 * disambiguate using the controls found on those tabs.
+                 *
+                 * The ranking is still used to order tabs, so a more specific
+                 * control match is considered first without hiding equally valid
+                 * matches on other tabs.
+                 */
                 ranked
-                    .filter { it.second == bestScore }
+                    .sortedByDescending { it.second }
                     .map { it.first }
+                    .distinct()
                     .toList()
             }
     }
