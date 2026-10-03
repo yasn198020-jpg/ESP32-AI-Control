@@ -163,30 +163,6 @@ class MarfaTestActivity : Activity() {
             append("[" + elapsed + " мс]")
             append(report)
 
-            val actual = result.getOrNull()
-                ?.substringAfter("reply=", "")
-                ?.substringBefore("\n")
-                ?.trim()
-                .orEmpty()
-
-            val expectedText = followUp.trim()
-            if (expectedText.isNotBlank()) {
-                val normalizedActual = normalizeForCompare(actual)
-                val normalizedExpected = normalizeForCompare(expectedText)
-                val matched = normalizedActual.contains(normalizedExpected) ||
-                    normalizedExpected.contains(normalizedActual)
-
-                if (matched) {
-                    append("✅ ОТВЕТ СОВПАЛ")
-                } else {
-                    append(
-                        "❌ ОТВЕТ НЕ СОВПАЛ\n" +
-                            "Ожидалось: " + expectedText +
-                            "\nПолучено: " + actual.ifBlank { "не удалось выделить reply" }
-                    )
-                }
-            }
-
             val followUpText = followUp.trim()
             if (followUpText.isNotBlank() && result.isSuccess) {
                 append("")
