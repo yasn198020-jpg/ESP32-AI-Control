@@ -650,6 +650,8 @@ class MarfaAnalyticalEngine {
             .toSet()
 
         val tokens = tokenized(normalize(text))
+            .map { it.trim('.', ',', ':', ';', '!', '?', '(', ')', '[', ']') }
+            .filter { it.isNotBlank() }
         val durationNumberIndexes = buildSet {
             tokens.indices.forEach { index ->
                 if (tokens[index] !in numberWords) return@forEach
