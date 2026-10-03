@@ -345,6 +345,92 @@ class MarfaCommandEngineTest {
 
 
     @Test
+    fun scenarioMissingTargetIdKeepsDirectRelayCommand() {
+        val devices = listOf(
+            Device(
+                "greenhouse",
+                "Дом",
+                true,
+                listOf(
+                    WidgetState(
+                        "relay42",
+                        "реле двери",
+                        WidgetState.Type.BUTTON,
+                        "0"
+                    )
+                )
+            )
+        )
+        val stored = StoredDeviceScenario(
+            title = "Другой сценарий",
+            source = "if otherId == 1 then relay99 = 1;",
+            sensorIds = listOf("otherId", "relay99")
+        )
+        val model = IoTScenarioSemanticAnalyzer.analyze(IoTScenarioParser.parse(stored.source))
+
+        val plan = IoTScenarioCommandPlanner.plan(
+            targetDeviceId = "greenhouse",
+            targetWidgetId = "relay42",
+            desiredValue = "1",
+            baseActions = listOf(LocalCommandActionItem("greenhouse", "relay42", "1")),
+            devices = devices,
+            models = listOf(stored to model)
+        )
+
+        assertEquals(listOf(LocalCommandActionItem("greenhouse", "relay42", "1")), plan.actions)
+        assertTrue(plan.prerequisites.isEmpty())
+        assertNull(plan.blockedReason)
+        assertFalse(plan.resolvedByScenario)
+    }
+
+    @Test
+    fun scenarioContainingTargetIdCanProvideScenarioPlan() {
+        val devices = listOf(
+            Device(
+                "greenhouse",
+                "Дом",
+                true,
+                listOf(
+                    WidgetState(
+                        "relay42",
+                        "открыть дверь",
+                        WidgetState.Type.BUTTON,
+                        "0"
+                    ),
+                    WidgetState(
+                        "mode",
+                        "Ручной режим",
+                        WidgetState.Type.TOGGLE,
+                        "0"
+                    )
+                )
+            )
+        )
+        val stored = StoredDeviceScenario(
+            title = "Сценарий двери",
+            source = "if mode == 1 then relay42 = 1;",
+            sensorIds = listOf("mode", "relay42")
+        )
+        val model = IoTScenarioSemanticAnalyzer.analyze(IoTScenarioParser.parse(stored.source))
+
+        val plan = IoTScenarioCommandPlanner.plan(
+            targetDeviceId = "greenhouse",
+            targetWidgetId = "relay42",
+            desiredValue = "1",
+            baseActions = listOf(LocalCommandActionItem("greenhouse", "relay42", "1")),
+            devices = devices,
+            models = listOf(stored to model)
+        )
+
+        assertEquals("mode", plan.prerequisites.single().widgetId)
+        assertEquals("1", plan.prerequisites.single().value)
+        assertEquals("relay42", plan.actions.last().widgetId)
+        assertEquals("1", plan.actions.last().value)
+        assertNull(plan.blockedReason)
+    }
+
+
+    @Test
     fun scenarioGraphBreaksControlTieWithoutHardcodedWidgetId() {
         val devices = listOf(
             Device("greenhouse", "Дом", true, listOf(
