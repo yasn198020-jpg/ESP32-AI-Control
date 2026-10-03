@@ -73,6 +73,8 @@ class ScenarioGraphCommandResolver {
             }
         }
 
+        val ambiguousControllers = linkedMapOf<String, Node>()
+
         val paths = candidates.mapNotNull { candidate ->
             val start = nodes[candidate.widget.id] ?: return@mapNotNull null
 
@@ -98,7 +100,12 @@ class ScenarioGraphCommandResolver {
                     }
                     .distinctBy { it.first }
 
-                if (controllerParents.size > 1) return@mapNotNull null
+                if (controllerParents.size > 1) {
+                    controllerParents.forEach { (id, node) ->
+                        ambiguousControllers[id] = node
+                    }
+                    return@mapNotNull null
+                }
 
                 val next = controllerParents.singleOrNull()?.second ?: break
                 current = next.widget.id
@@ -111,6 +118,17 @@ class ScenarioGraphCommandResolver {
                 top = top,
                 chain = chain,
                 strong = top.widget.id in actionTargets
+            )
+        }
+
+        if (ambiguousControllers.size > 1) {
+            val alternatives = ambiguousControllers.values
+                .map { toCandidate(it, candidates.maxOfOrNull { candidate -> candidate.score } ?: 0) }
+            return ScenarioGraphCommandResolution(
+                blockedReason = "Сценарий оставляет несколько независимых управляющих элементов: " +
+                    alternatives.joinToString(" или ") { it.widget.title.ifBlank { it.widget.id } } + ".",
+                resolvedByScenario = true,
+                alternatives = alternatives
             )
         }
 
