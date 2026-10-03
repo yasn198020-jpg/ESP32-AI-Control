@@ -122,8 +122,9 @@ class ScenarioGraphCommandResolver {
         }
 
         if (ambiguousControllers.size > 1) {
+            val candidateScores = candidates.associate { it.widget.id to it.score }
             val alternatives = ambiguousControllers.values
-                .map { toCandidate(it, candidates.maxOfOrNull { candidate -> candidate.score } ?: 0) }
+                .map { toCandidate(it, candidateScores[it.widget.id] ?: 0) }
             return ScenarioGraphCommandResolution(
                 blockedReason = "Сценарий оставляет несколько независимых управляющих элементов: " +
                     alternatives.joinToString(" или ") { it.widget.title.ifBlank { it.widget.id } } + ".",
@@ -161,9 +162,7 @@ class ScenarioGraphCommandResolver {
             ?: return directFallback(candidates)
 
         val blockers = findBlockers(
-            target = path.top,
             chain = path.chain,
-            desiredValue = desiredValue,
             parents = parents,
             rulesByTarget = rulesByTarget,
             nodes = nodes
@@ -270,7 +269,6 @@ class ScenarioGraphCommandResolver {
     )
 
     private fun findBlockers(
-        target: Node,
         chain: List<String>,
         desiredValue: String,
         parents: Map<String, Set<String>>,
