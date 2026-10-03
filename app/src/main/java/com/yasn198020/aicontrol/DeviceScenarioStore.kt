@@ -172,6 +172,18 @@ class DeviceScenarioManager(
 
     fun scenarios(): List<StoredDeviceScenario> = store.all()
 
+    /**
+     * Immutable snapshot for the scenario-first command resolver.
+     * The resolver works only with enabled, successfully parsed scenarios.
+     */
+    fun graphModels(): List<Pair<StoredDeviceScenario, DeviceScenarioModel>> {
+        refreshModels()
+        return store.all()
+            .filter { it.enabled }
+            .mapNotNull { item -> refreshModel(item)?.let { item to it } }
+            .filter { (_, model) -> model.parserErrors.isEmpty() }
+    }
+
     fun remove(id: String) {
         store.delete(id)
         parsed.remove(id)
