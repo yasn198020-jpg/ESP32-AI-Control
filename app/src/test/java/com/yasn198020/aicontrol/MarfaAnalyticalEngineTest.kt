@@ -581,8 +581,6 @@ class MarfaAnalyticalEngineTest {
         assertEquals("close", result.candidate?.widget?.id)
         assertTrue(result.candidates.none { it.widget.id == "state" })
         assertTrue(result.candidates.none { it.widget.id == "open" })
-    )
-
 
     @Test
     fun closeCommandExcludesNeutralManagementControlsMatchedOnlyByPage() {
@@ -657,6 +655,5 @@ class MarfaAnalyticalEngineTest {
         )
         assertEquals("doorControl", result.candidate?.widget?.id)
         assertTrue(result.candidates.none { it.widget.id == "auto" })
-    )
 
 }
