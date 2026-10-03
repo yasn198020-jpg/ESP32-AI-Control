@@ -409,6 +409,25 @@ class MarfaAnalyticalEngineTest {
     }
 
     @Test
+    fun semanticContextSearchesAllMatchingTabs() {
+        val result = MarfaAnalyticalEngine().resolveControl(
+            "выключи огурцы",
+            listOf(
+                Device("d1", "Дом", true, listOf(
+                    WidgetState("auto1", "автомат управление", WidgetState.Type.TOGGLE, "1", page = "Теплица 🥒"),
+                    WidgetState("auto2", "автомат управление", WidgetState.Type.TOGGLE, "1", page = "⚙️ 🥒")
+                ))
+            ),
+            "0"
+        )
+        assertEquals(null, result.candidate)
+        assertEquals(2, result.candidates.size)
+        assertTrue(result.candidates.all { it.widget.title == "автомат управление" })
+        assertTrue(result.clarification!!.contains("Теплица"))
+        assertTrue(result.clarification!!.contains("⚙️"))
+    }
+
+    @Test
     fun genericContextWithoutUniqueTargetRequiresClarification() {
         val result = MarfaCommandEngine().parse(
             "включи огурцы",
