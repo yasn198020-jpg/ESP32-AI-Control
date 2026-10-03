@@ -464,6 +464,42 @@ class MarfaCommandEngineTest {
 
 
     @Test
+    fun scenarioKeepsControllingElementWhenLinkedElementsAlsoMatch() {
+        val devices = listOf(
+            Device("greenhouse", "Дом", true, listOf(
+                WidgetState("control", "автомат управления", WidgetState.Type.TOGGLE, "1", page = "Теплица 🥒"),
+                WidgetState("open-relay", "открытие двери", WidgetState.Type.BUTTON, "0", page = "Теплица 🥒"),
+                WidgetState("close-relay", "закрытие двери", WidgetState.Type.BUTTON, "0", page = "Теплица 🥒"),
+                WidgetState("door-state", "закрыта открыта дверь", WidgetState.Type.TOGGLE, "0", page = "Теплица 🥒")
+            ))
+        )
+
+        val engine = MarfaCommandEngine { result, _ ->
+            when (result.widgetId) {
+                "control" -> ScenarioCommandPlan(
+                    actions = result.actionItems,
+                    resolvedByScenario = true
+                )
+                "open-relay", "close-relay" -> ScenarioCommandPlan(
+                    actions = listOf(LocalCommandActionItem("greenhouse", "control", result.value)),
+                    resolvedByScenario = true
+                )
+                "door-state" -> ScenarioCommandPlan(
+                    actions = emptyList(),
+                    resolvedByScenario = false
+                )
+                else -> ScenarioCommandPlan(actions = result.actionItems)
+            }
+        }
+
+        val result = engine.parse("открой огурцы", devices)
+
+        assertEquals(LocalCommandAction.CONTROL, result.action)
+        assertEquals("control", result.widgetId)
+        assertEquals("1", result.value)
+    }
+
+    @Test
     fun scenarioGraphBreaksControlTieWithoutHardcodedWidgetId() {
         val devices = listOf(
             Device("greenhouse", "Дом", true, listOf(
