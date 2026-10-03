@@ -383,6 +383,40 @@ private fun App(
         )
     }
 
+    // TTS must temporarily pause recognizer restarts. Otherwise the next
+    // SpeechRecognizer session starts while Marfa is speaking and may consume
+    // Marfa's own answer or miss the user's next reply.
+    DisposableEffect(speech, voiceManager) {
+        val listener = object : android.speech.tts.UtteranceProgressListener() {
+            override fun onStart(utteranceId: String?) = Unit
+            override fun onDone(utteranceId: String?) {
+                if (utteranceId?.startsWith("marfa-dialogue-") == true) {
+                    voiceManager.resumeAfterSpeech()
+                }
+            }
+            override fun onError(utteranceId: String?) {
+                if (utteranceId?.startsWith("marfa-dialogue-") == true) {
+                    voiceManager.resumeAfterSpeech()
+                }
+            }
+        }
+        speech.setOnUtteranceProgressListener(listener)
+        onDispose {
+            speech.setOnUtteranceProgressListener(null)
+        }
+    }
+
+    fun speakDialogue(text: String, queueMode: Int = TextToSpeech.QUEUE_FLUSH, tag: String = "reply") {
+        if (text.isBlank()) return
+        voiceManager.pauseForSpeech()
+        speech.speak(
+            text,
+            queueMode,
+            null,
+            "marfa-dialogue-$tag-" + System.nanoTime()
+        )
+    }
+
     // One process-wide runtime owns MQTT, history and scenario execution.
     // The Activity only attaches UI listeners; it never creates a second MQTT client.
     val runtime = remember { AppRuntime.get(context.applicationContext) }
@@ -529,7 +563,7 @@ private fun App(
                     MarfaCommandExecutor.get().execute(pending, runtime) { reply ->
                         android.os.Handler(android.os.Looper.getMainLooper()).post {
                             voiceStatus = reply
-                            speech.speak(reply, TextToSpeech.QUEUE_FLUSH, null, "marfa-command-confirmed")
+                            speakDialogue(reply, TextToSpeech.QUEUE_FLUSH, null, "marfa-command-confirmed")
                         }
                     }
                     voiceManager.stop()
@@ -538,13 +572,13 @@ private fun App(
                 normalized in setOf("нет", "отмена", "отменить", "не надо", "не делай", "не выполняй", "стоп") || normalized.contains("отмен") || normalized.contains("не выполняй") -> {
                     pendingControl = null
                     voiceStatus = "Хорошо, не выполняю"
-                    speech.speak(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "marfa-command-cancelled")
+                    speakDialogue(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "marfa-command-cancelled")
                     voiceManager.stop()
                     return@LaunchedEffect
                 }
                 else -> {
                     voiceStatus = "Выполнить это? Скажите да или нет"
-                    speech.speak(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "marfa-command-ask-again")
+                    speakDialogue(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "marfa-command-ask-again")
                     return@LaunchedEffect
                 }
             }
@@ -581,20 +615,20 @@ private fun App(
                     )
                     runtime.scenarioStore.add(scenario)
                     voiceStatus = pending.reply + ". Правило сохранено."
-                    speech.speak(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "smart-rule-confirmed")
+                    speakDialogue(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "smart-rule-confirmed")
                     voiceManager.stop()
                     return@LaunchedEffect
                 }
                 normalized in setOf("нет", "отмена", "отменить", "не сохраняй", "не сохранять", "не надо") -> {
                     pendingSmartRule = null
                     voiceStatus = "Правило не сохранено"
-                    speech.speak(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "smart-rule-cancelled")
+                    speakDialogue(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "smart-rule-cancelled")
                     voiceManager.stop()
                     return@LaunchedEffect
                 }
                 else -> {
                     voiceStatus = "Сохранить предыдущее правило? Скажите да или нет"
-                    speech.speak(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "smart-rule-ask-again")
+                    speakDialogue(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "smart-rule-ask-again")
                     return@LaunchedEffect
                 }
             }
@@ -609,7 +643,7 @@ private fun App(
         } catch (e: Throwable) {
             android.util.Log.e("MARFA_ENGINE", "interpret failed", e)
             voiceStatus = "Ошибка анализа: " + (e.message ?: "неизвестная ошибка")
-            speech.speak(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "marfa-analysis-error")
+            speakDialogue(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "marfa-analysis-error")
             voiceManager.stop()
             return@LaunchedEffect
         }
@@ -624,11 +658,11 @@ private fun App(
         if (result.action == LocalCommandAction.SMART_RULE) {
             pendingSmartRule = result
             voiceStatus = result.reply + ". Сохранить это правило? Скажите да или нет"
-            speech.speak(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "smart-rule-ask")
+            speakDialogue(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "smart-rule-ask")
         } else if (result.action == LocalCommandAction.CONTROL && result.needsConfirmation) {
             pendingControl = result
             voiceStatus = "Поняла. " + result.reply + ". Выполнить? Скажите да или нет"
-            speech.speak(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "marfa-command-ask")
+            speakDialogue(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "marfa-command-ask")
         } else {
             val trainedActions = trainedMatcher.matchAll(command)
             android.util.Log.d(
@@ -658,7 +692,7 @@ private fun App(
                                     formatTemperatureForSpeech(raw, widget.unit)
                             }
                             voiceStatus = spoken
-                            speech.speak(
+                            speakDialogue(
                                 spoken,
                                 if (sent == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD,
                                 null,
@@ -695,7 +729,7 @@ private fun App(
                         MarfaCommandExecutor.get().execute(result, runtime) { reply ->
                             android.os.Handler(android.os.Looper.getMainLooper()).post {
                                 voiceStatus = reply
-                                speech.speak(
+                                speakDialogue(
                                     reply,
                                     TextToSpeech.QUEUE_FLUSH,
                                     null,
@@ -708,18 +742,18 @@ private fun App(
 
                     LocalCommandAction.READ_VALUE -> {
                         voiceStatus = result.reply
-                        speech.speak(result.reply, TextToSpeech.QUEUE_FLUSH, null, "marfa-value")
+                        speakDialogue(result.reply, TextToSpeech.QUEUE_FLUSH, null, "marfa-value")
                         voiceManager.stop()
                     }
 
                     LocalCommandAction.CLARIFY -> {
                         voiceStatus = result.reply
-                        speech.speak(result.reply, TextToSpeech.QUEUE_FLUSH, null, "marfa-clarify")
+                        speakDialogue(result.reply, TextToSpeech.QUEUE_FLUSH, null, "marfa-clarify")
                     }
 
                     LocalCommandAction.NOT_FOUND -> {
                         voiceStatus = result.reply
-                        speech.speak(result.reply, TextToSpeech.QUEUE_FLUSH, null, "marfa-not-found")
+                        speakDialogue(result.reply, TextToSpeech.QUEUE_FLUSH, null, "marfa-not-found")
                         voiceManager.stop()
                     }
 
