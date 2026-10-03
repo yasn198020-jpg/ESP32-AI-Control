@@ -998,12 +998,30 @@ class MarfaAnalyticalEngine {
         if (hasOpen && hasClose) return false
 
         /*
-         * Keep only controls compatible with the requested action family.
-         * This prevents "открыть дверь" and "закрыть дверь" from competing
-         * after the object has already been identified.
+         * Directional commands carry stronger role information than a generic
+         * "turn on/off" command. For open/close requests, a neutral control
+         * that only matches the page is not an action candidate: it must either
+         * describe the requested direction or directly name the spoken target.
+         *
+         * This is important for mixed IoTManager pages where measurement/status
+         * widgets and management toggles are also exposed as TOGGLE/BUTTON.
+         * A logical scenario controller such as "управление дверью" is still
+         * allowed because it directly names the requested object; the scenario
+         * resolver can then map it to the physical action chain.
          */
+        val directionalCommand = containsAny(
+            semanticSearchText(commandText),
+            "открыт", "открыть", "открой", "открыва", "распах",
+            "закрыт", "закрыть", "закрой", "закрыва", "опущ", "опустить"
+        )
+
         if (desiredValue == "1" && hasClose && !hasOpen) return false
         if (desiredValue == "0" && hasOpen && !hasClose) return false
+
+        if (directionalCommand && !hasOpen && !hasClose &&
+            !hasDirectSemanticTarget(widget, commandText)) {
+            return false
+        }
 
         return true
     }
