@@ -28,7 +28,10 @@ class MarfaDialogueCore(
     )
 
     private sealed class Pending {
-        data class Control(val result: LocalCommandResult) : Pending()
+        data class Control(
+            val result: LocalCommandResult,
+            val sourceCommand: String
+        ) : Pending()
         data class SmartRule(val result: LocalCommandResult) : Pending()
     }
 
@@ -56,11 +59,25 @@ class MarfaDialogueCore(
                     return Outcome(OutcomeKind.CANCEL, current.result, "Хорошо, не выполняю")
                 }
 
-                // Any non-terminal reply is treated as a refinement of the same task.
-                val refined = interpreter(command, devices)
+                /*
+                 * A pending control is still the same conversational task.
+                 * A non-terminal answer must therefore refine the original
+                 * command, not start a new standalone command.
+                 *
+                 * Example:
+                 *   "открой дверь" -> "Выполнить?"
+                 *   "помидоры"    -> resolve "открой дверь помидоры"
+                 *
+                 * This is generic dialogue state, not a rule for any particular
+                 * object, page or word.
+                 */
+                val refinedCommand = listOf(current.sourceCommand, command)
+                    .filter { it.isNotBlank() }
+                    .joinToString(" ")
+                val refined = interpreter(refinedCommand, devices)
                 return when {
                     refined.action == LocalCommandAction.CONTROL && refined.needsConfirmation -> {
-                        pending = Pending.Control(refined)
+                        pending = Pending.Control(refined, refinedCommand)
                         Outcome(
                             OutcomeKind.CONTINUE,
                             refined,
@@ -120,7 +137,7 @@ class MarfaDialogueCore(
 
             LocalCommandAction.CONTROL -> {
                 if (result.needsConfirmation) {
-                    pending = Pending.Control(result)
+                    pending = Pending.Control(result, command)
                     Outcome(
                         OutcomeKind.CONTINUE,
                         result,
