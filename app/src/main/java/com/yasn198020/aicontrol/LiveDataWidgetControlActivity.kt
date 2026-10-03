@@ -26,7 +26,7 @@ class LiveDataWidgetControlActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         appWidgetId = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
         if (appWidgetId == AppWidgetManager.INVALID_APPWIDGET_ID) { setResult(Activity.RESULT_CANCELED); finish(); return }
-        setContent { MaterialTheme(colorScheme = darkColorScheme()) { Surface(Modifier.fillMaxSize()) { ControlPanel(appWidgetId) { finish() } } } }
+        setContent { MaterialTheme(colorScheme = darkColorScheme()) { Surface(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) { ControlPanel(appWidgetId) { finish() } } } }
     }
 }
 
