@@ -428,6 +428,37 @@ class MarfaAnalyticalEngineTest {
     }
 
     @Test
+    fun semanticSearchKeepsDistinctRealTabsWithSameEmojiMeaning() {
+        val result = MarfaAnalyticalEngine().resolveControl(
+            "открой огурцы",
+            listOf(
+                Device("d1", "Дом", true, listOf(
+                    WidgetState(
+                        "door1",
+                        "открыть дверь",
+                        WidgetState.Type.TOGGLE,
+                        "0",
+                        page = "⚒️ 🥒"
+                    ),
+                    WidgetState(
+                        "door2",
+                        "открыть дверь",
+                        WidgetState.Type.TOGGLE,
+                        "0",
+                        page = "🛠️ 🥒"
+                    )
+                ))
+            ),
+            "1"
+        )
+
+        assertEquals(null, result.candidate)
+        assertEquals(2, result.candidates.size)
+        assertTrue(result.candidates.any { it.widget.page == "⚒️ 🥒" })
+        assertTrue(result.candidates.any { it.widget.page == "🛠️ 🥒" })
+    }
+
+    @Test
     fun genericContextWithoutUniqueTargetRequiresClarification() {
         val result = MarfaCommandEngine().parse(
             "включи огурцы",
