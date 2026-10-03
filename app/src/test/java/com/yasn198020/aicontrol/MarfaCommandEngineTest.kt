@@ -159,6 +159,39 @@ class MarfaCommandEngineTest {
     }
 
     @Test
+    fun actionIntentAcceptsInflectedFormsWithoutObjectSpecificRules() {
+        val devices = listOf(
+            Device(
+                id = "greenhouse",
+                name = "Теплица",
+                online = true,
+                widgets = listOf(
+                    WidgetState("door", "дверь", WidgetState.Type.TOGGLE, "0", page = "Помидоры"),
+                    WidgetState("pump", "насос", WidgetState.Type.TOGGLE, "1", page = "Огурцы"),
+                    WidgetState("vent", "форточка", WidgetState.Type.TOGGLE, "0", page = "Теплица")
+                )
+            )
+        )
+
+        val engine = MarfaCommandEngine()
+
+        val close = engine.parse("закрыта дверь", devices)
+        assertEquals(LocalCommandAction.CONTROL, close.action)
+        assertEquals("door", close.widgetId)
+        assertEquals("0", close.value)
+
+        val open = engine.parse("открыта форточка", devices)
+        assertEquals(LocalCommandAction.CONTROL, open.action)
+        assertEquals("vent", open.widgetId)
+        assertEquals("1", open.value)
+
+        val off = engine.parse("выключен насос", devices)
+        assertEquals(LocalCommandAction.CONTROL, off.action)
+        assertEquals("pump", off.widgetId)
+        assertEquals("0", off.value)
+    }
+
+    @Test
     fun directControlResolvesRussianEntity() {
         val result = MarfaCommandEngine().parse("Открой, пожалуйста, форточку помидоров", catalog())
 
