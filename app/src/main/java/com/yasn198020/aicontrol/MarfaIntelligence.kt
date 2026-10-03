@@ -1,7 +1,6 @@
 package com.yasn198020.aicontrol
 
 import android.content.Context
-import android.net.Uri
 import com.yasn198020.aicontrol.core.Device
 import java.util.Locale
 
@@ -15,19 +14,10 @@ class MarfaIntelligence private constructor(context: Context) {
     }
 
     private val appContext = context.applicationContext
-    private val gemma = GemmaLocalEngine.get(appContext)
     private val smartRuleParser = LocalCommandManager()
     private val trainedMatcher = TrainedCommandMatcher(
         TrainedCommandStore(context.getSharedPreferences("settings", Context.MODE_PRIVATE))
     )
-
-    fun gemmaStatus(): String = gemma.statusText()
-
-    /** Gemma is parked for now. The model remains available for future experiments,
-     * but it is deliberately excluded from Marfa's command execution pipeline. */
-    fun isGemmaEnabled(): Boolean = false
-
-    suspend fun importGemmaModel(uri: Uri): Result<String> = gemma.importModel(uri)
 
     suspend fun interpret(command: String, devices: List<Device>): LocalCommandResult {
         val text = command.trim()
@@ -54,7 +44,7 @@ class MarfaIntelligence private constructor(context: Context) {
          * SMART_RULE -> deterministic rule parser
          * CLARIFY    -> ask the user; never guess
          *
-         * Gemma is intentionally not part of this path anymore.
+         * AI не используется в этом пути.
          */
         val local = smartRuleParser.interpret(text, devices)
         return if (local.action == LocalCommandAction.CONTROL) {
@@ -128,7 +118,7 @@ class MarfaIntelligence private constructor(context: Context) {
         }
 
         out.appendLine()
-        out.appendLine("Gemma: ВЫКЛЮЧЕНА В КОМАНДНОМ КОНТУРЕ")
+        out.appendLine("AI: не используется в командном контуре")
         out.appendLine("MQTT: не отправляется в диагностическом тесте")
         out.appendLine()
         out.appendLine("=== СКВОЗНОЙ ТЕСТ ЗАВЕРШЕН ===")
