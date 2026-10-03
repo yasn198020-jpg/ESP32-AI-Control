@@ -406,13 +406,18 @@ private fun App(
         }
     }
 
-    fun speakDialogue(text: String, queueMode: Int = TextToSpeech.QUEUE_FLUSH, tag: String = "reply") {
+    fun speakDialogue(
+        text: String,
+        queueMode: Int = TextToSpeech.QUEUE_FLUSH,
+        params: android.os.Bundle? = null,
+        tag: String = "reply"
+    ) {
         if (text.isBlank()) return
         voiceManager.pauseForSpeech()
         speech.speak(
             text,
             queueMode,
-            null,
+            params,
             "marfa-dialogue-$tag-" + System.nanoTime()
         )
     }
