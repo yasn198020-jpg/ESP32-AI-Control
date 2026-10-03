@@ -21,7 +21,8 @@ data class ScenarioGraphCommandResolution(
     val target: MarfaAnalyticalEngine.ControlCandidate? = null,
     val prerequisites: List<ScenarioPrerequisite> = emptyList(),
     val blockedReason: String? = null,
-    val resolvedByScenario: Boolean = false
+    val resolvedByScenario: Boolean = false,
+    val alternatives: List<MarfaAnalyticalEngine.ControlCandidate> = emptyList()
 )
 
 class ScenarioGraphCommandResolver {
@@ -101,7 +102,12 @@ class ScenarioGraphCommandResolver {
 
         if (paths.isEmpty()) return ScenarioGraphCommandResolution()
 
-        val grouped = paths.groupBy { it.top.device.id + "/" + it.top.widget.id }
+        // A mode/management widget is a gate, not a voice target when the
+        // same graph contains an actual object controller.
+        val nonModePaths = paths.filterNot { isModeWidget(it.top.widget) }
+        val effectivePaths = if (nonModePaths.isNotEmpty()) nonModePaths else paths
+
+        val grouped = effectivePaths.groupBy { it.top.device.id + "/" + it.top.widget.id }
         if (grouped.size > 1) {
             val labels = grouped.values
                 .mapNotNull { it.firstOrNull()?.top?.widget?.title?.ifBlank { it.first().top.widget.id } }
@@ -109,7 +115,10 @@ class ScenarioGraphCommandResolver {
             return ScenarioGraphCommandResolution(
                 blockedReason = "Сценарий оставляет несколько независимых управляющих элементов: " +
                     labels.joinToString(" или ") + ".",
-                resolvedByScenario = true
+                resolvedByScenario = true,
+                alternatives = grouped.values.mapNotNull { it.firstOrNull()?.let { p ->
+                    toCandidate(p.top, p.candidate.score)
+                } }
             )
         }
 
