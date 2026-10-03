@@ -150,4 +150,39 @@ class ScenarioGraphCommandResolverTest {
         assertTrue(result.target == null)
         assertTrue(result.blockedReason == null)
     }
+    @Test
+    fun directSemanticTargetDoesNotBecomeAmbiguousWithConditionWidgets() {
+        val devices = listOf(
+            Device(
+                "d",
+                "Теплица",
+                true,
+                listOf(
+                    WidgetState("door", "закрытия двери", WidgetState.Type.TOGGLE, "0"),
+                    WidgetState("vent", "закрытия форточки", WidgetState.Type.TOGGLE, "0"),
+                    WidgetState("cucumber", "Кнопка 🥒", WidgetState.Type.TOGGLE, "0")
+                )
+            )
+        )
+        val d = devices.single()
+        val source = """
+            if door == 0 then { cucumber = 1; }
+            if vent == 0 then { cucumber = 1; }
+        """.trimIndent()
+
+        val result = ScenarioGraphCommandResolver().resolve(
+            candidates = listOf(
+                MarfaAnalyticalEngine.ControlCandidate(d, d.widgets[0], 30, emptyList()),
+                MarfaAnalyticalEngine.ControlCandidate(d, d.widgets[1], 29, emptyList()),
+                MarfaAnalyticalEngine.ControlCandidate(d, d.widgets[2], 28, emptyList(), directSemanticTarget = true)
+            ),
+            desiredValue = "0",
+            devices = devices,
+            models = listOf(model(source))
+        )
+
+        assertEquals("cucumber", result.target?.widget?.id)
+        assertTrue(result.blockedReason == null)
+    }
+
 }
