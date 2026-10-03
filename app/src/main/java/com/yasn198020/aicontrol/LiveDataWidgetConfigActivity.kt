@@ -69,7 +69,7 @@ class LiveDataWidgetConfigActivity : ComponentActivity() {
 
         setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
-                Surface(Modifier.fillMaxSize()) {
+                Surface(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
                     WidgetConfiguration(
                         appWidgetId = appWidgetId,
                         onSaved = {
