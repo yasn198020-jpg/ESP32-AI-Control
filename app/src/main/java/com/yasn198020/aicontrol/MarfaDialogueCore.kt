@@ -64,7 +64,7 @@ class MarfaDialogueCore(
                         Outcome(
                             OutcomeKind.CONTINUE,
                             refined,
-                            "Поняла уточнение. \${refined.reply}. Выполнить? Скажите да или нет"
+                            "Поняла уточнение. ${refined.reply}. Выполнить? Скажите да или нет"
                         )
                     }
                     refined.action == LocalCommandAction.CLARIFY -> {
@@ -75,7 +75,7 @@ class MarfaDialogueCore(
                         Outcome(
                             OutcomeKind.CONTINUE,
                             refined,
-                            "\${refined.reply}. Сохранить это правило? Скажите да или нет"
+                            "${refined.reply}. Сохранить это правило? Скажите да или нет"
                         )
                     }
                     else -> Outcome(
@@ -114,7 +114,7 @@ class MarfaDialogueCore(
                 Outcome(
                     OutcomeKind.CONTINUE,
                     result,
-                    "\${result.reply}. Сохранить это правило? Скажите да или нет"
+                    "${result.reply}. Сохранить это правило? Скажите да или нет"
                 )
             }
 
@@ -124,7 +124,7 @@ class MarfaDialogueCore(
                     Outcome(
                         OutcomeKind.CONTINUE,
                         result,
-                        "Поняла. \${result.reply}. Выполнить? Скажите да или нет"
+                        "Поняла. ${result.reply}. Выполнить? Скажите да или нет"
                     )
                 } else {
                     Outcome(OutcomeKind.EXECUTE_CONTROL, result, result.reply)
