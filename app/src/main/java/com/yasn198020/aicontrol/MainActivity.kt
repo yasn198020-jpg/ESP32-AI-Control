@@ -306,7 +306,7 @@ private fun App(
         )
         permissionItems = PermissionAudit.snapshot(context)
         voiceStatus = if (granted) {
-            "Микрофон готов — удерживайте кнопку"
+            "Микрофон готов — нажмите кнопку"
         } else {
             "Нужно разрешение на микрофон"
         }
