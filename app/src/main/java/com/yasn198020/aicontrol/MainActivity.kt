@@ -957,6 +957,13 @@ private fun App(
                             DropdownMenuItem(text = { Text("Сценарии") }, onClick = { menuOpen = false; tab = 4 })
                             DropdownMenuItem(text = { Text("Отложенные команды") }, onClick = { menuOpen = false; tab = 9 })
                             DropdownMenuItem(text = { Text("Голос") }, onClick = { menuOpen = false; tab = 5 })
+                            DropdownMenuItem(
+                                text = { Text("🔬 Проверка Марфы") },
+                                onClick = {
+                                    menuOpen = false
+                                    context.startActivity(Intent(context, MarfaTestActivity::class.java))
+                                }
+                            )
                             DropdownMenuItem(text = { Text("Размер текста") }, onClick = { menuOpen = false; textSizeDialogOpen = true })
                             DropdownMenuItem(
                                 text = { Text("Установить ярлык «🎙 Марфа»") },
@@ -1153,6 +1160,7 @@ private fun App(
             else -> VoiceSettingsScreen(
                 Modifier.padding(padding), voicePreset, voiceRate, voicePitch,
                 availableVoices, selectedVoiceName,
+                { context.startActivity(Intent(context, MarfaTestActivity::class.java)) },
                 ::selectVoicePreset,
                 { voiceRate = it; voicePreset = "custom" },
                 { voicePitch = it; voicePreset = "custom" },
@@ -1478,6 +1486,7 @@ private fun VoiceSettingsScreen(
     pitch: Float,
     voices: List<android.speech.tts.Voice>,
     selectedVoiceName: String,
+    onMarfaTest: () -> Unit,
     onPreset: (String) -> Unit,
     onRate: (Float) -> Unit,
     onPitch: (Float) -> Unit,
@@ -1508,6 +1517,13 @@ private fun VoiceSettingsScreen(
         Text("Выберите голос из установленных на телефоне.")
 
         HorizontalDivider()
+
+        Button(
+            onClick = onMarfaTest,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("🔬 Проверка Марфы")
+        }
 
         Text("Установленный голос", fontWeight = FontWeight.Medium)
         Box(Modifier.fillMaxWidth()) {
