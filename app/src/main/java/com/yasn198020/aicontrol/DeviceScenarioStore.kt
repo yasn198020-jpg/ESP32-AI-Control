@@ -279,16 +279,23 @@ class DeviceScenarioManager(
         devices: List<com.yasn198020.aicontrol.core.Device>
     ): ScenarioCommandPlan {
         refreshModels()
-        return IoTScenarioCommandPlanner.plan(
+        val models = store.all()
+            .filter { it.enabled }
+            .mapNotNull { item -> refreshModel(item)?.let { item to it } }
+
+        val plan = IoTScenarioCommandPlanner.plan(
             targetDeviceId = result.deviceId,
             targetWidgetId = result.widgetId,
             desiredValue = result.value,
             baseActions = result.actionItems,
             devices = devices,
-            models = store.all()
-                .filter { it.enabled }
-                .mapNotNull { item -> refreshModel(item)?.let { item to it } }
+            models = models
         )
+
+        val scenarioBacked = models.any { (stored, model) ->
+            result.widgetId in (stored.sensorIds + model.identifiers)
+        }
+        return if (scenarioBacked) plan.copy(resolvedByScenario = true) else plan
     }
 
     fun resolveLogicalTarget(
