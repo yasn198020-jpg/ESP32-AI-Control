@@ -135,6 +135,12 @@ class MarfaCommandEngine(
         val resolver = scenarioPlanResolver ?: return null
         if (resolution.candidates.size < 2) return null
 
+        data class ProvenCandidate(
+            val candidate: MarfaAnalyticalEngine.ControlCandidate,
+            val plan: ScenarioCommandPlan,
+            val keepsOwnId: Boolean
+        )
+
         val proven = resolution.candidates.mapNotNull { candidate ->
             val tentative = LocalCommandResult(
                 action = LocalCommandAction.CONTROL,
@@ -150,10 +156,39 @@ class MarfaCommandEngine(
             )
             val plan = runCatching { resolver(tentative, devices) }.getOrNull()
                 ?: return@mapNotNull null
-            if (plan.resolvedByScenario && plan.blockedReason == null) candidate else null
+            if (!plan.resolvedByScenario || plan.blockedReason != null) return@mapNotNull null
+
+            /*
+             * Several widgets can be present in one scenario chain:
+             *
+             *   logical control -> condition -> actuator/status element
+             *
+             * When the scenario proves several candidates, keep the element
+             * that remains the requested control in the final scenario plan.
+             * A physical/derived element is represented by a different ID in
+             * plan.actions after scenario resolution.
+             *
+             * This is the generic rule we want: linked elements do not become
+             * competing voice targets; the controlling element remains the target.
+             */
+            val keepsOwnId = plan.actions.any {
+                it.deviceId == candidate.device.id &&
+                    it.widgetId == candidate.widget.id &&
+                    it.value == action.value
+            }
+            ProvenCandidate(candidate, plan, keepsOwnId)
         }
 
-        return proven.singleOrNull()
+        val directControls = proven.filter { it.keepsOwnId }
+        if (directControls.size == 1) return directControls.single().candidate
+
+        /*
+         * If more than one candidate independently remains a direct scenario
+         * control, the scenario graph did not disambiguate the command.
+         * Only fall back to a single proven candidate when there is no such
+         * direct-control distinction.
+         */
+        return proven.singleOrNull()?.candidate
     }
 
     private fun resolvePendingClarification(
