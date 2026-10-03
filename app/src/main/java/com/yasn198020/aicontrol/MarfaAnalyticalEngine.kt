@@ -937,9 +937,16 @@ class MarfaAnalyticalEngine {
          */
         if (containsAny(title, "концевик", "концевой", "конечный")) return false
 
-        val isStateIndicator =
-            (title.contains("открыт") && title.contains("закрыт")) ||
-                containsAny(title, "состояние", "статус", "индикатор", "положение")
+        /*
+         * "закрыта открыта дверь" / "закрыта открыта форточка" are commonly
+         * IoTManager control-widget titles: they describe both possible states
+         * of a toggle. Do NOT treat the presence of both words as a feedback
+         * indicator. Real feedback widgets must carry explicit state/status
+         * semantics such as "состояние", "статус", "индикатор" or "положение".
+         */
+        val isStateIndicator = containsAny(
+            title, "состояние", "статус", "индикатор", "положение"
+        )
         if (isStateIndicator) return false
 
         // Measurement/feedback widgets can be configured as TOGGLE/BUTTON by
