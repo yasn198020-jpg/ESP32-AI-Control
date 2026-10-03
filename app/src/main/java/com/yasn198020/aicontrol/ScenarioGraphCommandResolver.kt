@@ -4,18 +4,19 @@ import com.yasn198020.aicontrol.core.Device
 import com.yasn198020.aicontrol.core.WidgetState
 
 /**
- * Scenario-first command resolution.
+ * Scenario graph decides the real controller.
  *
- * The natural-language resolver only supplies possible candidates. This layer
- * treats the scenario as a directed graph and decides which element is the
- * actual controller:
+ * Walk from the requested/physical element upward:
+ * controller -> affected element.
  *
- *   condition/control -> affected element
+ * Sensors, measurements, feedback and mode gates are not controllers.
+ * If a controller is itself controlled by another controller, it is only an
+ * intermediate node and the walk continues upward.
  *
- * For a requested element we walk backwards to the highest controllable
- * controller, while keeping mode/gate elements in the separate "blocker"
- * direction. This prevents physical relays, feedback widgets and sensors from
- * becoming voice targets merely because their title matches the command.
+ * If no real controller remains, the original element stays the target.
+ * This is required for a relay which nobody controls through the scenario.
+ *
+ * No device, widget ID or object name is special-cased.
  */
 data class ScenarioGraphCommandResolution(
     val target: MarfaAnalyticalEngine.ControlCandidate? = null,
@@ -32,148 +33,117 @@ class ScenarioGraphCommandResolver {
         val widget: WidgetState
     )
 
+    private data class Path(
+        val candidate: MarfaAnalyticalEngine.ControlCandidate,
+        val top: Node,
+        val chain: List<String>,
+        val strong: Boolean
+    )
+
     fun resolve(
         candidates: List<MarfaAnalyticalEngine.ControlCandidate>,
         desiredValue: String,
         devices: List<Device>,
         models: List<Pair<StoredDeviceScenario, DeviceScenarioModel>>
     ): ScenarioGraphCommandResolution {
-        if (candidates.isEmpty() || models.isEmpty()) return ScenarioGraphCommandResolution()
+        if (candidates.isEmpty()) return ScenarioGraphCommandResolution()
 
         val nodes = uniqueNodes(devices)
         if (nodes.isEmpty()) return ScenarioGraphCommandResolution()
 
         val enabledModels = models.filter { it.first.enabled && it.second.valid }
-        if (enabledModels.isEmpty()) return ScenarioGraphCommandResolution()
+        if (enabledModels.isEmpty()) return directFallback(candidates)
 
-        // If lexical analysis found a direct semantic target, the scenario
-        // graph must resolve that object only. Action words such as "закрой"
-        // must never promote an unrelated "закрытие двери" or "закрытие
-        // форточки" into a competing target.
-        val semanticCandidates = candidates.filter { it.directSemanticTarget }
-        val graphInput = if (semanticCandidates.isNotEmpty()) semanticCandidates else candidates
-
-        // target -> elements that occur in the target's scenario conditions.
-        // A scenario condition is not automatically a controller relationship.
-        // We first identify action targets, then validate each candidate as a
-        // control only when a rule explicitly writes that candidate or the
-        // candidate is a direct semantic target whose state is represented by
-        // the rule. This prevents sensors/feedback/parallel controls from
-        // becoming parents merely because they appear in the same condition.
+        val actionTargets = linkedSetOf<String>()
         val parents = linkedMapOf<String, MutableSet<String>>()
         val rulesByTarget = linkedMapOf<String, MutableList<DeviceScenarioRule>>()
 
         enabledModels.forEach { (_, model) ->
             model.rules.forEach { rule ->
                 rule.actions.forEach { action ->
+                    actionTargets += action.targetId
                     rulesByTarget.getOrPut(action.targetId) { mutableListOf() } += rule
-                    rule.condition.identifiers.forEach { identifier ->
-                    if (identifier != action.targetId) {
-                        parents.getOrPut(action.targetId) { linkedSetOf() } += identifier
+
+                    rule.condition.identifiers.forEach { id ->
+                        if (id.isNotBlank() && id != action.targetId) {
+                            parents.getOrPut(action.targetId) { linkedSetOf() }.add(id)
+                        }
                     }
-                }
                 }
             }
         }
 
-        data class Path(
-            val candidate: MarfaAnalyticalEngine.ControlCandidate,
-            val top: Node,
-            val chain: List<String>
-        )
+        val paths = candidates.mapNotNull { candidate ->
+            val start = nodes[candidate.widget.id] ?: return@mapNotNull null
 
-        // Lexical matching is only evidence. The scenario graph must still
-        // prove who can change the requested state.
-        val graphCandidates = graphInput
-
-        val paths = graphCandidates.mapNotNull { candidate ->
-            if (nodes[candidate.widget.id] == null) return@mapNotNull null
-            if (!isScenarioNode(candidate.widget.id, enabledModels)) return@mapNotNull null
-
-            val visited = linkedSetOf<String>()
-            val chain = mutableListOf(candidate.widget.id)
-            var current = candidate.widget.id
-            var ambiguous = false
-
-            // A widget that directly names the requested object is already a
-            // proven voice target. Conditions attached to its scenario rules
-            // are blockers/prerequisites, not alternative controllers.
-            // Only an indirect/physical candidate is allowed to climb the
-            // reverse dependency graph looking for its logical controller.
-            if (candidate.directSemanticTarget) {
-                val top = nodes[current] ?: return@mapNotNull null
-                val prerequisites = findBlockers(
-                    target = top,
-                    chain = chain,
-                    desiredValue = desiredValue,
-                    parents = parents,
-                    rulesByTarget = rulesByTarget,
-                    nodes = nodes
+            if (candidate.widget.id !in actionTargets && candidate.widget.id !in parents.keys) {
+                return@mapNotNull Path(
+                    candidate = candidate,
+                    top = start,
+                    chain = listOf(start.widget.id),
+                    strong = true
                 )
-                if (prerequisites.blockedReason != null) {
-                    return@mapNotNull Path(candidate, top, chain)
-                }
-                return@mapNotNull Path(candidate, top, chain)
             }
+
+            val chain = mutableListOf(start.widget.id)
+            val visited = linkedSetOf<String>()
+            var current = start.widget.id
 
             while (visited.add(current)) {
                 val controllerParents = parents[current]
                     .orEmpty()
-                    .mapNotNull { nodes[it] }
-                    .filter { parent ->
-                        isControllable(parent.widget) &&
-                            !isModeWidget(parent.widget) &&
-                            canActuallyControl(
-                                controller = parent.widget,
-                                affectedId = current,
-                                rulesByTarget = rulesByTarget,
-                                nodes = nodes
-                            )
+                    .mapNotNull { id -> nodes[id]?.let { id to it } }
+                    .filter { (id, parent) ->
+                        isController(parent.widget, current, id, rulesByTarget)
                     }
-                    .distinctBy { it.widget.id }
+                    .distinctBy { it.first }
 
-                if (controllerParents.size > 1) {
-                    // Several independent controls can change the same state.
-                    // Do not guess which one the user meant.
-                    ambiguous = true
-                    break
-                }
-                val next = controllerParents.singleOrNull() ?: break
+                if (controllerParents.size > 1) return@mapNotNull null
+
+                val next = controllerParents.singleOrNull()?.second ?: break
                 current = next.widget.id
                 chain += current
             }
 
-            if (ambiguous) null
-            else Path(candidate, nodes[current]!!, chain)
+            val top = nodes[current] ?: return@mapNotNull null
+            Path(
+                candidate = candidate,
+                top = top,
+                chain = chain,
+                strong = top.widget.id in actionTargets
+            )
         }
 
-        if (paths.isEmpty()) return ScenarioGraphCommandResolution()
+        if (paths.isEmpty()) return directFallback(candidates)
 
-        // A mode/management widget is a gate, not a voice target when the
-        // same graph contains an actual object controller.
-        val nonModePaths = paths.filterNot { isModeWidget(it.top.widget) }
-        val effectivePaths = if (nonModePaths.isNotEmpty()) nonModePaths else paths
+        val strongPaths = paths.filter { it.strong }
+        val effectivePaths = if (strongPaths.isNotEmpty()) strongPaths else paths
 
         val grouped = effectivePaths.groupBy { it.top.device.id + "/" + it.top.widget.id }
         if (grouped.size > 1) {
-            val labels = grouped.values
-                .mapNotNull { it.firstOrNull()?.top?.widget?.title?.ifBlank { it.first().top.widget.id } }
+            val alternatives = grouped.values.mapNotNull { group ->
+                group.maxByOrNull { it.candidate.score }
+                    ?.let { toCandidate(it.top, it.candidate.score) }
+            }
+            val labels = alternatives
+                .map { it.widget.title.ifBlank { it.widget.id } }
                 .distinct()
+
             return ScenarioGraphCommandResolution(
                 blockedReason = "Сценарий оставляет несколько независимых управляющих элементов: " +
                     labels.joinToString(" или ") + ".",
                 resolvedByScenario = true,
-                alternatives = grouped.values.mapNotNull { it.firstOrNull()?.let { p ->
-                    toCandidate(p.top, p.candidate.score)
-                } }
+                alternatives = alternatives
             )
         }
 
-        val path = grouped.values.first().maxByOrNull { it.candidate.score } ?: return ScenarioGraphCommandResolution()
-        val top = path.top
+        val path = grouped.values
+            .firstOrNull()
+            ?.maxByOrNull { it.candidate.score }
+            ?: return directFallback(candidates)
 
-        val prerequisites = findBlockers(
-            target = top,
+        val blockers = findBlockers(
+            target = path.top,
             chain = path.chain,
             desiredValue = desiredValue,
             parents = parents,
@@ -181,46 +151,105 @@ class ScenarioGraphCommandResolver {
             nodes = nodes
         )
 
-        if (prerequisites.blockedReason != null) {
+        if (blockers.blockedReason != null) {
             return ScenarioGraphCommandResolution(
-                target = toCandidate(top, path.candidate.score),
-                blockedReason = prerequisites.blockedReason,
+                target = toCandidate(path.top, path.candidate.score),
+                blockedReason = blockers.blockedReason,
                 resolvedByScenario = true
             )
         }
 
         return ScenarioGraphCommandResolution(
-            target = toCandidate(top, path.candidate.score),
-            prerequisites = prerequisites.items,
+            target = toCandidate(path.top, path.candidate.score),
+            prerequisites = blockers.items,
             resolvedByScenario = true
         )
     }
+
+    private fun directFallback(
+        candidates: List<MarfaAnalyticalEngine.ControlCandidate>
+    ): ScenarioGraphCommandResolution {
+        val distinct = candidates.distinctBy { it.device.id + "/" + it.widget.id }
+        if (distinct.size == 1) {
+            return ScenarioGraphCommandResolution(target = distinct.single())
+        }
+
+        val best = distinct.maxByOrNull { it.score } ?: return ScenarioGraphCommandResolution()
+        val tied = distinct.filter { it.score == best.score }
+        return if (tied.size == 1) {
+            ScenarioGraphCommandResolution(target = best)
+        } else {
+            ScenarioGraphCommandResolution(
+                blockedReason = "Не удалось однозначно определить элемент управления.",
+                alternatives = tied
+            )
+        }
+    }
+
+    private fun isController(
+        widget: WidgetState,
+        affectedId: String,
+        controllerId: String,
+        rulesByTarget: Map<String, List<DeviceScenarioRule>>
+    ): Boolean {
+        if (!isControllable(widget)) return false
+        if (isModeWidget(widget) || isObservationWidget(widget)) return false
+
+        return rulesByTarget[affectedId].orEmpty().any { rule ->
+            rule.condition.identifiers.contains(controllerId) &&
+                hasDiscreteControlPredicate(rule.condition.expression, controllerId)
+        }
+    }
+
+    private fun hasDiscreteControlPredicate(
+        expression: IoTExpr,
+        wanted: String
+    ): Boolean {
+        var found = false
+
+        fun visit(node: IoTExpr) {
+            if (found) return
+            when (node) {
+                is IoTExpr.Binary -> {
+                    if (node.operator == "==" || node.operator == "!=") {
+                        if (containsVariable(node.left, wanted) ||
+                            containsVariable(node.right, wanted)
+                        ) {
+                            found = true
+                            return
+                        }
+                    }
+                    visit(node.left)
+                    visit(node.right)
+                }
+                is IoTExpr.Unary -> visit(node.expression)
+                is IoTExpr.Call -> node.args.forEach(::visit)
+                is IoTExpr.Variable,
+                is IoTExpr.NumberLiteral,
+                is IoTExpr.StringLiteral -> Unit
+            }
+        }
+
+        visit(expression)
+        return found || (expression is IoTExpr.Variable && expression.name == wanted)
+    }
+
+    private fun containsVariable(expression: IoTExpr, wanted: String): Boolean =
+        when (expression) {
+            is IoTExpr.Variable -> expression.name == wanted
+            is IoTExpr.Binary ->
+                containsVariable(expression.left, wanted) ||
+                    containsVariable(expression.right, wanted)
+            is IoTExpr.Unary -> containsVariable(expression.expression, wanted)
+            is IoTExpr.Call -> expression.args.any { containsVariable(it, wanted) }
+            is IoTExpr.NumberLiteral,
+            is IoTExpr.StringLiteral -> false
+        }
 
     private data class BlockerResult(
         val items: List<ScenarioPrerequisite>,
         val blockedReason: String? = null
     )
-
-    /**
-     * A node mentioned in a condition can be a sensor, feedback, or an
-     * unrelated gate. It is a controller only when the scenario contains a
-     * writable action path whose target is the affected state and the
-     * candidate's value participates in that rule as the controlling input.
-     */
-    private fun canActuallyControl(
-        controller: WidgetState,
-        affectedId: String,
-        rulesByTarget: Map<String, List<DeviceScenarioRule>>,
-        nodes: Map<String, Node>
-    ): Boolean {
-        if (nodes[controller.id] == null) return false
-        return rulesByTarget[affectedId].orEmpty().any { rule ->
-            rule.condition.identifiers.contains(controller.id) &&
-                rule.actions.any { it.targetId == affectedId } &&
-                isControllable(controller) &&
-                !isModeWidget(controller)
-        }
-    }
 
     private fun findBlockers(
         target: Node,
@@ -232,17 +261,8 @@ class ScenarioGraphCommandResolver {
     ): BlockerResult {
         val blockers = linkedMapOf<String, MutableSet<String>>()
 
-        /*
-         * Every node on the controller -> target path is allowed to depend on
-         * additional conditions. Those conditions are gates, not controllers.
-         * We collect only writable elements; sensors remain observations.
-         */
         chain.forEach { affectedId ->
             rulesByTarget[affectedId].orEmpty().forEach { rule ->
-                // OR branches describe alternatives. They must not be turned
-                // into simultaneous prerequisites by a simple equality scan;
-                // the existing scenario planner remains authoritative for
-                // those branches.
                 if (containsOperator(rule.condition.expression, "|")) return@forEach
 
                 val controllerIds = parents[affectedId].orEmpty()
@@ -254,9 +274,11 @@ class ScenarioGraphCommandResolver {
                     .forEach { id ->
                         val node = nodes[id] ?: return@forEach
                         if (!isControllable(node.widget)) return@forEach
-                        blockers.getOrPut(id) { linkedSetOf() }.addAll(
-                            equalityRequirements(rule.condition.expression, id)
-                        )
+
+                        val requirements = equalityRequirements(rule.condition.expression, id)
+                        if (requirements.isNotEmpty()) {
+                            blockers.getOrPut(id) { linkedSetOf() }.addAll(requirements)
+                        }
                     }
             }
         }
@@ -266,9 +288,8 @@ class ScenarioGraphCommandResolver {
         val result = mutableListOf<ScenarioPrerequisite>()
         blockers.forEach { (id, requiredValues) ->
             val node = nodes[id] ?: return@forEach
-            if (requiredValues.isEmpty()) return@forEach
-
             val distinct = requiredValues.map(::normalizeValue).distinct()
+
             if (distinct.size > 1) {
                 return BlockerResult(
                     emptyList(),
@@ -282,20 +303,13 @@ class ScenarioGraphCommandResolver {
             val actual = normalizeValue(node.widget.value)
 
             if (isModeWidget(node.widget)) {
-                /*
-                 * A mode gate is a blocker, not the controller. For a gate
-                 * expressed as MODE == 0/1, the voice path must enter the
-                 * opposite/manual branch when the widget explicitly exposes
-                 * manual control. This is the generic mode rule; the ID and
-                 * device are never hard-coded.
-                 */
                 val manualValue = manualModeValue(node.widget, required)
                 if (!valuesEquivalent(actual, manualValue)) {
                     result += ScenarioPrerequisite(
                         deviceId = node.device.id,
                         widgetId = id,
                         value = manualValue,
-                        reason = "Блокирует команда: " +
+                        reason = "Блокирует команду: " +
                             node.widget.title.ifBlank { id } +
                             " должно быть " + manualValue
                     )
@@ -312,98 +326,129 @@ class ScenarioGraphCommandResolver {
             }
         }
 
-        return BlockerResult(result.distinctBy { it.deviceId + "/" + it.widgetId + "/" + it.value })
+        return BlockerResult(
+            result.distinctBy { it.deviceId + "/" + it.widgetId + "/" + it.value }
+        )
     }
 
-    private fun containsOperator(expression: IoTExpr, wanted: String): Boolean {
-        return when (expression) {
+    private fun containsOperator(expression: IoTExpr, wanted: String): Boolean =
+        when (expression) {
             is IoTExpr.Binary ->
                 expression.operator == wanted ||
                     containsOperator(expression.left, wanted) ||
                     containsOperator(expression.right, wanted)
             is IoTExpr.Unary -> containsOperator(expression.expression, wanted)
             is IoTExpr.Call -> expression.args.any { containsOperator(it, wanted) }
-            is IoTExpr.Variable, is IoTExpr.NumberLiteral, is IoTExpr.StringLiteral -> false
+            is IoTExpr.Variable,
+            is IoTExpr.NumberLiteral,
+            is IoTExpr.StringLiteral -> false
         }
-    }
 
     private fun equalityRequirements(expression: IoTExpr, wanted: String): List<String> {
         val result = mutableListOf<String>()
-        fun visit(e: IoTExpr) {
-            when (e) {
+
+        fun visit(node: IoTExpr) {
+            when (node) {
                 is IoTExpr.Binary -> {
-                    if (e.operator == "==") {
-                        val left = e.left as? IoTExpr.Variable
-                        val right = literal(e.right)
+                    if (node.operator == "==") {
+                        val left = node.left as? IoTExpr.Variable
+                        val right = literal(node.right)
                         if (left?.name == wanted && right != null) result += right
-                        val rightVar = e.right as? IoTExpr.Variable
-                        val leftLiteral = literal(e.left)
+
+                        val rightVar = node.right as? IoTExpr.Variable
+                        val leftLiteral = literal(node.left)
                         if (rightVar?.name == wanted && leftLiteral != null) result += leftLiteral
                     }
-                    visit(e.left)
-                    visit(e.right)
+                    visit(node.left)
+                    visit(node.right)
                 }
-                is IoTExpr.Unary -> visit(e.expression)
-                is IoTExpr.Call -> e.args.forEach(::visit)
-                is IoTExpr.Variable, is IoTExpr.NumberLiteral, is IoTExpr.StringLiteral -> Unit
+                is IoTExpr.Unary -> visit(node.expression)
+                is IoTExpr.Call -> node.args.forEach(::visit)
+                is IoTExpr.Variable,
+                is IoTExpr.NumberLiteral,
+                is IoTExpr.StringLiteral -> Unit
             }
         }
+
         visit(expression)
         return result
     }
 
-    private fun literal(expression: IoTExpr): String? = when (expression) {
-        is IoTExpr.NumberLiteral -> expression.value.toString().removeSuffix(".0")
-        is IoTExpr.StringLiteral -> expression.value
-        else -> null
-    }
+    private fun literal(expression: IoTExpr): String? =
+        when (expression) {
+            is IoTExpr.NumberLiteral ->
+                expression.value.toString().removeSuffix(".0")
+            is IoTExpr.StringLiteral -> expression.value
+            is IoTExpr.Variable,
+            is IoTExpr.Binary,
+            is IoTExpr.Unary,
+            is IoTExpr.Call -> null
+        }
 
     private fun uniqueNodes(devices: List<Device>): Map<String, Node> {
-        val grouped = devices.flatMap { device ->
-            device.widgets.map { widget -> widget.id to Node(device, widget) }
-        }.groupBy({ it.first }, { it.second })
+        val grouped = devices
+            .flatMap { device ->
+                device.widgets.map { widget -> widget.id to Node(device, widget) }
+            }
+            .groupBy({ it.first }, { it.second })
 
-        // An element ID is globally authoritative. A duplicate ID is therefore
-        // unsafe for scenario graph resolution and is intentionally omitted.
         return grouped.mapNotNull { (id, entries) ->
             if (id.isBlank() || entries.size != 1) null else id to entries.single()
         }.toMap()
     }
 
-    private fun isScenarioNode(
-        id: String,
-        models: List<Pair<StoredDeviceScenario, DeviceScenarioModel>>
-    ): Boolean =
-        models.any { (_, model) ->
-            model.identifiers.contains(id) || model.rules.any { rule ->
-                rule.actions.any { it.targetId == id } ||
-                    rule.condition.identifiers.contains(id)
-            }
-        }
-
-    private fun isControllable(widget: WidgetState): Boolean {
-        val text = EmojiSemanticText.normalize(
-            widget.id + " " + widget.title + " " + widget.definitionName + " " + widget.unit
-        ).lowercase()
-        if (listOf(
-                "датчик", "сенсор", "sensor", "температур", "влажност", "давлен",
-                "показани", "измерени", "измерение", "статус", "состояни",
-                "индикатор", "концевик", "концевой", "градус", "humidity", "pressure"
-            ).any { text.contains(it) }) return false
-        return widget.type == WidgetState.Type.BUTTON ||
+    private fun isControllable(widget: WidgetState): Boolean =
+        widget.type == WidgetState.Type.BUTTON ||
             widget.type == WidgetState.Type.TOGGLE ||
             widget.type == WidgetState.Type.INPUT
+
+    private fun isObservationWidget(widget: WidgetState): Boolean {
+        if (widget.type == WidgetState.Type.VALUE ||
+            widget.type == WidgetState.Type.STATUS
+        ) return true
+
+        val text = EmojiSemanticText.normalize(
+            widget.id + " " +
+                widget.title + " " +
+                widget.definitionName + " " +
+                widget.configJson + " " +
+                widget.unit
+        ).lowercase()
+
+        return listOf(
+            "датчик", "сенсор", "sensor",
+            "температур", "влажност", "давлен",
+            "показани", "измерени", "измерение",
+            "статус", "состояни", "индикатор",
+            "концевик", "концевой", "градус",
+            "humidity", "pressure",
+            "anydata", "chart", "gauge", "progress"
+        ).any { text.contains(it) } ||
+            widget.unit.contains("°") ||
+            widget.unit.contains("%") ||
+            widget.unit.contains("pa", ignoreCase = true)
     }
 
     private fun isModeWidget(widget: WidgetState): Boolean {
-        val text = (widget.id + " " + widget.title + " " + widget.definitionName).lowercase()
-        return listOf("режим", "автомат", "ручн", "управлен", "mode").any { text.contains(it) }
+        val text = EmojiSemanticText.normalize(
+            widget.id + " " + widget.title + " " + widget.definitionName
+        ).lowercase()
+
+        return listOf("режим", "автомат", "ручн", "управлен", "mode")
+            .any { text.contains(it) }
     }
 
-    private fun manualModeValue(widget: WidgetState, requiredGateValue: String): String {
-        val text = (widget.title + " " + widget.definitionName).lowercase()
+    private fun manualModeValue(
+        widget: WidgetState,
+        requiredGateValue: String
+    ): String {
+        val text = EmojiSemanticText.normalize(
+            widget.title + " " + widget.definitionName
+        ).lowercase()
+
         if (text.contains("ручн")) return "1"
         if (text.contains("автомат")) return "1"
+
         return if (requiredGateValue == "0") "1" else "0"
     }
 
@@ -415,7 +460,7 @@ class ScenarioGraphCommandResolver {
             device = node.device,
             widget = node.widget,
             score = score,
-            reasons = listOf("scenario graph controller"),
+            reasons = listOf("scenario graph controller")
         )
 
     private fun normalizeValue(value: String): String =
@@ -423,4 +468,3 @@ class ScenarioGraphCommandResolver {
 
     private fun valuesEquivalent(left: String, right: String): Boolean =
         normalizeValue(left) == normalizeValue(right)
-}
