@@ -150,7 +150,7 @@ class MarfaAnalyticalEngine {
          */
         val actionScoped = entityScoped
             .filter { it.score > 0 }
-            .filter { isActionRelevantControl(it.widget, desiredValue) }
+            .filter { isActionRelevantControl(it.widget, desiredValue, normalized) }
 
         val candidates = actionScoped
             .sortedWith(
@@ -898,20 +898,31 @@ class MarfaAnalyticalEngine {
             .map { it.page }
             .firstOrNull { normalize(it) == page } ?: page
 
-    private fun isActionRelevantControl(widget: WidgetState, desiredValue: String?): Boolean {
+    private fun isActionRelevantControl(
+        widget: WidgetState,
+        desiredValue: String?,
+        commandText: String
+    ): Boolean {
         if (desiredValue != "1" && desiredValue != "0") return true
+
+        /*
+         * Feedback widgets and automatic-mode selectors should be excluded
+         * only when the user is actually asking to open/close a physical object.
+         * For "включи/выключи автомат" the automatic-mode widget is the target
+         * and must remain eligible.
+         */
+        val isOpenCloseCommand = containsAny(
+            commandText,
+            "открой", "открыть", "открывай", "подними", "поднять",
+            "распахни", "раскрой", "закрой", "закрыть", "закрывай",
+            "опусти", "опустить", "запечатай"
+        )
+        if (!isOpenCloseCommand) return true
 
         val title = semanticSearchText(widget.title)
 
-        // Limit/position switches are feedback elements, not open/close commands.
         if (containsAny(title, "концевик", "концевой", "конечный")) return false
 
-        /*
-         * "Автомат" and "режим" can be valid targets for commands such as
-         * "включи автомат", so exclude them only from open/close resolution.
-         * A spoken "открой огурцы" must not accidentally select an automatic-mode
-         * toggle on the cucumber page.
-         */
         if (containsAny(title, "автомат", "режим")) {
             val hasOpenCloseSemantics = containsAny(
                 title,
