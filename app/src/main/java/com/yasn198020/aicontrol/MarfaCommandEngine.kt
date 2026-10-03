@@ -182,9 +182,9 @@ class MarfaCommandEngine {
             normalized.split(" ").contains(searchable(candidate.widget.id))
         }?.let { return it }
         val scored = candidates.map { candidate ->
-            val title = semanticSearchText(candidate.widget.title)
-            val page = semanticSearchText(candidate.widget.page)
-            val device = semanticSearchText(candidate.device.name)
+            val title = EmojiSemanticText.normalize(candidate.widget.title)
+            val page = EmojiSemanticText.normalize(candidate.widget.page)
+            val device = EmojiSemanticText.normalize(candidate.device.name)
             var score = 0
             normalized.split(" ")
                 .filter { it.length >= 3 && it !in REFERENCE_STOP_WORDS }
