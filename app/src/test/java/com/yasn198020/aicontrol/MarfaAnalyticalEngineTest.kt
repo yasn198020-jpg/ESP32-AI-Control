@@ -385,6 +385,27 @@ class MarfaAnalyticalEngineTest {
     }
 
     @Test
+    fun explicitAutomaticCommandDoesNotOfferDoorOrVentControls() {
+        val result = MarfaAnalyticalEngine().resolveControl(
+            "включи автомат помидор",
+            listOf(
+                Device("d1", "Дом", true, listOf(
+                    WidgetState("door", "закрыта открыта дверь", WidgetState.Type.TOGGLE, "0", page = "🍅"),
+                    WidgetState("vent", "закрыта открыта форточка", WidgetState.Type.TOGGLE, "0", page = "🍅"),
+                    WidgetState("auto", "автомат управление", WidgetState.Type.TOGGLE, "0", page = "🍅"),
+                    WidgetState("otherAuto", "автомат управление", WidgetState.Type.TOGGLE, "0", page = "Теплиц 🥒")
+                ))
+            ),
+            "1"
+        )
+        assertEquals("auto", result.candidate?.widget?.id)
+        assertTrue(result.candidates.all { it.widget.title.contains("автомат") })
+        assertTrue(result.candidates.none {
+            it.widget.id == "door" || it.widget.id == "vent"
+        })
+    }
+
+    @Test
     fun offContextIgnoresFeedbackWidgetsAndKeepsRealControl() {
         val result = MarfaAnalyticalEngine().resolveControl(
             "выключи огурцы",
