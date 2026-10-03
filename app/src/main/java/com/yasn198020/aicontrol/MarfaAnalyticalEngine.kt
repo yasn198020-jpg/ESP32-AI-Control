@@ -927,7 +927,14 @@ class MarfaAnalyticalEngine {
 
         val title = semanticSearchText(widget.title)
 
+        // Feedback/status elements are observable state, not command targets.
+        // They must never enter clarification merely because they are technically
+        // represented as TOGGLE/BUTTON widgets.
         if (containsAny(title, "концевик", "концевой", "конечный")) return false
+        val isStateIndicator =
+            (title.contains("открыт") && title.contains("закрыт")) ||
+                containsAny(title, "состояние", "статус", "индикатор", "положение")
+        if (isStateIndicator) return false
 
         if (containsAny(title, "автомат", "режим")) {
             val hasOpenCloseSemantics = containsAny(
