@@ -412,7 +412,5 @@ class MarfaAnalyticalEngineTest {
         assertEquals(LocalCommandAction.READ_VALUE, result.action)
         assertEquals("t1", result.widgetId)
         assertTrue(result.reply.contains("24,5"))
-    )
-
-
+    }
 }
