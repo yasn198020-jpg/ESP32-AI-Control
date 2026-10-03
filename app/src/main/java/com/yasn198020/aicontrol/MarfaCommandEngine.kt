@@ -146,6 +146,30 @@ class MarfaCommandEngine {
             .filter { it.isNotBlank() }
             .joinToString(" ")
 
+        // First resolve the clarification against the candidates from the
+        // original question. This is important for conversational context:
+        // "выключи автомат" -> "помидор" must select the tomato candidate,
+        // not restart a global search that can accidentally select a door,
+        // vent or another unrelated control.
+        if (pending is PendingClarification.Control) {
+            chooseClarificationCandidate(text, pending.candidates)?.let { chosen ->
+                pendingClarification = null
+                val action = pending.action
+                val item = LocalCommandActionItem(chosen.device.id, chosen.widget.id, action.value)
+                lastControlCandidates = pending.candidates
+                lastActionSpec = action
+                return LocalCommandResult(
+                    action = LocalCommandAction.CONTROL,
+                    deviceId = item.deviceId,
+                    widgetId = item.widgetId,
+                    value = item.value,
+                    reply = controlReply(action, chosen.widget.title, 0L, 1),
+                    actionItems = listOf(item),
+                    needsConfirmation = true
+                )
+            }
+        }
+
         pendingClarification = null
         return parse(combined, devices)
     }
