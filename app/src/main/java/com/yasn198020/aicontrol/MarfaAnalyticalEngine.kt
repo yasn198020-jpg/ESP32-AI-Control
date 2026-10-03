@@ -133,16 +133,7 @@ class MarfaAnalyticalEngine {
          */
         val actionScoped = scoped
             .filter { it.score > 0 }
-            .filter { it.score > 0 }
             .filter { isActionRelevantControl(it.widget, desiredValue, normalized) }
-
-        val candidates = actionScoped
-            .sortedWith(
-                compareByDescending<ControlCandidate> { it.score }
-                    .thenBy { it.widget.order }
-                    .thenBy { normalize(it.widget.page) }
-                    .thenBy { it.widget.id }
-            )
 
         val usableScoped = if (actionScoped.isNotEmpty()) {
             actionScoped
