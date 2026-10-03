@@ -52,6 +52,33 @@ class MarfaCommandEngineTest {
 
 
     @Test
+    fun sensorClarificationAcceptsAll() {
+        val devices = listOf(
+            Device(
+                id = "greenhouse",
+                name = "Теплица",
+                online = true,
+                widgets = listOf(
+                    WidgetState("temp-c", "Огурцы", WidgetState.Type.VALUE, "24", page = "Температура", unit = "°C"),
+                    WidgetState("temp-s", "Улица", WidgetState.Type.VALUE, "12", page = "Температура", unit = "°C"),
+                    WidgetState("temp-t", "Помидоры", WidgetState.Type.VALUE, "27", page = "Температура", unit = "°C")
+                )
+            )
+        )
+        val engine = MarfaCommandEngine()
+        assertEquals(LocalCommandAction.CLARIFY, engine.parse("какая температура", devices).action)
+
+        val result = engine.parse("все", devices)
+        assertEquals(LocalCommandAction.READ_VALUE, result.action)
+        assertTrue(result.reply.contains("Огурцы"))
+        assertTrue(result.reply.contains("Улица"))
+        assertTrue(result.reply.contains("Помидоры"))
+        assertTrue(result.reply.contains("24"))
+        assertTrue(result.reply.contains("12"))
+        assertTrue(result.reply.contains("27"))
+    }
+
+    @Test
     fun clarificationIsMergedBackIntoOriginalCommand() {
         val devices = listOf(
             Device(
