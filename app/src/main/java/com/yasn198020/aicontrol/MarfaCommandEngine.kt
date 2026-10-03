@@ -151,6 +151,25 @@ class MarfaCommandEngine {
         // "выключи автомат" -> "помидор" must select the tomato candidate,
         // not restart a global search that can accidentally select a door,
         // vent or another unrelated control.
+        if (pending is PendingClarification.Sensor && selectAllCandidates(text)) {
+            val selected = pending.candidates
+                .distinctBy { it.device.id + "/" + it.widget.id }
+            if (selected.isNotEmpty()) {
+                pendingClarification = null
+                val reply = selected.joinToString("; ") { candidate ->
+                    valueSpeech(candidate.widget)
+                }
+                val first = selected.first()
+                return LocalCommandResult(
+                    action = LocalCommandAction.READ_VALUE,
+                    deviceId = first.device.id,
+                    widgetId = first.widget.id,
+                    value = first.widget.value.trim(),
+                    reply = reply
+                )
+            }
+        }
+
         if (pending is PendingClarification.Control) {
             // A clarification may explicitly select several candidates:
             // "оба", "обе", "все", "все варианты". In that case keep the
