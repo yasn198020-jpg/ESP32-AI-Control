@@ -35,12 +35,10 @@ class MarfaVoiceService : Service() {
     private var runtime: AppRuntime? = null
     private var runtimeListener: AppRuntime.UiListener? = null
     private var tts: TextToSpeech? = null
-    private var pendingSmartRule: LocalCommandResult? = null
-    private var pendingControl: LocalCommandResult? = null
-    private var keepListeningForSmartRuleConfirmation = false
     private lateinit var prefs: android.content.SharedPreferences
     private val commandExecutor = MarfaCommandExecutor.get()
     private val commandEngine by lazy { MarfaIntelligence.get(applicationContext) }
+    private lateinit var dialogueCore: MarfaDialogueCore
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -48,7 +46,10 @@ class MarfaVoiceService : Service() {
     override fun onCreate() {
         super.onCreate()
         prefs = getSharedPreferences("settings", Context.MODE_PRIVATE)
-        pendingSmartRule = restorePendingSmartRule()
+        dialogueCore = MarfaDialogueCore { command, devices ->
+            commandEngine.interpret(command, devices)
+        }
+        dialogueCore.restoreSmartRule(restorePendingSmartRule())
 
         createNotificationChannel()
         startAsForeground()
@@ -128,186 +129,154 @@ class MarfaVoiceService : Service() {
     }
 
     private suspend fun handleCommandInternal(command: String) {
-        // Keep the microphone alive while Marfa is asking a clarification or
-        // confirmation. Once the dialogue reaches a terminal result, the
-        // microphone is released automatically.
-        var continueDialogue = false
-        try {
-            val devicesSnapshot = synchronizedCopyDevices()
-            if (commandEngine.isLikelyContextual(command)) {
-                speak(acknowledgementFor(command))
+        val devicesSnapshot = synchronizedCopyDevices()
+
+        if (commandEngine.isLikelyContextual(command)) {
+            speak(acknowledgementFor(command))
+        }
+
+        val turn = try {
+            dialogueCore.process(command, devicesSnapshot)
+        } catch (e: Throwable) {
+            android.util.Log.e("MARFA_ENGINE", "dialogue failed", e)
+            speak("Ошибка анализа: " + (e.message ?: "неизвестная ошибка"))
+            return
+        }
+
+        val result = turn.result
+        android.util.Log.d(
+            "MARFA_DIALOGUE",
+            "command=\${command} kind=\${turn.kind} action=\${result?.action ?: "none"} delayMs=\${result?.delayMs ?: 0L} actions=\${result?.actionItems?.size ?: 0}"
+        )
+
+        when (turn.kind) {
+            MarfaDialogueCore.OutcomeKind.CONTINUE -> {
+                speak(turn.reply)
             }
-            pendingControl?.let { pending ->
-                when {
-                    isCommandConfirmation(command) -> {
-                        pendingControl = null
-                        commandExecutor.execute(pending, runtime ?: return) { reply ->
-                            mainHandler.post { speak(reply) }
-                        }
-                        return
-                    }
-                    isCommandRejection(command) -> {
-                        pendingControl = null
-                        speak("Хорошо, не выполняю")
-                        return
-                    }
-                    else -> {
-                        // Do not treat a natural-language correction as a rejection.
-                        continueDialogue = true
-                        // For example, after "открой дверь" -> "вторую", the engine
-                        // asks for confirmation; "нет, первую" must refine that
-                        // same task rather than cancel it.
-                        val refinement = commandEngine.interpret(
-                            command,
-                            synchronizedCopyDevices()
-                        )
-                        if (refinement.action == LocalCommandAction.CONTROL && refinement.needsConfirmation) {
-                            pendingControl = refinement
-                            continueDialogue = true
-                            speak("Поняла уточнение. " + refinement.reply + ". Выполнить? Скажите да или нет")
-                            return
-                        }
-                        if (refinement.action == LocalCommandAction.CLARIFY) {
-                            continueDialogue = true
-                            speak(refinement.reply)
-                            return
-                        }
-                        continueDialogue = true
-                        speak("Выполнить это? Скажите да или нет")
-                        return
+
+            MarfaDialogueCore.OutcomeKind.CANCEL -> {
+                if (result?.action == LocalCommandAction.SMART_RULE) {
+                    clearPendingSmartRulePersistence()
+                }
+                speak(turn.reply)
+            }
+
+            MarfaDialogueCore.OutcomeKind.SAVE_SMART_RULE -> {
+                val rule = result
+                if (rule == null) {
+                    speak("Не удалось сохранить правило")
+                } else {
+                    clearPendingSmartRulePersistence()
+                    saveSmartRule(rule)
+                }
+            }
+
+            MarfaDialogueCore.OutcomeKind.EXECUTE_CONTROL -> {
+                val control = result
+                if (control == null) {
+                    speak("Не удалось определить действие")
+                } else {
+                    commandExecutor.execute(control, runtime ?: return) { reply ->
+                        mainHandler.post { speak(reply) }
                     }
                 }
             }
 
-            pendingSmartRule?.let { pending ->
-                when {
-                    isSmartRuleConfirmation(command) -> {
-                        clearPendingSmartRule()
-                        keepListeningForSmartRuleConfirmation = false
-                        saveSmartRule(pending)
-                        return
-                    }
-                    isSmartRuleRejection(command) -> {
-                        clearPendingSmartRule()
-                        keepListeningForSmartRuleConfirmation = false
-                        speak("Правило не сохранено")
-                        return
-                    }
-                    else -> {
-                        continueDialogue = true
-                        speak("Сохранить предыдущее правило? Скажите да или нет")
-                        return
-                    }
-                }
-            }
+            MarfaDialogueCore.OutcomeKind.ANSWER -> {
+                if (result != null &&
+                    result.action == LocalCommandAction.NOT_FOUND &&
+                    result.reply.isBlank()
+                ) {
+                    val trained = TrainedCommandMatcher(
+                        TrainedCommandStore(prefs)
+                    ).matchAll(command)
 
-            // Parse once to reserve smart-rule phrases for the natural engine.
-            // Existing trained phrases keep priority for ordinary commands.
-            val result = commandEngine.interpret(command, devicesSnapshot)
-            android.util.Log.d(
-                "MARFA_ENGINE",
-                "command=${command} action=${result.action} delayMs=${result.delayMs} actions=${result.actionItems.size}"
-            )
+                    android.util.Log.d(
+                        "MARFA_TRAINED",
+                        "priority command=\${command} matches=\${trained.size}"
+                    )
 
-            if (result.action == LocalCommandAction.SMART_RULE) {
-                continueDialogue = true
-                askSmartRuleConfirmation(result)
-            } else if (result.action == LocalCommandAction.CONTROL && result.needsConfirmation) {
-                pendingControl = result
-                continueDialogue = true
-                speak("Поняла. " + result.reply + ". Выполнить? Скажите да или нет")
-            } else {
-                val trained = TrainedCommandMatcher(TrainedCommandStore(prefs)).matchAll(command)
-                android.util.Log.d(
-                    "MARFA_TRAINED",
-                    "priority command=${command} matches=${trained.size}"
-                )
+                    if (trained.isNotEmpty()) {
+                        val readActions = trained.filter { it.value == TRAINED_READ_VALUE }
+                        if (readActions.isNotEmpty()) {
+                            var answered = false
+                            readActions.forEach { action ->
+                                val widget = synchronizedCopyDevices()
+                                    .firstOrNull { it.id == action.deviceId }
+                                    ?.widgets
+                                    ?.firstOrNull { it.id == action.widgetId }
 
-                if (trained.isNotEmpty()) {
-                    val readActions = trained.filter { it.value == TRAINED_READ_VALUE }
-                    if (readActions.isNotEmpty()) {
-                        var answered = false
-                        readActions.forEach { action ->
-                            val widget = synchronizedCopyDevices()
-                                .firstOrNull { it.id == action.deviceId }
-                                ?.widgets
-                                ?.firstOrNull { it.id == action.widgetId }
-
-                            if (widget != null) {
-                                val raw = widget.value.trim()
-                                val spoken = if (raw.isBlank() || raw == "—") {
-                                    widget.title + ": значение пока неизвестно"
-                                } else {
-                                    widget.title + ": " + formatTemperatureForSpeech(raw, widget.unit)
+                                if (widget != null) {
+                                    val raw = widget.value.trim()
+                                    val spoken = if (raw.isBlank() || raw == "—") {
+                                        widget.title + ": значение пока неизвестно"
+                                    } else {
+                                        widget.title + ": " +
+                                            formatTemperatureForSpeech(raw, widget.unit)
+                                    }
+                                    speak(spoken)
+                                    answered = true
                                 }
-                                speak(spoken)
-                                answered = true
                             }
-                        }
-                        if (!answered) {
-                            speak("Сохранённая команда найдена, но значение датчика пока не получено")
+                            if (!answered) {
+                                speak("Сохранённая команда найдена, но значение датчика пока не получено")
+                            }
+                        } else {
+                            var sent = 0
+                            trained.forEach { action ->
+                                val widget = synchronizedCopyDevices()
+                                    .firstOrNull { it.id == action.deviceId }
+                                    ?.widgets
+                                    ?.firstOrNull { it.id == action.widgetId }
+                                val ok = when (widget?.type) {
+                                    com.yasn198020.aicontrol.core.WidgetState.Type.TOGGLE,
+                                    com.yasn198020.aicontrol.core.WidgetState.Type.BUTTON ->
+                                        mqtt?.publishControl(action.deviceId, action.widgetId, action.value) == true
+                                    com.yasn198020.aicontrol.core.WidgetState.Type.INPUT ->
+                                        widget.topic.isNotBlank() &&
+                                            mqtt?.publishWidget(widget.topic, action.value) == true
+                                    else -> false
+                                }
+                                if (ok) {
+                                    runtime?.deviceRepository?.setLocalValue(
+                                        action.deviceId,
+                                        action.widgetId,
+                                        action.value
+                                    )
+                                    sent++
+                                }
+                            }
+
+                            if (sent > 0) {
+                                speak(if (sent == 1) "Готово" else "Выполнено")
+                            } else {
+                                speak(
+                                    if (mqtt?.isConnected() == true)
+                                        "Не удалось отправить команду"
+                                    else
+                                        "MQTT ещё не подключён"
+                                )
+                            }
                         }
                     } else {
-                        var sent = 0
-                        trained.forEach { action ->
-                            val widget = synchronizedCopyDevices()
-                                .firstOrNull { it.id == action.deviceId }
-                                ?.widgets
-                                ?.firstOrNull { it.id == action.widgetId }
-                            val ok = when (widget?.type) {
-                                com.yasn198020.aicontrol.core.WidgetState.Type.TOGGLE,
-                                com.yasn198020.aicontrol.core.WidgetState.Type.BUTTON ->
-                                    mqtt?.publishControl(action.deviceId, action.widgetId, action.value) == true
-                                com.yasn198020.aicontrol.core.WidgetState.Type.INPUT ->
-                                    widget.topic.isNotBlank() && mqtt?.publishWidget(widget.topic, action.value) == true
-                                else -> false
-                            }
-                            if (ok) {
-                                runtime?.deviceRepository?.setLocalValue(action.deviceId, action.widgetId, action.value)
-                                sent++
-                            }
-                        }
-
-                        if (sent > 0) {
-                            speak(if (sent == 1) "Готово" else "Выполнено")
-                        } else {
-                            speak(
-                                if (mqtt?.isConnected() == true)
-                                    "Не удалось отправить команду"
-                                else
-                                    "MQTT ещё не подключён"
-                            )
-                        }
+                        speak("Не поняла команду")
                     }
                 } else {
-                    when (result.action) {
-                        LocalCommandAction.CONTROL -> {
-                            commandExecutor.execute(result, runtime ?: return) { reply ->
-                                mainHandler.post { speak(reply) }
-                            }
-                        }
-                        LocalCommandAction.READ_VALUE,
-                        LocalCommandAction.NOT_FOUND -> speak(result.reply)
-                        LocalCommandAction.CLARIFY -> {
-                            continueDialogue = true
-                            speak(result.reply)
-                        }
-                        LocalCommandAction.SMART_RULE -> Unit
-                    }
+                    result?.reply?.takeIf { it.isNotBlank() }?.let { speak(it) }
                 }
             }
+        }
 
-            sendBroadcast(
-                Intent(ACTION_VOICE_RESULT)
-                    .setPackage(packageName)
-                    .putExtra(EXTRA_TEXT, command)
-            )
-        } finally {
-            if (!continueDialogue && !keepListeningForSmartRuleConfirmation) {
-                voiceManager?.stop()
-                prefs.edit().putBoolean("marfa_voice_active", false).apply()
-                MarfaShortcutInstaller.setActive(this, false)
-            }
+        sendBroadcast(
+            Intent(ACTION_VOICE_RESULT)
+                .setPackage(packageName)
+                .putExtra(EXTRA_TEXT, command)
+        )
+
+        if (turn.kind != MarfaDialogueCore.OutcomeKind.CONTINUE) {
+            voiceManager?.stop()
+            prefs.edit().putBoolean("marfa_voice_active", false).apply()
+            MarfaShortcutInstaller.setActive(this, false)
         }
     }
 
@@ -318,65 +287,6 @@ class MarfaVoiceService : Service() {
                 "Поняла. Уточняю, какой объект вы имеете в виду."
             else -> "Поняла. Уточняю команду."
         }
-    }
-
-    private fun isCommandConfirmation(command: String): Boolean {
-        val value = command.lowercase(Locale("ru", "RU")).trim().replace("ё", "е")
-        return value in setOf("да", "давай", "выполняй", "выполни", "подтверждаю", "верно", "точно", "сделай") ||
-            value.contains("давай")
-    }
-
-    private fun isCommandRejection(command: String): Boolean {
-        val value = command.lowercase(Locale("ru", "RU")).trim().replace("ё", "е")
-        return value in setOf("нет", "отмена", "отменить", "не надо", "не делай", "не выполняй", "стоп") ||
-            value.contains("отмен") || value.contains("не выполняй")
-    }
-
-    private fun askSmartRuleConfirmation(result: LocalCommandResult) {
-        if (result.conditionWidgetId.isBlank() || result.actionWidgetId.isBlank()) {
-            speak("Не удалось определить условие или действие")
-            return
-        }
-        pendingSmartRule = result
-        keepListeningForSmartRuleConfirmation = true
-        persistPendingSmartRule(result)
-        speak(result.reply + ". Сохранить это правило? Скажите да или нет")
-        android.util.Log.d(
-            "MARFA_AUTOMATION",
-            "pending smart rule condition=" + result.conditionWidgetId + " " +
-                result.conditionOperator + " " + result.conditionThreshold +
-                " action=" + result.actionWidgetId + "=" + result.actionValue
-        )
-    }
-
-    private fun isSmartRuleConfirmation(text: String): Boolean {
-        val normalized = text.lowercase(Locale("ru", "RU")).trim().replace("ё", "е")
-        return normalized in setOf(
-            "да", "сохрани", "сохранить", "подтверждаю",
-            "верно", "правильно", "согласен", "согласна"
-        )
-    }
-
-    private fun isSmartRuleRejection(text: String): Boolean {
-        val normalized = text.lowercase(Locale("ru", "RU")).trim().replace("ё", "е")
-        return normalized in setOf(
-            "нет", "отмена", "отменить", "не сохраняй",
-            "не сохранять", "не надо"
-        )
-    }
-
-    private fun persistPendingSmartRule(result: LocalCommandResult) {
-        prefs.edit()
-            .putBoolean("marfa_pending_rule", true)
-            .putString("marfa_rule_condition_device", result.conditionDeviceId)
-            .putString("marfa_rule_condition_widget", result.conditionWidgetId)
-            .putString("marfa_rule_operator", result.conditionOperator)
-            .putString("marfa_rule_threshold", result.conditionThreshold.toString())
-            .putString("marfa_rule_action_device", result.actionDeviceId)
-            .putString("marfa_rule_action_widget", result.actionWidgetId)
-            .putString("marfa_rule_action_value", result.actionValue)
-            .putString("marfa_rule_reply", result.reply)
-            .apply()
     }
 
     private fun restorePendingSmartRule(): LocalCommandResult? {
@@ -395,8 +305,7 @@ class MarfaVoiceService : Service() {
         )
     }
 
-    private fun clearPendingSmartRule() {
-        pendingSmartRule = null
+    private fun clearPendingSmartRulePersistence() {
         prefs.edit()
             .remove("marfa_pending_rule")
             .remove("marfa_rule_condition_device")
