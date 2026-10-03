@@ -140,6 +140,26 @@ class MarfaAnalyticalEngine {
         }
 
         /*
+         * "Автомат"/"режим" is also an explicit control concept. It must be
+         * treated like a spoken object: when the user says "включи автомат",
+         * physical door/vent controls on the same page are not alternatives.
+         * The page may still be selected by a separate object token such as
+         * "помидор".
+         */
+        val explicitModeCommand = containsAny(
+            normalized,
+            "автомат", "автоматический", "автоматическом", "режим"
+        )
+        val modeScoped = if (explicitModeCommand) {
+            scoped.filter { candidate ->
+                val title = semanticSearchText(candidate.widget.title)
+                containsAny(title, "автомат", "автоматическ", "режим")
+            }
+        } else {
+            scoped
+        }
+
+        /*
          * A page can contain many controllable widgets that are not themselves
          * targets of the spoken action: automatic-mode toggles, limit switches,
          * etc.  They must not enter an "open/close" clarification just because
@@ -148,7 +168,7 @@ class MarfaAnalyticalEngine {
          * This is intentionally semantic, not tied to any particular device,
          * page name or widget ID.
          */
-        val actionScoped = entityScoped
+        val actionScoped = modeScoped
             .filter { it.score > 0 }
             .filter { isActionRelevantControl(it.widget, desiredValue, normalized) }
 
@@ -396,6 +416,17 @@ class MarfaAnalyticalEngine {
 
         val entity = detectEntityKind(text)
         val aliases = aliases(entity)
+
+        val explicitModeCommand = containsAny(
+            text,
+            "автомат", "автоматический", "автоматическом", "режим"
+        )
+        val modeControl = containsAny(
+            title,
+            "автомат", "автоматическ", "режим"
+        )
+
+        if (explicitModeCommand && modeControl) score += 45
 
         if (aliases.first.any { text.contains(it) }) {
             if (aliases.second.any { title.contains(it) }) score += 34
