@@ -500,6 +500,37 @@ class MarfaCommandEngineTest {
     }
 
     @Test
+    fun scenarioLinkedFeedbackDoesNotBecomeAnActionCandidate() {
+        val devices = listOf(
+            Device("greenhouse", "Дом", true, listOf(
+                WidgetState("control", "управление дверью", WidgetState.Type.TOGGLE, "0", page = "Теплица 🥒"),
+                WidgetState("relay", "исполнитель двери", WidgetState.Type.BUTTON, "0", page = "Теплица 🥒"),
+                WidgetState("feedback", "состояние двери", WidgetState.Type.TOGGLE, "0", page = "Теплица 🥒")
+            ))
+        )
+
+        val engine = MarfaCommandEngine { result, _ ->
+            when (result.widgetId) {
+                "control" -> ScenarioCommandPlan(
+                    actions = result.actionItems,
+                    resolvedByScenario = true
+                )
+                "relay", "feedback" -> ScenarioCommandPlan(
+                    actions = listOf(LocalCommandActionItem("greenhouse", "control", result.value)),
+                    resolvedByScenario = true
+                )
+                else -> ScenarioCommandPlan(actions = result.actionItems)
+            }
+        }
+
+        val result = engine.parse("закрой огурцы", devices)
+
+        assertEquals(LocalCommandAction.CONTROL, result.action)
+        assertEquals("control", result.widgetId)
+        assertEquals("0", result.value)
+    }
+
+    @Test
     fun scenarioGraphBreaksControlTieWithoutHardcodedWidgetId() {
         val devices = listOf(
             Device("greenhouse", "Дом", true, listOf(
