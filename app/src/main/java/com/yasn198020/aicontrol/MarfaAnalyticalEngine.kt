@@ -58,10 +58,11 @@ class MarfaAnalyticalEngine {
                 .filter(::isControllable)
                 .map { widget ->
                     ControlCandidate(
-                        device,
-                        widget,
-                        controlScore(normalized, page, exactId, device, widget, desiredValue),
-                        controlReasons(normalized, page, exactId, widget, desiredValue)
+                        device = device,
+                        widget = widget,
+                        score = controlScore(normalized, page, exactId, device, widget, desiredValue),
+                        reasons = controlReasons(normalized, page, exactId, widget, desiredValue),
+                        directSemanticTarget = hasDirectSemanticTarget(widget, normalized)
                     )
                 }
         }
