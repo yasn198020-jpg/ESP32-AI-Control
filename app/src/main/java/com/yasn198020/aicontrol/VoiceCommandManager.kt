@@ -20,6 +20,10 @@ class VoiceCommandManager(
     private var listening = false
     private var finishing = false
     private var restarting = false
+    // During Marfa's spoken reply, keep the dialogue session alive but do not
+    // start a new recognizer session. This prevents SpeechRecognizer from
+    // listening to Marfa's own TTS answer.
+    private var speechPaused = false
     private var lastPartialText = ""
     // SpeechRecognizer can occasionally deliver the final callback more than once.
     // One recognition session must produce at most one command.
@@ -138,6 +142,7 @@ class VoiceCommandManager(
 
         listening = true
         finishing = false
+        speechPaused = false
         commandDelivered = false
         if (restarting) return
 
@@ -166,13 +171,13 @@ class VoiceCommandManager(
     }
 
     private fun scheduleRestart(delayMs: Long) {
-        if (!listening || restarting || finishing) return
+        if (!listening || restarting || finishing || speechPaused) return
 
         restarting = true
         handler.removeCallbacksAndMessages(null)
         handler.postDelayed({
             restarting = false
-            if (!listening || finishing) return@postDelayed
+            if (!listening || finishing || speechPaused) return@postDelayed
 
             try {
                 // This is a new recognition session after the previous result.
@@ -194,6 +199,24 @@ class VoiceCommandManager(
                 if (listening && !finishing) scheduleRestart(1500L)
             }
         }, delayMs)
+    }
+
+    /**
+     * Temporarily pauses recognition between dialogue turns while Marfa speaks.
+     * The microphone session itself remains active; only recognizer restarts are
+     * suppressed. resumeAfterSpeech() continues the same dialogue automatically.
+     */
+    fun pauseForSpeech() {
+        if (!listening || finishing) return
+        speechPaused = true
+        restarting = false
+        handler.removeCallbacksAndMessages(null)
+    }
+
+    fun resumeAfterSpeech() {
+        if (!listening || finishing) return
+        speechPaused = false
+        scheduleRestart(300L)
     }
 
     // Explicit microphone-button entry point. There is no automatic
@@ -273,6 +296,7 @@ class VoiceCommandManager(
         listening = false
         finishing = false
         restarting = false
+        speechPaused = false
         lastPartialText = ""
         commandDelivered = false
         handler.removeCallbacksAndMessages(null)
