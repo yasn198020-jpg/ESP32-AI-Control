@@ -35,8 +35,15 @@ data class LocalCommandResult(
  * Compatibility entry point used by the UI and voice service.
  * The old public API is kept, but parsing is delegated to MarfaCommandEngine.
  */
-class LocalCommandManager {
-    private val engine = MarfaCommandEngine()
+typealias ScenarioPlanResolver = (
+    result: LocalCommandResult,
+    devices: List<Device>
+) -> ScenarioCommandPlan
+
+class LocalCommandManager(
+    private val scenarioPlanResolver: ScenarioPlanResolver? = null
+) {
+    private val engine = MarfaCommandEngine(scenarioPlanResolver)
 
     fun interpret(command: String, devices: List<Device>): LocalCommandResult =
         engine.parse(command, devices)
