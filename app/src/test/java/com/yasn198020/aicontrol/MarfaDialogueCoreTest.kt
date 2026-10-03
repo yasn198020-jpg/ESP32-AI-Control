@@ -133,6 +133,33 @@ class MarfaDialogueCoreTest {
     }
 
     @Test
+    fun inflectedActionAndFollowUpShareOneDialogueContext() = kotlinx.coroutines.runBlocking {
+        val dialogue = core()
+        val devices = listOf(
+            Device(
+                id = "greenhouse",
+                name = "Теплица",
+                online = true,
+                widgets = listOf(
+                    WidgetState("door-c", "дверь", WidgetState.Type.TOGGLE, "1", page = "Огурцы"),
+                    WidgetState("door-t", "дверь", WidgetState.Type.TOGGLE, "1", page = "Помидоры")
+                )
+            )
+        )
+
+        val first = dialogue.process("закрыта дверь", devices)
+        assertEquals(MarfaDialogueCore.OutcomeKind.CONTINUE, first.kind)
+        assertEquals(LocalCommandAction.CLARIFY, first.result?.action)
+
+        val refined = dialogue.process("помидоры", devices)
+        assertEquals(MarfaDialogueCore.OutcomeKind.CONTINUE, refined.kind)
+        assertEquals(LocalCommandAction.CONTROL, refined.result?.action)
+        assertEquals("door-t", refined.result?.widgetId)
+        assertEquals("0", refined.result?.value)
+        assertTrue(refined.result?.needsConfirmation == true)
+    }
+
+    @Test
     fun languageRulesHaveOneSource() {
         assertTrue(MarfaDialogueLanguage.isSelectAll("все"))
         assertTrue(MarfaDialogueLanguage.isSelectAll("оба"))

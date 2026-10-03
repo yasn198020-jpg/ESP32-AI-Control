@@ -150,41 +150,59 @@ class MarfaTestActivity : Activity() {
         scope.launch {
             val started = System.currentTimeMillis()
             val devices = AppRuntime.get(applicationContext).deviceRepository.snapshot()
-            val result = MarfaIntelligence.get(applicationContext).diagnoseCommand(text, devices)
-            val elapsed = System.currentTimeMillis() - started
-
-            val report = result.fold(
-                onSuccess = { it },
-                onFailure = {
-                    "❌ ОШИБКА ПРОВЕРКИ: " + (it.message ?: it.javaClass.simpleName)
-                }
-            )
-
-            append("[" + elapsed + " мс]")
-            append(report)
-
-            val followUpText = followUp.trim()
-            if (followUpText.isNotBlank() && result.isSuccess) {
-                append("")
-                append("=== ПРОДОЛЖЕНИЕ ДИАЛОГА ===")
-                append("Пользователь: " + followUpText)
-                val followStarted = System.currentTimeMillis()
-                val followResult = MarfaIntelligence.get(applicationContext)
-                    .diagnoseCommand(followUpText, devices)
-                val followElapsed = System.currentTimeMillis() - followStarted
-                val followReport = followResult.fold(
-                    onSuccess = { it },
-                    onFailure = {
-                        "❌ ОШИБКА ПРОДОЛЖЕНИЯ: " + (it.message ?: it.javaClass.simpleName)
-                    }
-                )
-                append("[" + followElapsed + " мс]")
-                append(followReport)
+            val intelligence = MarfaIntelligence.get(applicationContext)
+            val dialogueCore = MarfaDialogueCore { commandText, snapshot ->
+                intelligence.interpret(commandText, snapshot)
             }
 
-            append("=== ПРОВЕРКА MARFA ЗАВЕРШЕНА ===")
-            running = false
+            try {
+                append("=== ОБЩИЙ ДИАЛОГОВЫЙ КОНТУР ===")
+                val firstOutcome = dialogueCore.process(text, devices)
+                appendDialogueOutcome("1-й ход", firstOutcome)
+                append("[" + (System.currentTimeMillis() - started) + " мс]")
+
+                val followUpText = followUp.trim()
+                if (followUpText.isNotBlank()) {
+                    append("")
+                    append("=== ПРОДОЛЖЕНИЕ ТОГО ЖЕ ДИАЛОГА ===")
+                    append("Пользователь: " + followUpText)
+                    val followStarted = System.currentTimeMillis()
+                    val followOutcome = dialogueCore.process(followUpText, devices)
+                    appendDialogueOutcome("2-й ход", followOutcome)
+                    append("[" + (System.currentTimeMillis() - followStarted) + " мс]")
+                }
+
+                append("=== ПРОВЕРКА MARFA ЗАВЕРШЕНА ===")
+                append("Оба хода прошли через один MarfaDialogueCore; MQTT и действие устройства не выполнялись.")
+            } catch (error: Throwable) {
+                append("❌ ОШИБКА ПРОВЕРКИ: " + (error.message ?: error.javaClass.simpleName))
+            } finally {
+                running = false
+            }
         }
+    }
+
+    private fun appendDialogueOutcome(label: String, outcome: MarfaDialogueCore.Outcome) {
+        val result = outcome.result
+        append("--- " + label + " ---")
+        append("outcome=" + outcome.kind)
+        append("action=" + (result?.action ?: "нет"))
+        if (result != null) {
+            append("deviceId=" + result.deviceId)
+            append("widgetId=" + result.widgetId)
+            append("value=" + result.value)
+            append("delayMs=" + result.delayMs)
+            append("reply=" + result.reply)
+            append("needsConfirmation=" + result.needsConfirmation)
+            append("actions=" + result.actionItems.joinToString(", ") { it.widgetId + "=" + it.value }.ifBlank { "нет" })
+            result.scenarioPlan?.let { plan ->
+                append("SCENARIO: " + plan.actions.joinToString(", ") { it.widgetId + "=" + it.value }.ifBlank { "нет" })
+                append("ПРЕДУСЛОВИЯ: " + plan.prerequisites.joinToString(", ") { it.widgetId + "=" + it.value }.ifBlank { "нет" })
+                append("БЛОК: " + (plan.blockedReason ?: "нет"))
+                append("resolvedByScenario=" + plan.resolvedByScenario)
+            }
+        }
+        append("ответ=" + outcome.reply)
     }
 
     private fun normalizeForCompare(value: String): String =
