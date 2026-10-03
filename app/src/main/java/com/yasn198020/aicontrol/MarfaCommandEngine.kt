@@ -220,13 +220,8 @@ class MarfaCommandEngine {
         return parse(combined, devices)
     }
 
-    private fun selectAllCandidates(text: String): Boolean {
-        val normalized = searchable(text)
-        return containsAny(
-            normalized,
-            "оба", "обе", "обоих", "обеих", "все", "всех", "все варианты", "оба варианта"
-        )
-    }
+    private fun selectAllCandidates(text: String): Boolean =
+        MarfaDialogueLanguage.isSelectAll(text)
 
     private fun chooseClarificationCandidate(text: String, candidates: List<Candidate>): Candidate? {
         if (candidates.isEmpty()) return null
