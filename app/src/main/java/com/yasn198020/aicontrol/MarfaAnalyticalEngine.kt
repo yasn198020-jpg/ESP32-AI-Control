@@ -135,7 +135,14 @@ class MarfaAnalyticalEngine {
             .filter { it.score > 0 }
             .filter { isActionRelevantControl(it.widget, desiredValue, normalized) }
 
-        val usableScoped = if (actionScoped.isNotEmpty()) {
+        val directTargetScoped = actionScoped.filter {
+            hasDirectSemanticTarget(it.widget, normalized)
+        }
+
+        val usableScoped = if (directTargetScoped.isNotEmpty()) {
+            directTargetScoped
+        } else if (actionScoped.isNotEmpty() && contextPages.isEmpty() && page != null) {
+            actionScoped
             actionScoped
         } else if (contextPages.size == 1 || page != null) {
             /*
@@ -891,6 +898,20 @@ class MarfaAnalyticalEngine {
             .flatMap { it.widgets.asSequence() }
             .map { it.page }
             .firstOrNull { normalize(it) == page } ?: page
+
+    private fun hasDirectSemanticTarget(widget: WidgetState, commandText: String): Boolean {
+        val title = semanticSearchText(
+            widget.title + " " + widget.definitionName + " " + widget.configJson
+        )
+        val entity = detectEntityKind(commandText)
+        val aliasesForEntity = aliases(entity).second
+        if (aliasesForEntity.any { title.contains(it) }) return true
+
+        return tokenized(commandText).any { token ->
+            if (token.length < 2) false
+            else containsSemanticToken(title, contextTokenKey(token))
+        }
+    }
 
     private fun hasConflictingActionSemantics(titleValue: String, commandText: String): Boolean {
         val title = semanticSearchText(titleValue)
