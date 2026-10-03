@@ -95,7 +95,8 @@ class MainActivity : ComponentActivity() {
                     Surface(
                         Modifier
                             .fillMaxSize()
-                            .windowInsetsPadding(WindowInsets.safeDrawing)
+                            .statusBarsPadding()
+                            .navigationBarsPadding()
                     ) {
                         App(
                             fontScale = fontScale,
