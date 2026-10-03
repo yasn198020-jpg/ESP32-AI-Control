@@ -23,7 +23,7 @@ class MarfaTestActivity : Activity() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var output: TextView
     private lateinit var commandInput: EditText
-    private lateinit var expectedInput: EditText
+    private lateinit var followUpInput: EditText
     private var running = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -66,10 +66,10 @@ class MarfaTestActivity : Activity() {
         root.addView(commandInput)
 
         root.addView(Button(this).apply {
-            text = "➕ Добавить ответ"
+            text = "➕ Добавить продолжение диалога"
             setOnClickListener {
-                expectedInput.visibility =
-                    if (expectedInput.visibility == android.view.View.VISIBLE) {
+                followUpInput.visibility =
+                    if (followUpInput.visibility == android.view.View.VISIBLE) {
                         android.view.View.GONE
                     } else {
                         android.view.View.VISIBLE
@@ -77,19 +77,19 @@ class MarfaTestActivity : Activity() {
             }
         })
 
-        expectedInput = EditText(this).apply {
+        followUpInput = EditText(this).apply {
             setSingleLine(false)
             minLines = 2
-            hint = "Ожидаемый ответ Марфы (необязательно)"
+            hint = "Ответ пользователя после уточнения (например: огурцы)"
             setPadding(12, 8, 12, 8)
             visibility = android.view.View.GONE
         }
-        root.addView(expectedInput)
+        root.addView(followUpInput)
 
         root.addView(Button(this).apply {
             text = "🔬 Проверить Марфу"
             setOnClickListener {
-                runTest(commandInput.text.toString(), expectedInput.text.toString())
+                runTest(commandInput.text.toString(), followUpInput.text.toString())
             }
         })
 
@@ -126,7 +126,7 @@ class MarfaTestActivity : Activity() {
         setContentView(root)
     }
 
-    private fun runTest(command: String, expected: String) {
+    private fun runTest(command: String, followUp: String) {
         if (running) {
             append("⚠ Проверка уже выполняется.")
             return
@@ -142,8 +142,8 @@ class MarfaTestActivity : Activity() {
         output.text = ""
         append("🔬 ЗАПУСК ПРОВЕРКИ MARFA")
         append("Команда: " + text)
-        if (expected.trim().isNotBlank()) {
-            append("Ожидаемый ответ: " + expected.trim())
+        if (followUp.trim().isNotBlank()) {
+            append("Продолжение диалога: " + followUp.trim())
         }
         append("MQTT/устройство не будет затронуто.")
 
@@ -169,7 +169,7 @@ class MarfaTestActivity : Activity() {
                 ?.trim()
                 .orEmpty()
 
-            val expectedText = expected.trim()
+            val expectedText = followUp.trim()
             if (expectedText.isNotBlank()) {
                 val normalizedActual = normalizeForCompare(actual)
                 val normalizedExpected = normalizeForCompare(expectedText)
@@ -185,6 +185,25 @@ class MarfaTestActivity : Activity() {
                             "\nПолучено: " + actual.ifBlank { "не удалось выделить reply" }
                     )
                 }
+            }
+
+            val followUpText = followUp.trim()
+            if (followUpText.isNotBlank() && result.isSuccess) {
+                append("")
+                append("=== ПРОДОЛЖЕНИЕ ДИАЛОГА ===")
+                append("Пользователь: " + followUpText)
+                val followStarted = System.currentTimeMillis()
+                val followResult = MarfaIntelligence.get(applicationContext)
+                    .diagnoseCommand(followUpText, devices)
+                val followElapsed = System.currentTimeMillis() - followStarted
+                val followReport = followResult.fold(
+                    onSuccess = { it },
+                    onFailure = {
+                        "❌ ОШИБКА ПРОДОЛЖЕНИЯ: " + (it.message ?: it.javaClass.simpleName)
+                    }
+                )
+                append("[" + followElapsed + " мс]")
+                append(followReport)
             }
 
             append("=== ПРОВЕРКА MARFA ЗАВЕРШЕНА ===")
