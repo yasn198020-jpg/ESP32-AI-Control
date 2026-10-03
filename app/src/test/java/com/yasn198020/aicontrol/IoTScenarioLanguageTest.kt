@@ -599,5 +599,87 @@ class IoTScenarioLanguageTest {
         assertEquals("1", result.prerequisites[0].value)
     }
 
+    @Test
+    fun plannerFallsBackToDirectControlWhenTargetIdIsAbsentFromScenario() {
+        val devices = listOf(
+            Device(
+                "plain-device",
+                "Обычная ESP",
+                true,
+                listOf(
+                    WidgetState("relay99", "включить реле", WidgetState.Type.BUTTON, "0")
+                )
+            )
+        )
+
+        val scenarioSource = "if OTHER_ID == 1 then OTHER_RELAY = 1;"
+        val model = IoTScenarioSemanticAnalyzer.analyze(
+            IoTScenarioParser.parse(scenarioSource)
+        )
+        assertTrue(model.parserErrors.isEmpty())
+        assertTrue(!model.identifiers.contains("relay99"))
+
+        val plan = IoTScenarioCommandPlanner.plan(
+            targetDeviceId = "plain-device",
+            targetWidgetId = "relay99",
+            desiredValue = "1",
+            baseActions = listOf(
+                LocalCommandActionItem("plain-device", "relay99", "1")
+            ),
+            devices = devices,
+            models = listOf(
+                StoredDeviceScenario(title = "Чужой сценарий", source = scenarioSource) to model
+            )
+        )
+
+        assertEquals(
+            "Missing scenario ID must keep the original direct command",
+            listOf("relay99"),
+            plan.actions.map { it.widgetId }
+        )
+        assertEquals("1", plan.actions.single().value)
+        assertTrue(plan.prerequisites.isEmpty())
+        assertTrue(plan.blockedReason == null)
+        assertTrue(!plan.resolvedByScenario)
+    }
+
+    @Test
+    fun plannerUsesScenarioIdWhenItContainsTheTargetControl() {
+        val devices = listOf(
+            Device(
+                "scenario-device",
+                "ESP со сценарием",
+                true,
+                listOf(
+                    WidgetState("relay99", "включить реле", WidgetState.Type.BUTTON, "0")
+                )
+            )
+        )
+
+        val scenarioSource = "if relay99 == 0 then relay99 = 1;"
+        val model = IoTScenarioSemanticAnalyzer.analyze(
+            IoTScenarioParser.parse(scenarioSource)
+        )
+        assertTrue(model.parserErrors.isEmpty())
+        assertTrue(model.identifiers.contains("relay99"))
+
+        val plan = IoTScenarioCommandPlanner.plan(
+            targetDeviceId = "scenario-device",
+            targetWidgetId = "relay99",
+            desiredValue = "1",
+            baseActions = listOf(
+                LocalCommandActionItem("scenario-device", "relay99", "1")
+            ),
+            devices = devices,
+            models = listOf(
+                StoredDeviceScenario(title = "Сценарий", source = scenarioSource) to model
+            )
+        )
+
+        assertEquals(listOf("relay99"), plan.actions.map { it.widgetId })
+        assertEquals("1", plan.actions.single().value)
+        assertTrue(plan.blockedReason == null)
+    }
+
 
 }
