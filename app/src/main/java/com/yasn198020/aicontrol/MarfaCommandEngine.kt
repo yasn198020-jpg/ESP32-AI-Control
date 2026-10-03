@@ -142,7 +142,14 @@ class MarfaCommandEngine(
                 reply = controlReply(action, chosen.widget.title, delay, actions.size),
                 delayMs = delay,
                 actionItems = actions,
-                needsConfirmation = true
+                needsConfirmation = true,
+                scenarioPlan = graph?.let {
+                    ScenarioCommandPlan(
+                        actions = actions,
+                        prerequisites = it.prerequisites,
+                        resolvedByScenario = it.resolvedByScenario
+                    )
+                }
             ))
         }
 
