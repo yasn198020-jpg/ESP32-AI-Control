@@ -1038,31 +1038,24 @@ private fun App(
                 NavigationBarItem(
                     selected = false,
                     onClick = { },
-                    modifier = Modifier.pointerInput(Unit) {
-                        awaitPointerEventScope {
-                            var pressed = false
-                            while (true) {
-                                val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
-                                event.changes.forEach { change ->
-                                    if (change.pressed && !pressed) {
-                                        pressed = true
-                                        if (ContextCompat.checkSelfPermission(
-                                                context,
-                                                Manifest.permission.RECORD_AUDIO
-                                            ) == PackageManager.PERMISSION_GRANTED
-                                        ) {
-                                            voiceStatus = "🎙 Слушаю… отпустите кнопку для остановки"
-                                            voiceManager.startRussian()
-                                        } else {
-                                            requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
-                                        }
-                                    } else if (!change.pressed && pressed) {
-                                        pressed = false
-                                        voiceManager.finishRussian()
-                                        voiceStatus = "Микрофон выключен"
-                                    }
-                                }
+                    modifier = Modifier.clickable {
+                        if (ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.RECORD_AUDIO
+                            ) == PackageManager.PERMISSION_GRANTED
+                        ) {
+                            voiceStatus = "🎙 Слушаю…"
+                            try {
+                                ContextCompat.startForegroundService(
+                                    context,
+                                    Intent(context, MarfaVoiceService::class.java)
+                                        .putExtra("start_listening", true)
+                                )
+                            } catch (_: Exception) {
+                                voiceStatus = "Не удалось включить микрофон"
                             }
+                        } else {
+                            requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
                         }
                     },
                     icon = { Text("🎙", fontSize = 22.sp) },
@@ -1097,15 +1090,23 @@ private fun App(
                 onTrain = ::openTraining,
                 onVoiceStart = {
                     if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-                        voiceStatus = "🎙 Слушаю… отпустите кнопку для остановки"
-                        voiceManager.startRussian()
+                        voiceStatus = "🎙 Слушаю…"
+                        try {
+                            ContextCompat.startForegroundService(
+                                context,
+                                Intent(context, MarfaVoiceService::class.java)
+                                    .putExtra("start_listening", true)
+                            )
+                        } catch (_: Exception) {
+                            voiceStatus = "Не удалось включить микрофон"
+                        }
                     } else {
                         requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
                     }
                 },
                 onVoiceStop = {
-                    voiceManager.finishRussian()
-                    voiceStatus = "Микрофон выключен"
+                    // Main Marfa dialogue is no longer press-to-talk.
+                    // The service keeps listening until the dialogue reaches a terminal state.
                 },
                 onSend = ::sendWidget)
             1 -> TrainedCommandsScreen(Modifier.padding(padding), trainedCommands, devices, onDelete = { command -> trainedStore.remove(command); trainedCommands = trainedStore.load() }, onClearAll = { trainedStore.clear(); trainedCommands = trainedStore.load() }, onAddVariant = { phrase -> variantPhraseTarget = phrase; variantPhraseText = "" })
