@@ -3,7 +3,6 @@ package com.yasn198020.aicontrol
 import com.yasn198020.aicontrol.core.Device
 import com.yasn198020.aicontrol.core.WidgetState
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class MarfaCommandEngineScenarioGraphTest {
