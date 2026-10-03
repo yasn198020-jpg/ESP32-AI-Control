@@ -350,8 +350,8 @@ class MarfaAnalyticalEngineTest {
             "открой дверь огурцов",
             listOf(
                 Device("d1", "Дом", true, listOf(
-                    WidgetState("door1", "закрыта открыта дверь", WidgetState.Type.TOGGLE, "0", page = "Теплиц 🥒"),
-                    WidgetState("door2", "закрыта открыта дверь", WidgetState.Type.TOGGLE, "0", page = "Теплиц 🍅")
+                    WidgetState("door1", "открыть дверь", WidgetState.Type.TOGGLE, "0", page = "Теплиц 🥒"),
+                    WidgetState("door2", "открыть дверь", WidgetState.Type.TOGGLE, "0", page = "Теплиц 🍅")
                 ))
             ),
             "1"
@@ -365,8 +365,8 @@ class MarfaAnalyticalEngineTest {
             "открой огурцы",
             listOf(
                 Device("d1", "Дом", true, listOf(
-                    WidgetState("door", "закрыта открыта дверь", WidgetState.Type.TOGGLE, "0", page = "Теплиц 🥒"),
-                    WidgetState("vent", "закрыта открыта форточка", WidgetState.Type.TOGGLE, "0", page = "Теплиц 🥒"),
+                    WidgetState("door", "открыть дверь", WidgetState.Type.TOGGLE, "0", page = "Теплиц 🥒"),
+                    WidgetState("vent", "открыть форточку", WidgetState.Type.TOGGLE, "0", page = "Теплиц 🥒"),
                     WidgetState("auto", "автомат управление", WidgetState.Type.TOGGLE, "1", page = "Теплиц 🥒"),
                     WidgetState("limitDoor", "концевик двери", WidgetState.Type.TOGGLE, "0", page = "Теплиц 🥒"),
                     WidgetState("limitVent", "концевик форточки", WidgetState.Type.TOGGLE, "0", page = "Теплиц 🥒")
@@ -506,4 +506,81 @@ class MarfaAnalyticalEngineTest {
         assertEquals("t1", result.widgetId)
         assertTrue(result.reply.contains("24,5"))
     }
+
+    @Test
+    fun actionIgnoresMeasurementWidgetsEvenWhenTheyAreToggleControls() {
+        val result = MarfaAnalyticalEngine().resolveControl(
+            "закрой огурцы",
+            listOf(
+                Device("d1", "Дом", true, listOf(
+                    WidgetState(
+                        "tempClose",
+                        "🌡 закрытия двери",
+                        WidgetState.Type.TOGGLE,
+                        "0",
+                        page = "⚒️ 🥒",
+                        unit = "°C",
+                        definitionName = "anydataTmp"
+                    ),
+                    WidgetState(
+                        "doorClose",
+                        "закрыть дверь",
+                        WidgetState.Type.BUTTON,
+                        "0",
+                        page = "⚒️ 🥒"
+                    ),
+                    WidgetState(
+                        "doorOpen",
+                        "открыть дверь",
+                        WidgetState.Type.BUTTON,
+                        "0",
+                        page = "⚒️ 🥒"
+                    )
+                ))
+            ),
+            "0"
+        )
+
+        assertEquals("doorClose", result.candidate?.widget?.id)
+        assertTrue(result.candidates.none { it.widget.id == "tempClose" })
+        assertTrue(result.candidates.none { it.widget.id == "doorOpen" })
+    }
+
+    @Test
+    fun actionDoesNotTreatCombinedOpenCloseStateAsControl() {
+        val result = MarfaAnalyticalEngine().resolveControl(
+            "закрой дверь",
+            listOf(
+                Device("d1", "Дом", true, listOf(
+                    WidgetState(
+                        "state",
+                        "закрыта открыта дверь",
+                        WidgetState.Type.TOGGLE,
+                        "0",
+                        page = "⚒️"
+                    ),
+                    WidgetState(
+                        "close",
+                        "закрыть дверь",
+                        WidgetState.Type.BUTTON,
+                        "0",
+                        page = "⚒️"
+                    ),
+                    WidgetState(
+                        "open",
+                        "открыть дверь",
+                        WidgetState.Type.BUTTON,
+                        "0",
+                        page = "⚒️"
+                    )
+                ))
+            ),
+            "0"
+        )
+
+        assertEquals("close", result.candidate?.widget?.id)
+        assertTrue(result.candidates.none { it.widget.id == "state" })
+        assertTrue(result.candidates.none { it.widget.id == "open" })
+    )
+
 }

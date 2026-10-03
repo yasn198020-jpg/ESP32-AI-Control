@@ -940,18 +940,72 @@ class MarfaAnalyticalEngine {
         if (desiredValue != "1" && desiredValue != "0") return true
 
         /*
-         * Only the widget's semantic role is considered here. Feedback markers
-         * are excluded regardless of the command verb or the physical object.
-         * This is deliberately generic: new device types do not require new
-         * branches in the command resolver.
+         * An action resolver must work with the widget's role, not merely its
+         * Kotlin control type. IoTManager can expose a measurement/status widget
+         * as a TOGGLE/BUTTON, so type alone is not enough to keep it out of an
+         * action candidate list.
+         *
+         * The same generic role filter is used for every device/object:
+         * measurement metadata -> not an action target,
+         * feedback/state metadata -> not an action target,
+         * opposite action/state wording -> not an action target.
+         *
+         * READ_VALUE still uses resolveSensor(), so measurement widgets remain
+         * available for questions about temperature/humidity/etc.
          */
+        val semantic = semanticSearchText(
+            widget.title + " " + widget.definitionName + " " + widget.configJson
+        )
         val title = semanticSearchText(widget.title)
-        return !containsAny(
+
+        val measurementLike =
+            containsAny(
+                semantic,
+                "температур", "влажност", "давлен", "измерен",
+                "измерение", "показани", "значение", "градус"
+            ) ||
+            widget.unit.contains("°") ||
+            widget.unit.contains("%") ||
+            widget.unit.contains("pa", ignoreCase = true) ||
+            containsAny(
+                widget.definitionName.lowercase(Locale("ru", "RU")),
+                "anydata", "chart", "gauge", "progress", "sensor"
+            )
+
+        if (measurementLike &&
+            widget.type != WidgetState.Type.INPUT) {
+            return false
+        }
+
+        val feedbackLike = containsAny(
             title,
             "состояние", "статус", "индикатор", "положение",
             "концевик", "концевой", "конечный",
             "датчик", "измерен", "измерение", "показани"
         )
+        if (feedbackLike) return false
+
+        /*
+         * A title such as "закрыта открыта дверь" describes a state, not the
+         * command target. Treat a combination of opposite action states as
+         * feedback even when it has no explicit word like "состояние".
+         */
+        val openWords = listOf("открыт", "открыть", "открой", "открыва", "распах")
+        val closeWords = listOf("закрыт", "закрыть", "закрой", "закрыва", "опущ", "опустить")
+        val hasOpen = openWords.any { title.contains(it) }
+        val hasClose = closeWords.any { title.contains(it) }
+
+        if (hasOpen && hasClose) return false
+
+        /*
+         * Keep only controls compatible with the requested action family.
+         * This prevents "открыть дверь" and "закрыть дверь" from competing
+         * after the object has already been identified.
+         */
+        if (desiredValue == "1" && hasClose && !hasOpen) return false
+        if (desiredValue == "0" && hasOpen && !hasClose) return false
+
+        return true
     }
 
     private fun isControllable(widget: WidgetState): Boolean =
