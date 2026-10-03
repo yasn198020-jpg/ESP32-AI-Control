@@ -510,12 +510,15 @@ class MarfaAnalyticalEngine {
                         }
                         .maxOrNull() ?: 0
 
-                    // Several IoTManager tabs may share the same semantic marker
-                    // (for example both "Теплиц 🥒" and "⚒️ 🥒"). The marker alone
-                    // is therefore not enough. Prefer the tab whose controls actually
-                    // match the spoken object/action. This keeps emoji pages semantic
-                    // without hard-coding any particular crop or tab name.
-                    lexicalPage to (matched * 1000 + pageControlScore)
+                    /*
+                     * Keep the REAL IoTManager page name as the result.
+                     * searchableText() is only the semantic index used to decide
+                     * whether this page matches the spoken context. Returning
+                     * lexicalPage here was lossy: different real tabs can map to
+                     * the same semantic text (especially emoji-only tabs), so
+                     * distinct tabs could collapse before candidate resolution.
+                     */
+                    rawPage.trim() to (matched * 1000 + pageControlScore)
                 } else null
             }
             .sortedWith(
