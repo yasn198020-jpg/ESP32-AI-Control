@@ -221,7 +221,7 @@ class MarfaCommandEngineTest {
             catalog()
         )
 
-        assertEquals(LocalCommandAction.SMART_RULE, result.action)
+        assertEquals("smartRule result=$result", LocalCommandAction.SMART_RULE, result.action)
         assertEquals("temp1", result.conditionWidgetId)
         assertEquals(">", result.conditionOperator)
         assertEquals(28.0, result.conditionThreshold, 0.0001)
