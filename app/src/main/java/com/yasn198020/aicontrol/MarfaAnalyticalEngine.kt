@@ -112,7 +112,7 @@ class MarfaAnalyticalEngine {
         val contextScoped = when {
             page != null -> all
             contextPages.isNotEmpty() -> all.filter { candidate ->
-                searchableText(candidate.widget.page).trim() in contextPages
+                candidate.widget.page.trim() in contextPages
             }
             unknownContext.isNotEmpty() -> {
                 return ControlResolution(
@@ -251,7 +251,7 @@ class MarfaAnalyticalEngine {
                     )
                 }
             }
-            contextPages.isNotEmpty() -> all.filter { normalize(it.widget.page) in contextPages }
+            contextPages.isNotEmpty() -> all.filter { it.widget.page.trim() in contextPages }
             unknownContext.isNotEmpty() -> {
                 return SensorResolution(
                     clarification = "Я нашла датчик, но не нашла совпадение контекста «" +
