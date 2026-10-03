@@ -1037,8 +1037,7 @@ private fun App(
 
                 NavigationBarItem(
                     selected = false,
-                    onClick = { },
-                    modifier = Modifier.clickable {
+                    onClick = {
                         if (ContextCompat.checkSelfPermission(
                                 context,
                                 Manifest.permission.RECORD_AUDIO
