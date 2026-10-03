@@ -33,8 +33,11 @@ class MarfaDialogueCoreTest {
         )
     )
 
-    private fun core() = MarfaDialogueCore { command, devices ->
-        LocalCommandManager().interpret(command, devices)
+    private fun core(): MarfaDialogueCore {
+        val manager = LocalCommandManager()
+        return MarfaDialogueCore { command, devices ->
+            manager.interpret(command, devices)
+        }
     }
 
     @Test
