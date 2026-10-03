@@ -343,4 +343,31 @@ class MarfaCommandEngineTest {
     }
 
 
+
+    @Test
+    fun scenarioGraphBreaksControlTieWithoutHardcodedWidgetId() {
+        val devices = listOf(
+            Device("greenhouse", "Дом", true, listOf(
+                WidgetState("door", "открыть дверь", WidgetState.Type.TOGGLE, "0", page = "Теплица 🥒"),
+                WidgetState("vent", "открыть форточку", WidgetState.Type.TOGGLE, "0", page = "Теплица 🥒")
+            ))
+        )
+
+        val engine = MarfaCommandEngine { result, _ ->
+            if (result.widgetId == "door") {
+                ScenarioCommandPlan(
+                    actions = result.actionItems,
+                    resolvedByScenario = true
+                )
+            } else {
+                ScenarioCommandPlan(actions = result.actionItems)
+            }
+        }
+
+        val result = engine.parse("открой огурцы", devices)
+
+        assertEquals(LocalCommandAction.CONTROL, result.action)
+        assertEquals("door", result.widgetId)
+        assertEquals("1", result.value)
+    }
 }
