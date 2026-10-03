@@ -151,41 +151,67 @@ class ScenarioGraphCommandResolverTest {
         assertTrue(result.blockedReason == null)
     }
     @Test
-    fun directSemanticTargetDoesNotBecomeAmbiguousWithConditionWidgets() {
+    fun conditionOnlyMeasurementDoesNotCompeteWithScenarioController() {
         val devices = listOf(
             Device(
                 "d",
                 "Теплица",
                 true,
                 listOf(
-                    WidgetState("door", "закрытия двери", WidgetState.Type.TOGGLE, "0"),
-                    WidgetState("vent", "закрытия форточки", WidgetState.Type.TOGGLE, "0"),
-                    WidgetState("cucumber", "Кнопка 🥒", WidgetState.Type.TOGGLE, "0")
+                    WidgetState("tempClose", "🌡 закрытия двери", WidgetState.Type.TOGGLE, "0"),
+                    WidgetState("closeDoor", "закрыть дверь", WidgetState.Type.BUTTON, "0"),
+                    WidgetState("relay", "реле закрытия", WidgetState.Type.BUTTON, "0")
                 )
             )
         )
         val d = devices.single()
         val source = """
-            if door == 0 then { cucumber = 1; }
-            if vent == 0 then { cucumber = 1; }
+            if closeDoor == 1 then { relay = 1; closeDoor = 1; }
+            if tempClose == 1 then { relay = 1; }
         """.trimIndent()
 
         val result = ScenarioGraphCommandResolver().resolve(
             candidates = listOf(
                 MarfaAnalyticalEngine.ControlCandidate(d, d.widgets[0], 30, emptyList()),
                 MarfaAnalyticalEngine.ControlCandidate(d, d.widgets[1], 29, emptyList()),
-                MarfaAnalyticalEngine.ControlCandidate(d, d.widgets[2], 28, emptyList(), directSemanticTarget = true)
+                MarfaAnalyticalEngine.ControlCandidate(d, d.widgets[2], 10, emptyList())
             ),
-            desiredValue = "0",
+            desiredValue = "1",
             devices = devices,
             models = listOf(model(source))
         )
 
-        assertEquals("cucumber", result.target?.widget?.id)
+        assertEquals("closeDoor", result.target?.widget?.id)
         assertTrue(result.blockedReason == null)
-        // Regression: condition widgets are blockers/inputs, never competing
-        // controllers when the semantic target is already proven.
-        assertEquals("cucumber", result.target?.widget?.id)
     }
 
-}
+    @Test
+    fun uncontrolledRelayRemainsDirectTargetWhenOnlySensorConditionExists() {
+        val devices = listOf(
+            Device(
+                "d",
+                "Теплица",
+                true,
+                listOf(
+                    WidgetState("temp", "температура", WidgetState.Type.VALUE, "20"),
+                    WidgetState("relay", "реле", WidgetState.Type.BUTTON, "0")
+                )
+            )
+        )
+        val d = devices.single()
+        val source = """
+            if temp > 25 then { relay = 1; }
+        """.trimIndent()
+
+        val result = ScenarioGraphCommandResolver().resolve(
+            candidates = listOf(
+                MarfaAnalyticalEngine.ControlCandidate(d, d.widgets[1], 10, emptyList())
+            ),
+            desiredValue = "1",
+            devices = devices,
+            models = listOf(model(source))
+        )
+
+        assertEquals("relay", result.target?.widget?.id)
+        assertTrue(result.blockedReason == null)
+    }
