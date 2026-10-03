@@ -171,6 +171,12 @@ class ScenarioGraphCommandResolver {
          */
         chain.forEach { affectedId ->
             rulesByTarget[affectedId].orEmpty().forEach { rule ->
+                // OR branches describe alternatives. They must not be turned
+                // into simultaneous prerequisites by a simple equality scan;
+                // the existing scenario planner remains authoritative for
+                // those branches.
+                if (containsOperator(rule.condition.expression, "|")) return@forEach
+
                 val controllerIds = parents[affectedId].orEmpty()
                     .filter { it in chain }
                     .toSet()
@@ -239,6 +245,18 @@ class ScenarioGraphCommandResolver {
         }
 
         return BlockerResult(result.distinctBy { it.deviceId + "/" + it.widgetId + "/" + it.value })
+    }
+
+    private fun containsOperator(expression: IoTExpr, wanted: String): Boolean {
+        return when (expression) {
+            is IoTExpr.Binary ->
+                expression.operator == wanted ||
+                    containsOperator(expression.left, wanted) ||
+                    containsOperator(expression.right, wanted)
+            is IoTExpr.Unary -> containsOperator(expression.expression, wanted)
+            is IoTExpr.Call -> expression.args.any { containsOperator(it, wanted) }
+            is IoTExpr.Variable, is IoTExpr.NumberLiteral, is IoTExpr.StringLiteral -> false
+        }
     }
 
     private fun equalityRequirements(expression: IoTExpr, wanted: String): List<String> {
