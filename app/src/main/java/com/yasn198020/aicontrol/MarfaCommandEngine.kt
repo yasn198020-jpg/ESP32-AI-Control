@@ -21,7 +21,9 @@ import java.util.Locale
  *
  * MQTT is deliberately outside this class.
  */
-class MarfaCommandEngine {
+class MarfaCommandEngine(
+    private val scenarioPlanResolver: ScenarioPlanResolver? = null
+) {
     private val analyticalEngine = MarfaAnalyticalEngine()
     private data class Candidate(val device: Device, val widget: WidgetState, val score: Int)
     private data class ActionSpec(val value: String, val reply: String, val infinitive: String)
@@ -67,6 +69,13 @@ class MarfaCommandEngine {
             val time = parseTime(text)
             val resolution = analyticalEngine.resolveControl(text, devices, action.value)
             val analyticalTarget = resolution.candidate
+                ?: scenarioDisambiguate(
+                    resolution = resolution,
+                    action = action,
+                    originalText = text,
+                    delayMs = time?.delayMs ?: 0L,
+                    devices = devices
+                )
                 ?: run {
                     // Preserve the unfinished command even when the first
                     // pass has no candidate list. The user's next utterance
@@ -114,6 +123,37 @@ class MarfaCommandEngine {
             LocalCommandAction.NOT_FOUND,
             "Не поняла. Скажите, например: «открой форточку», «выключи насос через 20 минут», «какая температура?», «закрой её»."
         ))
+    }
+
+    private fun scenarioDisambiguate(
+        resolution: MarfaAnalyticalEngine.ControlResolution,
+        action: ActionSpec,
+        originalText: String,
+        delayMs: Long,
+        devices: List<Device>
+    ): MarfaAnalyticalEngine.ControlCandidate? {
+        val resolver = scenarioPlanResolver ?: return null
+        if (resolution.candidates.size < 2) return null
+
+        val proven = resolution.candidates.mapNotNull { candidate ->
+            val tentative = LocalCommandResult(
+                action = LocalCommandAction.CONTROL,
+                deviceId = candidate.device.id,
+                widgetId = candidate.widget.id,
+                value = action.value,
+                reply = controlReply(action, candidate.widget.title, delayMs, 1),
+                delayMs = delayMs,
+                actionItems = listOf(
+                    LocalCommandActionItem(candidate.device.id, candidate.widget.id, action.value)
+                ),
+                needsConfirmation = true
+            )
+            val plan = runCatching { resolver(tentative, devices) }.getOrNull()
+                ?: return@mapNotNull null
+            if (plan.resolvedByScenario && plan.blockedReason == null) candidate else null
+        }
+
+        return proven.singleOrNull()
     }
 
     private fun resolvePendingClarification(
