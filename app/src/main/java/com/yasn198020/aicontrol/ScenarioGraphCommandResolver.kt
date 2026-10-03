@@ -78,6 +78,27 @@ class ScenarioGraphCommandResolver {
             var current = candidate.widget.id
             var ambiguous = false
 
+            // A widget that directly names the requested object is already a
+            // proven voice target. Conditions attached to its scenario rules
+            // are blockers/prerequisites, not alternative controllers.
+            // Only an indirect/physical candidate is allowed to climb the
+            // reverse dependency graph looking for its logical controller.
+            if (candidate.directSemanticTarget) {
+                val top = nodes[current] ?: return@mapNotNull null
+                val prerequisites = findBlockers(
+                    target = top,
+                    chain = chain,
+                    desiredValue = desiredValue,
+                    parents = parents,
+                    rulesByTarget = rulesByTarget,
+                    nodes = nodes
+                )
+                if (prerequisites.blockedReason != null) {
+                    return@mapNotNull Path(candidate, top, chain)
+                }
+                return@mapNotNull Path(candidate, top, chain)
+            }
+
             while (visited.add(current)) {
                 val controllerParents = parents[current]
                     .orEmpty()
@@ -346,7 +367,7 @@ class ScenarioGraphCommandResolver {
             device = node.device,
             widget = node.widget,
             score = score,
-            reasons = listOf("scenario graph controller")
+            reasons = listOf("scenario graph controller"),
         )
 
     private fun normalizeValue(value: String): String =
