@@ -1,6 +1,7 @@
 name: Android APK
 # Test build trigger
 # Manual verification build
+# Release APK trigger for current main
 # Cleanup pass 2
 
 on:
