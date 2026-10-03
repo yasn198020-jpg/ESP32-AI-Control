@@ -4,6 +4,10 @@ import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.os.Bundle
+import android.graphics.Color
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -25,10 +29,27 @@ class MarfaTestActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        WindowCompat.setDecorFitsSystemWindows(window, true)
+        window.statusBarColor = Color.rgb(18, 18, 18)
+        window.navigationBarColor = Color.rgb(18, 18, 18)
+
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.rgb(18, 18, 18))
             setPadding(16, 16, 16, 16)
         }
+
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            view.setPadding(
+                16 + bars.left,
+                16 + bars.top,
+                16 + bars.right,
+                16 + bars.bottom
+            )
+            insets
+        }
+        ViewCompat.requestApplyInsets(root)
 
         root.addView(TextView(this).apply {
             text = "Марфа → проверка"
