@@ -558,21 +558,67 @@ class MarfaCommandEngine(
         return listOf(LocalCommandActionItem(target.device.id, target.widget.id, action.value))
     }
 
+    private data class ActionFamily(
+        val spec: ActionSpec,
+        val forms: List<String>
+    )
+
+    private val actionFamilies = listOf(
+        ActionFamily(
+            ActionSpec("1", "Открываю", "открыть"),
+            listOf("открой", "открыть", "открывай", "подними", "поднять", "распахни", "раскрой")
+        ),
+        ActionFamily(
+            ActionSpec("0", "Закрываю", "закрыть"),
+            listOf("закрой", "закрыть", "закрывай", "опусти", "опустить", "запечатай")
+        ),
+        ActionFamily(
+            ActionSpec("1", "Включаю", "включить"),
+            listOf("включи", "включить", "включай", "запусти", "запустить", "зажги")
+        ),
+        ActionFamily(
+            ActionSpec("0", "Выключаю", "выключить"),
+            listOf("выключи", "выключить", "выключай", "останови", "остановить", "погаси")
+        )
+    )
+
     private fun detectAction(text: String): ActionSpec? {
         val lower = normalize(text)
-        return when {
-            Regex("""\b(?:открой|открыть|открывай|подними|поднять|распахни|раскрой)\b""").containsMatchIn(lower) ->
-                ActionSpec("1", "Открываю", "открыть")
-            Regex("""\b(?:закрой|закрыть|закрывай|опусти|опустить|запечатай)\b""").containsMatchIn(lower) ->
-                ActionSpec("0", "Закрываю", "закрыть")
-            Regex("""\b(?:включи|включить|включай|запусти|запустить|зажги)\b""").containsMatchIn(lower) ->
-                ActionSpec("1", "Включаю", "включить")
-            Regex("""\b(?:выключи|выключить|выключай|останови|остановить|погаси)\b""").containsMatchIn(lower) ->
-                ActionSpec("0", "Выключаю", "выключить")
-            else -> Regex("""(?:установи|установить|поставь|поставить|задай|задать|назначь)\s+(-?\d+(?:[.,]\d+)?)""")
-                .find(lower)?.groupValues?.getOrNull(1)
-                ?.let { ActionSpec(it.replace(',', '.'), "Устанавливаю ${it}", "установить значение") }
+        val tokens = lower.split(" ").filter { it.isNotBlank() }
+        actionFamilies.firstOrNull { family ->
+            tokens.any { token -> matchesActionForm(token, family.forms) }
+        }?.let { return it.spec }
+
+        return Regex("""(?:установи|установить|поставь|поставить|задай|задать|назначь)\s+(-?\d+(?:[.,]\d+)?)""")
+            .find(lower)?.groupValues?.getOrNull(1)
+            ?.let { ActionSpec(it.replace(',', '.'), "Устанавливаю " + it, "установить значение") }
+    }
+
+    private fun matchesActionForm(token: String, forms: List<String>): Boolean {
+        val word = token.trim()
+        if (word.isBlank()) return false
+        if (forms.any { word == it }) return true
+
+        val candidateStem = actionStem(word)
+        if (candidateStem.length < 4) return false
+
+        return forms.any { form ->
+            val formStem = actionStem(form)
+            commonPrefixLength(candidateStem, formStem) >=
+                minOf(4, candidateStem.length, formStem.length)
         }
+    }
+
+    private fun actionStem(word: String): String =
+        stem(word)
+            .removeSuffix("т")
+            .removeSuffix("й")
+
+    private fun commonPrefixLength(a: String, b: String): Int {
+        val limit = minOf(a.length, b.length)
+        var index = 0
+        while (index < limit && a[index] == b[index]) index++
+        return index
     }
 
     private fun sensorScore(text: String, device: Device, widget: WidgetState): Int {
@@ -883,7 +929,7 @@ class MarfaCommandEngine(
     private fun stem(word: String): String {
         val endings = listOf(
             "иями", "ами", "ого", "ему", "ому", "ыми", "ими", "ая", "яя",
-            "ое", "ее", "ые", "ие", "ать", "ить", "еть", "ять", "ой", "ый",
+            "ое", "ее", "ые", "ие", "ать", "ить", "еть", "ять", "ть", "ой", "ый",
             "ий", "ов", "ев", "ам", "ям", "ах", "ях", "ы", "и", "а", "я", "о", "е"
         )
         for (ending in endings) if (word.length > ending.length + 2 && word.endsWith(ending)) return word.removeSuffix(ending)
