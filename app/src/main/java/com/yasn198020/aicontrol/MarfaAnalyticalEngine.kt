@@ -939,6 +939,17 @@ class MarfaAnalyticalEngine {
                 containsAny(title, "состояние", "статус", "индикатор", "положение")
         if (isStateIndicator) return false
 
+        // Measurement/feedback widgets can be configured as TOGGLE/BUTTON by
+        // IoTManager, so type alone is not sufficient to exclude them. A
+        // temperature marker/title such as "🌡 открытия двери" describes a
+        // measured state, not an actuator target for "открой ...".
+        val isMeasurementOrFeedback = containsAny(
+            title,
+            "температур", "датчик", "измерен", "значение", "показани",
+            "закрытия", "открытия"
+        )
+        if (isMeasurementOrFeedback) return false
+
         /*
          * Automatic-mode controls are special: they are valid targets for
          * "включи/выключи автомат", but not for a physical open/close command
