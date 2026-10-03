@@ -69,7 +69,13 @@ class ScenarioGraphCommandResolver {
             val chain: List<String>
         )
 
-        val paths = candidates.mapNotNull { candidate ->
+        // When the lexical stage found a widget that directly names the
+        // requested object, unrelated scenario nodes from the same page must
+        // not compete with it. They may still appear as blockers later.
+        val graphCandidates = candidates.filter { it.directSemanticTarget }
+            .ifEmpty { candidates }
+
+        val paths = graphCandidates.mapNotNull { candidate ->
             if (nodes[candidate.widget.id] == null) return@mapNotNull null
             if (!isScenarioNode(candidate.widget.id, enabledModels)) return@mapNotNull null
 
