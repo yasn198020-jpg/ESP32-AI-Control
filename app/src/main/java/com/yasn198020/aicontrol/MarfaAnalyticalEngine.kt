@@ -139,8 +139,20 @@ class MarfaAnalyticalEngine {
             matching
         }
 
-        val candidates = entityScoped
+        /*
+         * A page can contain many controllable widgets that are not themselves
+         * targets of the spoken action: automatic-mode toggles, limit switches,
+         * etc.  They must not enter an "open/close" clarification just because
+         * they happen to be TOGGLE/BUTTON widgets on the same page.
+         *
+         * This is intentionally semantic, not tied to any particular device,
+         * page name or widget ID.
+         */
+        val actionScoped = entityScoped
             .filter { it.score > 0 }
+            .filter { isActionRelevantControl(it.widget, desiredValue) }
+
+        val candidates = actionScoped
             .sortedWith(
                 compareByDescending<ControlCandidate> { it.score }
                     .thenBy { it.widget.order }
@@ -885,6 +897,32 @@ class MarfaAnalyticalEngine {
             .flatMap { it.widgets.asSequence() }
             .map { it.page }
             .firstOrNull { normalize(it) == page } ?: page
+
+    private fun isActionRelevantControl(widget: WidgetState, desiredValue: String?): Boolean {
+        if (desiredValue != "1" && desiredValue != "0") return true
+
+        val title = semanticSearchText(widget.title)
+
+        // Limit/position switches are feedback elements, not open/close commands.
+        if (containsAny(title, "концевик", "концевой", "конечный")) return false
+
+        /*
+         * "Автомат" and "режим" can be valid targets for commands such as
+         * "включи автомат", so exclude them only from open/close resolution.
+         * A spoken "открой огурцы" must not accidentally select an automatic-mode
+         * toggle on the cucumber page.
+         */
+        if (containsAny(title, "автомат", "режим")) {
+            val hasOpenCloseSemantics = containsAny(
+                title,
+                "открыт", "открыть", "открой", "закрыт", "закрыть", "закрой",
+                "двер", "форточ", "ворот", "окн"
+            )
+            if (!hasOpenCloseSemantics) return false
+        }
+
+        return true
+    }
 
     private fun isControllable(widget: WidgetState): Boolean =
         widget.type == WidgetState.Type.TOGGLE ||
