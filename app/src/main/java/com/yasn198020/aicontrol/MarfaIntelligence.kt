@@ -14,7 +14,9 @@ class MarfaIntelligence private constructor(context: Context) {
     }
 
     private val appContext = context.applicationContext
-    private val smartRuleParser = LocalCommandManager()
+    private val smartRuleParser = LocalCommandManager { result, devices ->
+        AppRuntime.get(appContext).deviceScenarioManager.planCommand(result, devices)
+    }
     private val trainedMatcher = TrainedCommandMatcher(
         TrainedCommandStore(context.getSharedPreferences("settings", Context.MODE_PRIVATE))
     )
