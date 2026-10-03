@@ -152,6 +152,33 @@ class MarfaCommandEngine {
         // not restart a global search that can accidentally select a door,
         // vent or another unrelated control.
         if (pending is PendingClarification.Control) {
+            // A clarification may explicitly select several candidates:
+            // "оба", "обе", "все", "все варианты". In that case keep the
+            // original action and build one confirmed action list for every
+            // candidate instead of forcing the conversation back to one target.
+            if (selectAllCandidates(text)) {
+                val selected = pending.candidates.distinctBy { it.device.id + "/" + it.widget.id }
+                if (selected.isNotEmpty()) {
+                    pendingClarification = null
+                    val action = pending.action
+                    val items = selected.map {
+                        LocalCommandActionItem(it.device.id, it.widget.id, action.value)
+                    }
+                    lastControlCandidates = selected
+                    lastActionSpec = action
+                    val first = items.first()
+                    return LocalCommandResult(
+                        action = LocalCommandAction.CONTROL,
+                        deviceId = first.deviceId,
+                        widgetId = first.widgetId,
+                        value = first.value,
+                        reply = controlReply(action, selected.joinToString(" и ") { it.widget.title }, 0L, items.size),
+                        actionItems = items,
+                        needsConfirmation = true
+                    )
+                }
+            }
+
             chooseClarificationCandidate(text, pending.candidates)?.let { chosen ->
                 pendingClarification = null
                 val action = pending.action
@@ -172,6 +199,14 @@ class MarfaCommandEngine {
 
         pendingClarification = null
         return parse(combined, devices)
+    }
+
+    private fun selectAllCandidates(text: String): Boolean {
+        val normalized = searchable(text)
+        return containsAny(
+            normalized,
+            "оба", "обе", "обоих", "обеих", "все", "всех", "все варианты", "оба варианта"
+        )
     }
 
     private fun chooseClarificationCandidate(text: String, candidates: List<Candidate>): Candidate? {
