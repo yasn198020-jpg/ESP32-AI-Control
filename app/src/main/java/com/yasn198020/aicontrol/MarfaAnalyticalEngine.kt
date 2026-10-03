@@ -945,8 +945,7 @@ class MarfaAnalyticalEngine {
         // measured state, not an actuator target for "открой ...".
         val isMeasurementOrFeedback = containsAny(
             title,
-            "температур", "датчик", "измерен", "значение", "показани",
-            "закрытия", "открытия"
+            "температур", "датчик", "измерен", "значение", "показани"
         )
         if (isMeasurementOrFeedback) return false
 
