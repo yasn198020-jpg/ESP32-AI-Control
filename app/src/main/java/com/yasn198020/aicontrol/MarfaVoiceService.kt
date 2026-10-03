@@ -151,6 +151,9 @@ class MarfaVoiceService : Service() {
 
         when (turn.kind) {
             MarfaDialogueCore.OutcomeKind.CONTINUE -> {
+                if (result?.action == LocalCommandAction.SMART_RULE) {
+                    persistPendingSmartRule(result)
+                }
                 speak(turn.reply)
             }
 
@@ -303,6 +306,20 @@ class MarfaVoiceService : Service() {
             actionWidgetId = prefs.getString("marfa_rule_action_widget", "") ?: "",
             actionValue = prefs.getString("marfa_rule_action_value", "1") ?: "1"
         )
+    }
+
+    private fun persistPendingSmartRule(result: LocalCommandResult) {
+        prefs.edit()
+            .putBoolean("marfa_pending_rule", true)
+            .putString("marfa_rule_condition_device", result.conditionDeviceId)
+            .putString("marfa_rule_condition_widget", result.conditionWidgetId)
+            .putString("marfa_rule_operator", result.conditionOperator)
+            .putString("marfa_rule_threshold", result.conditionThreshold.toString())
+            .putString("marfa_rule_action_device", result.actionDeviceId)
+            .putString("marfa_rule_action_widget", result.actionWidgetId)
+            .putString("marfa_rule_action_value", result.actionValue)
+            .putString("marfa_rule_reply", result.reply)
+            .apply()
     }
 
     private fun clearPendingSmartRulePersistence() {
