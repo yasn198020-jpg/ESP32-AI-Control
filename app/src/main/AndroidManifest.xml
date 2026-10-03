@@ -81,6 +81,11 @@
             android:foregroundServiceType="remoteMessaging"
             android:stopWithTask="false" />
         <activity
+            android:name=".MarfaTestActivity"
+            android:exported="false"
+            android:theme="@style/Theme.App.NoActionBar" />
+
+        <activity
             android:name=".MainActivity"
             android:exported="true">
             <intent-filter>
