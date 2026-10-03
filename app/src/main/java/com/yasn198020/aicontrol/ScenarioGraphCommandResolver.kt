@@ -46,6 +46,13 @@ class ScenarioGraphCommandResolver {
         val enabledModels = models.filter { it.first.enabled && it.second.valid }
         if (enabledModels.isEmpty()) return ScenarioGraphCommandResolution()
 
+        // If lexical analysis found a direct semantic target, the scenario
+        // graph must resolve that object only. Action words such as "закрой"
+        // must never promote an unrelated "закрытие двери" or "закрытие
+        // форточки" into a competing target.
+        val semanticCandidates = candidates.filter { it.directSemanticTarget }
+        val graphInput = if (semanticCandidates.isNotEmpty()) semanticCandidates else candidates
+
         // target -> elements that occur in the target's scenario conditions.
         // A scenario condition is not automatically a controller relationship.
         // We first identify action targets, then validate each candidate as a
