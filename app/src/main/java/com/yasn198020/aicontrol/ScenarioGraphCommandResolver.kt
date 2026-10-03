@@ -82,11 +82,9 @@ class ScenarioGraphCommandResolver {
             val chain: List<String>
         )
 
-        // When the lexical stage found a widget that directly names the
-        // requested object, unrelated scenario nodes from the same page must
-        // not compete with it. They may still appear as blockers later.
-        val graphCandidates = candidates.filter { it.directSemanticTarget }
-            .ifEmpty { candidates }
+        // Lexical matching is only evidence. The scenario graph must still
+        // prove who can change the requested state.
+        val graphCandidates = graphInput
 
         val paths = graphCandidates.mapNotNull { candidate ->
             if (nodes[candidate.widget.id] == null) return@mapNotNull null
@@ -384,8 +382,9 @@ class ScenarioGraphCommandResolver {
         }
 
     private fun isControllable(widget: WidgetState): Boolean {
-        val text = (widget.id + " " + widget.title + " " + widget.definitionName + " " + widget.unit)
-            .lowercase()
+        val text = EmojiSemanticText.normalize(
+            widget.id + " " + widget.title + " " + widget.definitionName + " " + widget.unit
+        ).lowercase()
         if (listOf(
                 "датчик", "сенсор", "sensor", "температур", "влажност", "давлен",
                 "показани", "измерени", "измерение", "статус", "состояни",
