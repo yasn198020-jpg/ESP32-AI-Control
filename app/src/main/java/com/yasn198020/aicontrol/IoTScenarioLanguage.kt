@@ -580,7 +580,8 @@ data class ScenarioPrerequisite(
 data class ScenarioCommandPlan(
     val actions: List<LocalCommandActionItem>,
     val prerequisites: List<ScenarioPrerequisite> = emptyList(),
-    val blockedReason: String? = null
+    val blockedReason: String? = null,
+    val resolvedByScenario: Boolean = false
 )
 
 object IoTScenarioCommandPlanner {
