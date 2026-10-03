@@ -14,9 +14,16 @@ class MarfaIntelligence private constructor(context: Context) {
     }
 
     private val appContext = context.applicationContext
-    private val smartRuleParser = LocalCommandManager { result, devices ->
-        AppRuntime.get(appContext).deviceScenarioManager.planCommand(result, devices)
-    }
+    private val scenarioGraph = ScenarioGraphCommandResolver()
+    private val smartRuleParser = LocalCommandManager(
+        scenarioPlanResolver = { result, devices ->
+            AppRuntime.get(appContext).deviceScenarioManager.planCommand(result, devices)
+        },
+        scenarioGraphResolver = { candidates, desiredValue, devices ->
+            val models = AppRuntime.get(appContext).deviceScenarioManager.graphModels()
+            scenarioGraph.resolve(candidates, desiredValue, devices, models)
+        }
+    )
     private val trainedMatcher = TrainedCommandMatcher(
         TrainedCommandStore(context.getSharedPreferences("settings", Context.MODE_PRIVATE))
     )
@@ -61,7 +68,25 @@ class MarfaIntelligence private constructor(context: Context) {
     ): LocalCommandResult {
         if (result.action != LocalCommandAction.CONTROL || result.widgetId.isBlank()) return result
         val plan = AppRuntime.get(appContext).deviceScenarioManager.planCommand(result, devices)
-        return result.copy(scenarioPlan = plan)
+        val graphPlan = result.scenarioPlan
+
+        if (graphPlan == null) {
+            return result.copy(scenarioPlan = plan)
+        }
+
+        // Keep the authoritative scenario planner as the execution plan, but
+        // preserve prerequisites discovered by the graph layer if the lower
+        // planner did not expose them itself.
+        val mergedPrerequisites = (plan.prerequisites + graphPlan.prerequisites)
+            .distinctBy { it.deviceId + "/" + it.widgetId + "/" + it.value }
+
+        return result.copy(
+            scenarioPlan = plan.copy(
+                prerequisites = mergedPrerequisites,
+                blockedReason = plan.blockedReason ?: graphPlan.blockedReason,
+                resolvedByScenario = plan.resolvedByScenario || graphPlan.resolvedByScenario
+            )
+        )
     }
 
     suspend fun diagnoseCommand(command: String, devices: List<Device>): Result<String> {
