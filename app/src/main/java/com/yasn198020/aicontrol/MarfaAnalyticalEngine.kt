@@ -35,8 +35,7 @@ class MarfaAnalyticalEngine {
         val device: Device,
         val widget: WidgetState,
         val score: Int,
-        val reasons: List<String>,
-        val directSemanticTarget: Boolean = false
+        val reasons: List<String>
     )
 
     data class ControlResolution(
@@ -62,8 +61,7 @@ class MarfaAnalyticalEngine {
                         device = device,
                         widget = widget,
                         score = controlScore(normalized, page, exactId, device, widget, desiredValue),
-                        reasons = controlReasons(normalized, page, exactId, widget, desiredValue),
-                        directSemanticTarget = hasDirectSemanticTarget(widget, normalized)
+                        reasons = controlReasons(normalized, page, exactId, widget, desiredValue)
                     )
                 }
         }
@@ -137,29 +135,16 @@ class MarfaAnalyticalEngine {
             .filter { it.score > 0 }
             .filter { isActionRelevantControl(it.widget, desiredValue, normalized) }
 
-        val directTargetScoped = actionScoped.filter {
-            hasDirectSemanticTarget(it.widget, normalized)
-        }
-
-        val usableScoped = if (directTargetScoped.isNotEmpty()) {
-            directTargetScoped
-        } else if (actionScoped.isNotEmpty() && contextPages.isEmpty() && page != null) {
-            actionScoped
-            actionScoped
-        } else if (contextPages.size == 1 || page != null) {
-            /*
-             * A unique context can identify a generic control whose title does
-             * not repeat the spoken object. Prefer controls without their own
-             * unrelated action semantics; this keeps generic page commands
-             * usable without naming a device type.
-             */
-            scoped.filter { candidate ->
-                isControllable(candidate.widget) &&
-                    !hasConflictingActionSemantics(candidate.widget.title, normalized) &&
-                    isActionRelevantControl(candidate.widget, desiredValue, normalized)
+        val usableScoped = when {
+            actionScoped.isNotEmpty() -> actionScoped
+            contextPages.size == 1 || page != null -> {
+                scoped.filter { candidate ->
+                    isControllable(candidate.widget) &&
+                        !hasConflictingActionSemantics(candidate.widget.title, normalized) &&
+                        isActionRelevantControl(candidate.widget, desiredValue, normalized)
+                }
             }
-        } else {
-            emptyList()
+            else -> emptyList()
         }
 
         val candidates = usableScoped.sortedWith(
@@ -900,20 +885,6 @@ class MarfaAnalyticalEngine {
             .flatMap { it.widgets.asSequence() }
             .map { it.page }
             .firstOrNull { normalize(it) == page } ?: page
-
-    private fun hasDirectSemanticTarget(widget: WidgetState, commandText: String): Boolean {
-        val title = semanticSearchText(
-            widget.title + " " + widget.definitionName + " " + widget.configJson
-        )
-        val entity = detectEntityKind(commandText)
-        val aliasesForEntity = aliases(entity).second
-        if (aliasesForEntity.any { title.contains(it) }) return true
-
-        return tokenized(commandText).any { token ->
-            if (token.length < 2) false
-            else containsSemanticToken(title, contextTokenKey(token))
-        }
-    }
 
     private fun hasConflictingActionSemantics(titleValue: String, commandText: String): Boolean {
         val title = semanticSearchText(titleValue)
