@@ -33,8 +33,20 @@ class MarfaCommandEngine {
     private var lastActionValue = ""
 
     private sealed class PendingClarification {
-        data class Control(val action: ActionSpec, val candidates: List<Candidate>) : PendingClarification()
-        data class Sensor(val candidates: List<MarfaAnalyticalEngine.SensorCandidate>) : PendingClarification()
+        /**
+         * Keep the original user utterance because a clarification is conversational
+         * context, not a new standalone command.
+         */
+        data class Control(
+            val originalText: String,
+            val action: ActionSpec,
+            val candidates: List<Candidate>
+        ) : PendingClarification()
+
+        data class Sensor(
+            val originalText: String,
+            val candidates: List<MarfaAnalyticalEngine.SensorCandidate>
+        ) : PendingClarification()
     }
 
     private var pendingClarification: PendingClarification? = null
@@ -45,7 +57,7 @@ class MarfaCommandEngine {
         val text = normalize(command)
         if (text.isBlank()) return result(LocalCommandAction.NOT_FOUND, "Я не услышала команду")
 
-        resolvePendingClarification(text)?.let { return remember(it) }
+        resolvePendingClarification(text, devices)?.let { return remember(it) }
         parseFollowUp(text, devices)?.let { return remember(it) }
         parseSmartRule(text, devices)?.let { return remember(it) }
         parseValueQuestion(text, devices)?.let { return remember(it) }
@@ -58,8 +70,9 @@ class MarfaCommandEngine {
                 ?: run {
                     if (resolution.candidates.isNotEmpty()) {
                         pendingClarification = PendingClarification.Control(
-                            action,
-                            resolution.candidates.map { Candidate(it.device, it.widget, it.score) }
+                            originalText = text,
+                            action = action,
+                            candidates = resolution.candidates.map { Candidate(it.device, it.widget, it.score) }
                         )
                     } else {
                         pendingClarification = null
@@ -104,51 +117,38 @@ class MarfaCommandEngine {
         ))
     }
 
-    private fun resolvePendingClarification(text: String): LocalCommandResult? {
+    private fun resolvePendingClarification(
+        text: String,
+        devices: List<Device>
+    ): LocalCommandResult? {
         val pending = pendingClarification ?: return null
         if (containsAny(text, "отмена", "отменяй", "не надо", "не выполняй", "забудь")) {
             pendingClarification = null
             return result(LocalCommandAction.NOT_FOUND, "Хорошо, отменяю уточнение")
         }
-        return when (pending) {
-            is PendingClarification.Control -> {
-                val chosen = chooseClarificationCandidate(text, pending.candidates)
-                    ?: return LocalCommandResult(
-                        LocalCommandAction.CLARIFY,
-                        reply = "Не поняла уточнение. Выберите: " +
-                            pending.candidates.take(5).joinToString(" или ") { candidateLabel(it) }
-                    )
-                pendingClarification = null
-                lastControlCandidates = pending.candidates
-                lastActionSpec = pending.action
-                val item = LocalCommandActionItem(chosen.device.id, chosen.widget.id, pending.action.value)
-                LocalCommandResult(
-                    action = LocalCommandAction.CONTROL,
-                    deviceId = item.deviceId,
-                    widgetId = item.widgetId,
-                    value = item.value,
-                    reply = controlReply(pending.action, chosen.widget.title, 0L, 1),
-                    actionItems = listOf(item),
-                    needsConfirmation = true
-                )
-            }
-            is PendingClarification.Sensor -> {
-                val chosen = chooseSensorCandidate(text, pending.candidates)
-                    ?: return LocalCommandResult(
-                        LocalCommandAction.CLARIFY,
-                        reply = "Не поняла уточнение. Выберите: " +
-                            pending.candidates.take(5).joinToString(" или ") { sensorCandidateLabel(it) }
-                    )
-                pendingClarification = null
-                LocalCommandResult(
-                    action = LocalCommandAction.READ_VALUE,
-                    deviceId = chosen.device.id,
-                    widgetId = chosen.widget.id,
-                    value = chosen.widget.value.trim(),
-                    reply = valueSpeech(chosen.widget)
-                )
-            }
+
+        /*
+         * A clarification is a continuation of the previous utterance.
+         *
+         * Example:
+         *   "выключи автомат управления"
+         *   -> "Уточните..."
+         *   "огурцами"
+         *
+         * Re-run the complete semantic resolver on the combined text instead of
+         * selecting only from the old shortlist. This lets page names, emoji
+         * semantics, Russian inflections and arbitrary context participate again.
+         */
+        val originalText = when (pending) {
+            is PendingClarification.Control -> pending.originalText
+            is PendingClarification.Sensor -> pending.originalText
         }
+        val combined = listOf(originalText, text)
+            .filter { it.isNotBlank() }
+            .joinToString(" ")
+
+        pendingClarification = null
+        return parse(combined, devices)
     }
 
     private fun chooseClarificationCandidate(text: String, candidates: List<Candidate>): Candidate? {
@@ -376,7 +376,10 @@ class MarfaCommandEngine {
         val resolution = analyticalEngine.resolveSensor(text, devices)
         val sensor = resolution.candidate ?: run {
             if (resolution.candidates.isNotEmpty()) {
-                pendingClarification = PendingClarification.Sensor(resolution.candidates)
+                pendingClarification = PendingClarification.Sensor(
+                    originalText = text,
+                    candidates = resolution.candidates
+                )
             }
             return LocalCommandResult(
                 action = LocalCommandAction.CLARIFY,
