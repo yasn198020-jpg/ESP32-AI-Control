@@ -128,6 +128,10 @@ class MarfaVoiceService : Service() {
     }
 
     private suspend fun handleCommandInternal(command: String) {
+        // Keep the microphone alive while Marfa is asking a clarification or
+        // confirmation. Once the dialogue reaches a terminal result, the
+        // microphone is released automatically.
+        var continueDialogue = false
         try {
             val devicesSnapshot = synchronizedCopyDevices()
             if (commandEngine.isLikelyContextual(command)) {
@@ -149,6 +153,7 @@ class MarfaVoiceService : Service() {
                     }
                     else -> {
                         // Do not treat a natural-language correction as a rejection.
+                        continueDialogue = true
                         // For example, after "открой дверь" -> "вторую", the engine
                         // asks for confirmation; "нет, первую" must refine that
                         // same task rather than cancel it.
@@ -158,13 +163,16 @@ class MarfaVoiceService : Service() {
                         )
                         if (refinement.action == LocalCommandAction.CONTROL && refinement.needsConfirmation) {
                             pendingControl = refinement
+                            continueDialogue = true
                             speak("Поняла уточнение. " + refinement.reply + ". Выполнить? Скажите да или нет")
                             return
                         }
                         if (refinement.action == LocalCommandAction.CLARIFY) {
+                            continueDialogue = true
                             speak(refinement.reply)
                             return
                         }
+                        continueDialogue = true
                         speak("Выполнить это? Скажите да или нет")
                         return
                     }
@@ -186,6 +194,7 @@ class MarfaVoiceService : Service() {
                         return
                     }
                     else -> {
+                        continueDialogue = true
                         speak("Сохранить предыдущее правило? Скажите да или нет")
                         return
                     }
@@ -201,9 +210,11 @@ class MarfaVoiceService : Service() {
             )
 
             if (result.action == LocalCommandAction.SMART_RULE) {
+                continueDialogue = true
                 askSmartRuleConfirmation(result)
             } else if (result.action == LocalCommandAction.CONTROL && result.needsConfirmation) {
                 pendingControl = result
+                continueDialogue = true
                 speak("Поняла. " + result.reply + ". Выполнить? Скажите да или нет")
             } else {
                 val trained = TrainedCommandMatcher(TrainedCommandStore(prefs)).matchAll(command)
@@ -276,8 +287,11 @@ class MarfaVoiceService : Service() {
                             }
                         }
                         LocalCommandAction.READ_VALUE,
-                        LocalCommandAction.CLARIFY,
                         LocalCommandAction.NOT_FOUND -> speak(result.reply)
+                        LocalCommandAction.CLARIFY -> {
+                            continueDialogue = true
+                            speak(result.reply)
+                        }
                         LocalCommandAction.SMART_RULE -> Unit
                     }
                 }
@@ -289,7 +303,7 @@ class MarfaVoiceService : Service() {
                     .putExtra(EXTRA_TEXT, command)
             )
         } finally {
-            if (!keepListeningForSmartRuleConfirmation) {
+            if (!continueDialogue && !keepListeningForSmartRuleConfirmation) {
                 voiceManager?.stop()
                 prefs.edit().putBoolean("marfa_voice_active", false).apply()
                 MarfaShortcutInstaller.setActive(this, false)
