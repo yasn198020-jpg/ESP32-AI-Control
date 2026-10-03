@@ -50,6 +50,87 @@ class MarfaCommandEngineTest {
         )
     )
 
+
+    @Test
+    fun clarificationIsMergedBackIntoOriginalCommand() {
+        val devices = listOf(
+            Device(
+                id = "greenhouse",
+                name = "Теплица",
+                online = true,
+                widgets = listOf(
+                    WidgetState(
+                        id = "auto-tomatoes",
+                        title = "Автомат управления",
+                        type = WidgetState.Type.TOGGLE,
+                        value = "1",
+                        page = "🍅",
+                        order = 1
+                    ),
+                    WidgetState(
+                        id = "auto-cucumbers",
+                        title = "Автомат управления",
+                        type = WidgetState.Type.TOGGLE,
+                        value = "1",
+                        page = "🥒",
+                        order = 2
+                    )
+                )
+            )
+        )
+
+        val engine = MarfaCommandEngine()
+
+        val clarification = engine.parse("Выключи автомат управления", devices)
+        assertEquals(LocalCommandAction.CLARIFY, clarification.action)
+
+        val result = engine.parse("огурцами", devices)
+        assertEquals(LocalCommandAction.CONTROL, result.action)
+        assertEquals("auto-cucumbers", result.widgetId)
+        assertEquals("0", result.value)
+        assertTrue(result.needsConfirmation)
+    }
+
+    @Test
+    fun clarificationAcceptsRussianInflectionAndEmojiPageContext() {
+        val devices = listOf(
+            Device(
+                id = "greenhouse",
+                name = "Теплица",
+                online = true,
+                widgets = listOf(
+                    WidgetState(
+                        id = "auto-tomatoes",
+                        title = "Автомат управления",
+                        type = WidgetState.Type.TOGGLE,
+                        value = "1",
+                        page = "🍅",
+                        order = 1
+                    ),
+                    WidgetState(
+                        id = "auto-cucumbers",
+                        title = "Автомат управления",
+                        type = WidgetState.Type.TOGGLE,
+                        value = "1",
+                        page = "🥒",
+                        order = 2
+                    )
+                )
+            )
+        )
+
+        val engine = MarfaCommandEngine()
+        assertEquals(
+            LocalCommandAction.CLARIFY,
+            engine.parse("Выключи автомат управления", devices).action
+        )
+
+        val result = engine.parse("у огурцов", devices)
+        assertEquals(LocalCommandAction.CONTROL, result.action)
+        assertEquals("auto-cucumbers", result.widgetId)
+        assertEquals("0", result.value)
+    }
+
     @Test
     fun directControlResolvesRussianEntity() {
         val result = MarfaCommandEngine().parse("Открой, пожалуйста, форточку помидоров", catalog())
