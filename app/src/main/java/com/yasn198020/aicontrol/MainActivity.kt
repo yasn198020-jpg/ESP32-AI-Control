@@ -509,11 +509,13 @@ private fun App(
         if (variantPhraseTarget != null) {
             variantPhraseText = command
             voiceStatus = "Вариант распознан — нажмите «Добавить»"
+            voiceManager.stop()
             return@LaunchedEffect
         }
 
         if (trainingTarget != null) {
             saveTraining(command)
+            voiceManager.stop()
             return@LaunchedEffect
         }
 
@@ -530,12 +532,14 @@ private fun App(
                             speech.speak(reply, TextToSpeech.QUEUE_FLUSH, null, "marfa-command-confirmed")
                         }
                     }
+                    voiceManager.stop()
                     return@LaunchedEffect
                 }
                 normalized in setOf("нет", "отмена", "отменить", "не надо", "не делай", "не выполняй", "стоп") || normalized.contains("отмен") || normalized.contains("не выполняй") -> {
                     pendingControl = null
                     voiceStatus = "Хорошо, не выполняю"
                     speech.speak(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "marfa-command-cancelled")
+                    voiceManager.stop()
                     return@LaunchedEffect
                 }
                 else -> {
@@ -578,12 +582,14 @@ private fun App(
                     runtime.scenarioStore.add(scenario)
                     voiceStatus = pending.reply + ". Правило сохранено."
                     speech.speak(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "smart-rule-confirmed")
+                    voiceManager.stop()
                     return@LaunchedEffect
                 }
                 normalized in setOf("нет", "отмена", "отменить", "не сохраняй", "не сохранять", "не надо") -> {
                     pendingSmartRule = null
                     voiceStatus = "Правило не сохранено"
                     speech.speak(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "smart-rule-cancelled")
+                    voiceManager.stop()
                     return@LaunchedEffect
                 }
                 else -> {
@@ -604,6 +610,7 @@ private fun App(
             android.util.Log.e("MARFA_ENGINE", "interpret failed", e)
             voiceStatus = "Ошибка анализа: " + (e.message ?: "неизвестная ошибка")
             speech.speak(voiceStatus, TextToSpeech.QUEUE_FLUSH, null, "marfa-analysis-error")
+            voiceManager.stop()
             return@LaunchedEffect
         }
         android.util.Log.d(
@@ -681,6 +688,7 @@ private fun App(
                 } else {
                     "Выполнено действий: " + sent + ", пропущено: " + skipped
                 }
+                voiceManager.stop()
             } else {
                 when (result.action) {
                     LocalCommandAction.CONTROL -> {
@@ -695,11 +703,13 @@ private fun App(
                                 )
                             }
                         }
+                        voiceManager.stop()
                     }
 
                     LocalCommandAction.READ_VALUE -> {
                         voiceStatus = result.reply
                         speech.speak(result.reply, TextToSpeech.QUEUE_FLUSH, null, "marfa-value")
+                        voiceManager.stop()
                     }
 
                     LocalCommandAction.CLARIFY -> {
@@ -710,6 +720,7 @@ private fun App(
                     LocalCommandAction.NOT_FOUND -> {
                         voiceStatus = result.reply
                         speech.speak(result.reply, TextToSpeech.QUEUE_FLUSH, null, "marfa-not-found")
+                        voiceManager.stop()
                     }
 
                     LocalCommandAction.SMART_RULE -> Unit
@@ -1043,16 +1054,12 @@ private fun App(
                                 Manifest.permission.RECORD_AUDIO
                             ) == PackageManager.PERMISSION_GRANTED
                         ) {
+                            // In-app Marfa uses the Activity's VoiceCommandManager.
+                            // Do not start MarfaVoiceService here: that service owns
+                            // the launcher shortcut and would feed the same dialogue
+                            // through a second command pipeline.
                             voiceStatus = "🎙 Слушаю…"
-                            try {
-                                ContextCompat.startForegroundService(
-                                    context,
-                                    Intent(context, MarfaVoiceService::class.java)
-                                        .putExtra("start_listening", true)
-                                )
-                            } catch (_: Exception) {
-                                voiceStatus = "Не удалось включить микрофон"
-                            }
+                            voiceManager.startRussian()
                         } else {
                             requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
                         }
@@ -1090,22 +1097,14 @@ private fun App(
                 onVoiceStart = {
                     if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
                         voiceStatus = "🎙 Слушаю…"
-                        try {
-                            ContextCompat.startForegroundService(
-                                context,
-                                Intent(context, MarfaVoiceService::class.java)
-                                    .putExtra("start_listening", true)
-                            )
-                        } catch (_: Exception) {
-                            voiceStatus = "Не удалось включить микрофон"
-                        }
+                        voiceManager.startRussian()
                     } else {
                         requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
                     }
                 },
                 onVoiceStop = {
-                    // Main Marfa dialogue is no longer press-to-talk.
-                    // The service keeps listening until the dialogue reaches a terminal state.
+                    // Marfa dialogue is tap-to-start. The recognizer is stopped
+                    // by the command pipeline after a terminal answer/action.
                 },
                 onSend = ::sendWidget)
             1 -> TrainedCommandsScreen(Modifier.padding(padding), trainedCommands, devices, onDelete = { command -> trainedStore.remove(command); trainedCommands = trainedStore.load() }, onClearAll = { trainedStore.clear(); trainedCommands = trainedStore.load() }, onAddVariant = { phrase -> variantPhraseTarget = phrase; variantPhraseText = "" })
