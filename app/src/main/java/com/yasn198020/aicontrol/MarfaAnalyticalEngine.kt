@@ -127,19 +127,12 @@ class MarfaAnalyticalEngine {
         val scoped = if (page == null) contextScoped
         else contextScoped.filter { searchableText(it.widget.page).trim() == page }
 
-        val explicitEntity = detectEntityKind(normalized)
-        val entityScoped = if (explicitEntity == EntityKind.GENERIC) {
-            scoped
-        } else {
-            val matching = scoped.filter { candidate ->
-                entityMatches(explicitEntity, candidate.widget)
-            }
-            // An explicitly spoken object is a hard semantic constraint.
-            // Never fall back to an unrelated "close/open" control.
-            matching
-        }
-
+        /*
+         * Entity names are semantic evidence, not routing branches. The same
+         * resolver must work for known and unknown device names alike.
+         */
         val actionScoped = scoped
+            .filter { it.score > 0 }
             .filter { it.score > 0 }
             .filter { isActionRelevantControl(it.widget, desiredValue, normalized) }
 
@@ -150,6 +143,31 @@ class MarfaAnalyticalEngine {
                     .thenBy { normalize(it.widget.page) }
                     .thenBy { it.widget.id }
             )
+
+        val usableScoped = if (actionScoped.isNotEmpty()) {
+            actionScoped
+        } else if (contextPages.size == 1 || page != null) {
+            /*
+             * A unique context can identify a generic control whose title does
+             * not repeat the spoken object. Prefer controls without their own
+             * unrelated action semantics; this keeps generic page commands
+             * usable without naming a device type.
+             */
+            scoped.filter { candidate ->
+                isControllable(candidate.widget) &&
+                    !hasConflictingActionSemantics(candidate.widget.title, normalized) &&
+                    isActionRelevantControl(candidate.widget, desiredValue, normalized)
+            }
+        } else {
+            emptyList()
+        }
+
+        val candidates = usableScoped.sortedWith(
+            compareByDescending<ControlCandidate> { it.score }
+                .thenBy { it.widget.order }
+                .thenBy { normalize(it.widget.page) }
+                .thenBy { it.widget.id }
+        )
 
         if (candidates.isEmpty()) {
             val suffix = if (page == null) "" else
@@ -882,6 +900,25 @@ class MarfaAnalyticalEngine {
             .flatMap { it.widgets.asSequence() }
             .map { it.page }
             .firstOrNull { normalize(it) == page } ?: page
+
+    private fun hasConflictingActionSemantics(titleValue: String, commandText: String): Boolean {
+        val title = semanticSearchText(titleValue)
+        val command = semanticSearchText(commandText)
+        val actionFamilies = listOf(
+            listOf("открыт", "открыть", "открой", "открыва", "распах", "поднят", "поднять"),
+            listOf("закрыт", "закрыть", "закрой", "закрыва", "опущ", "опустить"),
+            listOf("включ", "включи", "включить", "запуск", "запусти", "запустить"),
+            listOf("выключ", "выключи", "выключить", "останов", "останови", "остановить")
+        )
+        val commandFamily = actionFamilies.indexOfFirst { family ->
+            family.any { command.contains(it) }
+        }
+        if (commandFamily < 0) return false
+
+        return actionFamilies.withIndex().any { (index, family) ->
+            index != commandFamily && family.any { title.contains(it) }
+        }
+    }
 
     private fun isActionRelevantControl(
         widget: WidgetState,
