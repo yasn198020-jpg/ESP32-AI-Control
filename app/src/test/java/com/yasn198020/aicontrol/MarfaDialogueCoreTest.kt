@@ -94,6 +94,45 @@ class MarfaDialogueCoreTest {
     }
 
     @Test
+    fun followUpContextRefinesTheSameControlBeforeConfirmation() = kotlinx.coroutines.runBlocking {
+        val dialogue = core()
+
+        val first = dialogue.process("открой дверь", listOf(
+            Device(
+                id = "greenhouse",
+                name = "Теплица",
+                online = true,
+                widgets = listOf(
+                    WidgetState("door", "дверь", WidgetState.Type.TOGGLE, "0", page = "Помидоры"),
+                    WidgetState("vent", "форточка", WidgetState.Type.TOGGLE, "0", page = "Огурцы")
+                )
+            )
+        ))
+
+        assertEquals(MarfaDialogueCore.OutcomeKind.CONTINUE, first.kind)
+        assertEquals(LocalCommandAction.CONTROL, first.result?.action)
+        assertTrue(first.result?.needsConfirmation == true)
+        assertEquals("door", first.result?.widgetId)
+
+        val refined = dialogue.process("помидоры", listOf(
+            Device(
+                id = "greenhouse",
+                name = "Теплица",
+                online = true,
+                widgets = listOf(
+                    WidgetState("door", "дверь", WidgetState.Type.TOGGLE, "0", page = "Помидоры"),
+                    WidgetState("vent", "форточка", WidgetState.Type.TOGGLE, "0", page = "Огурцы")
+                )
+            )
+        ))
+
+        assertEquals(MarfaDialogueCore.OutcomeKind.CONTINUE, refined.kind)
+        assertEquals(LocalCommandAction.CONTROL, refined.result?.action)
+        assertTrue(refined.result?.needsConfirmation == true)
+        assertEquals("door", refined.result?.widgetId)
+    }
+
+    @Test
     fun languageRulesHaveOneSource() {
         assertTrue(MarfaDialogueLanguage.isSelectAll("все"))
         assertTrue(MarfaDialogueLanguage.isSelectAll("оба"))
