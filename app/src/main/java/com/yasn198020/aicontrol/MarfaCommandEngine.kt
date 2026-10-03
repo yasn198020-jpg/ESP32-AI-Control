@@ -68,15 +68,14 @@ class MarfaCommandEngine {
             val resolution = analyticalEngine.resolveControl(text, devices, action.value)
             val analyticalTarget = resolution.candidate
                 ?: run {
-                    if (resolution.candidates.isNotEmpty()) {
-                        pendingClarification = PendingClarification.Control(
-                            originalText = text,
-                            action = action,
-                            candidates = resolution.candidates.map { Candidate(it.device, it.widget, it.score) }
-                        )
-                    } else {
-                        pendingClarification = null
-                    }
+                    // Preserve the unfinished command even when the first
+                    // pass has no candidate list. The user's next utterance
+                    // may provide the missing page/object context.
+                    pendingClarification = PendingClarification.Control(
+                        originalText = text,
+                        action = action,
+                        candidates = resolution.candidates.map { Candidate(it.device, it.widget, it.score) }
+                    )
                     return LocalCommandResult(
                         LocalCommandAction.CLARIFY,
                         reply = resolution.clarification ?: "Уточните, чем именно управлять."
