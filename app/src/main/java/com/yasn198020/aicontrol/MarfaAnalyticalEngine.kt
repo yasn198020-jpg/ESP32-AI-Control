@@ -385,54 +385,26 @@ class MarfaAnalyticalEngine {
         val deviceName = semanticSearchText(device.name)
         var score = 0
 
+        /*
+         * One semantic scoring model for every target. There are no device-specific
+         * branches here: any meaningful word spoken by the user can identify a
+         * control if that word is present in its title, page or device name.
+         * Entity aliases are only additional evidence, never a separate routing rule.
+         */
         val entity = detectEntityKind(text)
         val aliases = aliases(entity)
 
-        if (aliases.first.any { text.contains(it) }) {
-            if (aliases.second.any { title.contains(it) }) score += 34
-            if (aliases.second.any { widgetPage.contains(it) }) score += 10
-            if (aliases.second.any { deviceName.contains(it) }) score += 8
-        }
+        if (aliases.second.any { title.contains(it) }) score += 8
+        if (aliases.second.any { widgetPage.contains(it) }) score += 4
+        if (aliases.second.any { deviceName.contains(it) }) score += 2
 
         tokenized(text).forEach { token ->
-            if (token.length >= 3) {
+            if (token.length >= 2) {
                 val key = contextTokenKey(token)
                 if (containsSemanticToken(title, key)) score += 20
                 if (containsSemanticToken(widgetPage, key)) score += 3
                 if (containsSemanticToken(deviceName, key)) score += 2
             }
-        }
-
-        val explicitPhysical = containsAny(
-            text,
-            "реле", "выход", "выходной", "кнопк", "gpio", "канал", "исполнитель"
-        )
-        val hasOpen = containsAny(
-            title, "открыть", "открой", "открыва", "распах", "поднять", "подъем"
-        )
-        val hasClose = containsAny(
-            title, "закрыть", "закрой", "закрыва", "опустить", "опуск"
-        )
-        val isStateIndicator =
-            (title.contains("открыт") && title.contains("закрыт")) ||
-                containsAny(
-                    title,
-                    "состояние", "статус", "индикатор", "положение"
-                )
-
-        score += when (desiredValue) {
-            "1" ->
-                (if (hasOpen) 40 else 0) +
-                    (if (hasClose && !hasOpen) -18 else 0) +
-                    (if (isStateIndicator && !explicitPhysical) 60 else 0) +
-                    (if (explicitPhysical && !isStateIndicator) 45 else 0)
-            "0" ->
-                (if (hasClose) 40 else 0) +
-                    (if (hasOpen && !hasClose) -18 else 0) +
-                    (if (isStateIndicator && !explicitPhysical) 60 else 0) +
-                    (if (explicitPhysical && !isStateIndicator) 45 else 0)
-            else ->
-                if (isStateIndicator && !explicitPhysical) 12 else 0
         }
 
         if (page != null && widgetPage != page) return -100000
@@ -918,59 +890,19 @@ class MarfaAnalyticalEngine {
     ): Boolean {
         if (desiredValue != "1" && desiredValue != "0") return true
 
+        /*
+         * Only the widget's semantic role is considered here. Feedback markers
+         * are excluded regardless of the command verb or the physical object.
+         * This is deliberately generic: new device types do not require new
+         * branches in the command resolver.
+         */
         val title = semanticSearchText(widget.title)
-
-        /*
-         * Feedback/status widgets are never command targets. This filtering is
-         * intentionally independent of the verb: "выключи огурцы" must not turn
-         * into a clarification containing end switches or state indicators just
-         * because those widgets are also TOGGLE/BUTTON controls.
-         */
-        if (containsAny(title, "концевик", "концевой", "конечный")) return false
-
-        /*
-         * "закрыта открыта дверь" / "закрыта открыта форточка" are commonly
-         * IoTManager control-widget titles: they describe both possible states
-         * of a toggle. Do NOT treat the presence of both words as a feedback
-         * indicator. Real feedback widgets must carry explicit state/status
-         * semantics such as "состояние", "статус", "индикатор" or "положение".
-         */
-        val isStateIndicator = containsAny(
-            title, "состояние", "статус", "индикатор", "положение"
-        )
-        if (isStateIndicator) return false
-
-        // Measurement/feedback widgets can be configured as TOGGLE/BUTTON by
-        // IoTManager, so type alone is not sufficient to exclude them. A
-        // temperature marker/title such as "🌡 открытия двери" describes a
-        // measured state, not an actuator target for "открой ...".
-        val isMeasurementOrFeedback = containsAny(
+        return !containsAny(
             title,
-            "температур", "датчик", "измерен", "значение", "показани"
+            "состояние", "статус", "индикатор", "положение",
+            "концевик", "концевой", "конечный",
+            "датчик", "измерен", "измерение", "показани"
         )
-        if (isMeasurementOrFeedback) return false
-
-        /*
-         * Automatic-mode controls are special: they are valid targets for
-         * "включи/выключи автомат", but not for a physical open/close command
-         * unless the widget itself explicitly represents that object's action.
-         */
-        val isOpenCloseCommand = containsAny(
-            commandText,
-            "открой", "открыть", "открывай", "подними", "поднять",
-            "распахни", "раскрой", "закрой", "закрыть", "закрывай",
-            "опусти", "опустить", "запечатай"
-        )
-        if (isOpenCloseCommand && containsAny(title, "автомат", "режим")) {
-            val hasOpenCloseSemantics = containsAny(
-                title,
-                "открыт", "открыть", "открой", "закрыт", "закрыть", "закрой",
-                "двер", "форточ", "ворот", "окн"
-            )
-            if (!hasOpenCloseSemantics) return false
-        }
-
-        return true
     }
 
     private fun isControllable(widget: WidgetState): Boolean =
