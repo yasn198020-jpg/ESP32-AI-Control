@@ -146,7 +146,7 @@ class MarfaVoiceService : Service() {
         val result = turn.result
         android.util.Log.d(
             "MARFA_DIALOGUE",
-            "command=\${command} kind=\${turn.kind} action=\${result?.action ?: "none"} delayMs=\${result?.delayMs ?: 0L} actions=\${result?.actionItems?.size ?: 0}"
+            "command=${command} kind=${turn.kind} action=${result?.action ?: "none"} delayMs=${result?.delayMs ?: 0L} actions=${result?.actionItems?.size ?: 0}"
         )
 
         when (turn.kind) {
@@ -196,7 +196,7 @@ class MarfaVoiceService : Service() {
 
                     android.util.Log.d(
                         "MARFA_TRAINED",
-                        "priority command=\${command} matches=\${trained.size}"
+                        "priority command=${command} matches=${trained.size}"
                     )
 
                     if (trained.isNotEmpty()) {
