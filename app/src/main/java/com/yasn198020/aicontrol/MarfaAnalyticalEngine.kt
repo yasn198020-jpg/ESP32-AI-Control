@@ -459,13 +459,27 @@ class MarfaAnalyticalEngine {
 
                 if (pageTokens.isEmpty()) return@mapNotNull null
 
-                val matched = pageTokens.count { pageToken ->
-                    commandTokens.any { commandToken -> lexicalMatch(commandToken, pageToken) }
+                /*
+                 * Not every noun in a command is page context. In
+                 * "выключи автомат управления огурцами", "автомат" and
+                 * "управления" describe the control, while "огурцами" selects
+                 * the page. Use only command tokens that can actually match a
+                 * page token; this keeps generic control titles from blocking
+                 * an otherwise unique context match.
+                 */
+                val relevantCommandTokens = commandTokens.filter { commandToken ->
+                    pageTokens.any { pageToken -> lexicalMatch(commandToken, pageToken) }
                 }
+                if (relevantCommandTokens.isEmpty()) return@mapNotNull null
+
+                val matched = relevantCommandTokens.count { commandToken ->
+                    pageTokens.any { pageToken -> lexicalMatch(commandToken, pageToken) }
+                }
+
                 // The user's context does not need to repeat every descriptive
-                // word of the tab. "огурцов" must match "Теплиц 🥒" even though
-                // the tab also contains the word "теплиц".
-                if (matched == commandTokens.size) {
+                // word of the tab. "огурцами" must match "Огурцы" even though
+                // the command contains unrelated control words.
+                if (matched == relevantCommandTokens.size) {
                     val pageControlScore = devices.asSequence()
                         .flatMap { device -> device.widgets.asSequence().map { device to it } }
                         .filter { (_, widget) ->
