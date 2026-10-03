@@ -360,6 +360,31 @@ class MarfaAnalyticalEngineTest {
     }
 
     @Test
+    fun openContextIgnoresAutomaticModeAndLimitSwitches() {
+        val result = MarfaAnalyticalEngine().resolveControl(
+            "открой огурцы",
+            listOf(
+                Device("d1", "Дом", true, listOf(
+                    WidgetState("door", "закрыта открыта дверь", WidgetState.Type.TOGGLE, "0", page = "Теплиц 🥒"),
+                    WidgetState("vent", "закрыта открыта форточка", WidgetState.Type.TOGGLE, "0", page = "Теплиц 🥒"),
+                    WidgetState("auto", "автомат управление", WidgetState.Type.TOGGLE, "1", page = "Теплиц 🥒"),
+                    WidgetState("limitDoor", "концевик двери", WidgetState.Type.TOGGLE, "0", page = "Теплиц 🥒"),
+                    WidgetState("limitVent", "концевик форточки", WidgetState.Type.TOGGLE, "0", page = "Теплиц 🥒")
+                ))
+            ),
+            "1"
+        )
+        assertEquals(null, result.candidate)
+        assertTrue(result.candidates.all {
+            it.widget.id == "door" || it.widget.id == "vent"
+        })
+        assertTrue(result.clarification!!.contains("дверь"))
+        assertTrue(result.clarification!!.contains("форточка"))
+        assertTrue(!result.clarification!!.contains("автомат"))
+        assertTrue(!result.clarification!!.contains("концевик"))
+    }
+
+    @Test
     fun genericContextWithoutUniqueTargetRequiresClarification() {
         val result = MarfaCommandEngine().parse(
             "включи огурцы",
