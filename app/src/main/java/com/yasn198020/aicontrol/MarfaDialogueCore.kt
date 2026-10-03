@@ -53,7 +53,7 @@ class MarfaDialogueCore(
 
                 if (MarfaDialogueLanguage.isRejection(command)) {
                     pending = null
-                    return Outcome(OutcomeKind.CANCEL, reply = "Хорошо, не выполняю")
+                    return Outcome(OutcomeKind.CANCEL, current.result, "Хорошо, не выполняю")
                 }
 
                 // Any non-terminal reply is treated as a refinement of the same task.
@@ -94,7 +94,7 @@ class MarfaDialogueCore(
 
                 if (MarfaDialogueLanguage.isSmartRuleRejection(command)) {
                     pending = null
-                    return Outcome(OutcomeKind.CANCEL, reply = "Правило не сохранено")
+                    return Outcome(OutcomeKind.CANCEL, current.result, "Правило не сохранено")
                 }
 
                 return Outcome(
