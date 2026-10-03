@@ -179,14 +179,45 @@ class MarfaCommandEngine(
             ProvenCandidate(candidate, plan, keepsOwnId)
         }
 
-        val directControls = proven.filter { it.keepsOwnId }
-        if (directControls.size == 1) return directControls.single().candidate
+        /*
+         * Collapse a dependency chain to its logical controller.
+         *
+         * Several spoken candidates can describe the same scenario chain:
+         * controller -> condition/state -> actuator. The controller is the
+         * element whose ID survives in the plans produced for the linked
+         * candidates. Count those surviving IDs instead of treating every
+         * linked widget as an independent voice target.
+         *
+         * This is deliberately based only on scenario graph evidence. No
+         * device name, widget ID or object-specific word is special-cased.
+         */
+        val targetSupport = mutableMapOf<String, Int>()
+        proven.forEach { item ->
+            item.plan.actions
+                .map { it.deviceId + "/" + it.widgetId }
+                .distinct()
+                .forEach { key -> targetSupport[key] = (targetSupport[key] ?: 0) + 1 }
+        }
+
+        val strongest = proven
+            .filter { it.keepsOwnId }
+            .map { item ->
+                val key = item.candidate.device.id + "/" + item.candidate.widget.id
+                item to (targetSupport[key] ?: 0)
+            }
+            .sortedByDescending { it.second }
+
+        if (strongest.isNotEmpty()) {
+            val maxSupport = strongest.first().second
+            val winners = strongest.filter { it.second == maxSupport }
+            if (winners.size == 1) return winners.single().first.candidate
+        }
 
         /*
-         * If more than one candidate independently remains a direct scenario
-         * control, the scenario graph did not disambiguate the command.
-         * Only fall back to a single proven candidate when there is no such
-         * direct-control distinction.
+         * If exactly one scenario-backed candidate remains, it is the only
+         * candidate for which the scenario can prove a control path. Other
+         * candidates are therefore feedback/derived elements and must not
+         * enter the clarification list.
          */
         return proven.singleOrNull()?.candidate
     }
