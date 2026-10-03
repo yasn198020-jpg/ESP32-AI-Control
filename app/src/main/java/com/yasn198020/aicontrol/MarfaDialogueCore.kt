@@ -76,6 +76,13 @@ class MarfaDialogueCore(
                     .joinToString(" ")
                 val refined = interpreter(refinedCommand, devices)
                 return when {
+                    refined.action == LocalCommandAction.CONTROL && refined.scenarioPlan?.blockedReason != null -> {
+                        Outcome(
+                            OutcomeKind.CONTINUE,
+                            refined.copy(action = LocalCommandAction.CLARIFY),
+                            refined.scenarioPlan.blockedReason!!
+                        )
+                    }
                     refined.action == LocalCommandAction.CONTROL && refined.needsConfirmation -> {
                         pending = Pending.Control(refined, refinedCommand)
                         Outcome(
@@ -136,7 +143,13 @@ class MarfaDialogueCore(
             }
 
             LocalCommandAction.CONTROL -> {
-                if (result.needsConfirmation) {
+                if (result.scenarioPlan?.blockedReason != null) {
+                    Outcome(
+                        OutcomeKind.CONTINUE,
+                        result.copy(action = LocalCommandAction.CLARIFY),
+                        result.scenarioPlan.blockedReason!!
+                    )
+                } else if (result.needsConfirmation) {
                     pending = Pending.Control(result, command)
                     Outcome(
                         OutcomeKind.CONTINUE,
