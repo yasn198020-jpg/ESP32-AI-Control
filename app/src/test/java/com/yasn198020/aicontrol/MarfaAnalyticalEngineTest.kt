@@ -583,4 +583,80 @@ class MarfaAnalyticalEngineTest {
         assertTrue(result.candidates.none { it.widget.id == "open" })
     )
 
+
+    @Test
+    fun closeCommandExcludesNeutralManagementControlsMatchedOnlyByPage() {
+        val result = MarfaAnalyticalEngine().resolveControl(
+            "закрой огурцы",
+            listOf(
+                Device("d1", "Дом", true, listOf(
+                    WidgetState("closeDoor", "закрыть дверь", WidgetState.Type.BUTTON, "0", page = "⚒️ 🥒"),
+                    WidgetState("closeVent", "закрыть форточку", WidgetState.Type.BUTTON, "0", page = "⚒️ 🥒"),
+                    WidgetState("auto", "автомат управление", WidgetState.Type.TOGGLE, "1", page = "Теплиц 🥒")
+                ))
+            ),
+            "0"
+        )
+        assertEquals(null, result.candidate)
+        assertTrue(result.candidates.none { it.widget.id == "auto" })
+        assertTrue(result.candidates.any { it.widget.id == "closeDoor" })
+        assertTrue(result.candidates.any { it.widget.id == "closeVent" })
+    }
+
+    @Test
+    fun directionalCommandFiltersThermometerTitleEvenWithoutMeasurementMetadata() {
+        val result = MarfaAnalyticalEngine().resolveControl(
+            "закрой огурцы",
+            listOf(
+                Device("d1", "Дом", true, listOf(
+                    WidgetState(
+                        "tempClose",
+                        "🌡 закрытия двери",
+                        WidgetState.Type.TOGGLE,
+                        "0",
+                        page = "⚒️ 🥒"
+                    ),
+                    WidgetState(
+                        "closeDoor",
+                        "закрыть дверь",
+                        WidgetState.Type.BUTTON,
+                        "0",
+                        page = "⚒️ 🥒"
+                    )
+                ))
+            ),
+            "0"
+        )
+        assertEquals("closeDoor", result.candidate?.widget?.id)
+        assertTrue(result.candidates.none { it.widget.id == "tempClose" })
+    }
+
+    @Test
+    fun directionalCommandKeepsNeutralControlWhenItNamesTheRequestedObject() {
+        val result = MarfaAnalyticalEngine().resolveControl(
+            "закрой дверь",
+            listOf(
+                Device("d1", "Дом", true, listOf(
+                    WidgetState(
+                        "doorControl",
+                        "управление дверью",
+                        WidgetState.Type.TOGGLE,
+                        "0",
+                        page = "Теплица"
+                    ),
+                    WidgetState(
+                        "auto",
+                        "автомат управление",
+                        WidgetState.Type.TOGGLE,
+                        "1",
+                        page = "Теплица"
+                    )
+                ))
+            ),
+            "0"
+        )
+        assertEquals("doorControl", result.candidate?.widget?.id)
+        assertTrue(result.candidates.none { it.widget.id == "auto" })
+    )
+
 }
