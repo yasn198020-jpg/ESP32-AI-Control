@@ -78,45 +78,27 @@ class ScenarioGraphCommandResolver {
         val paths = candidates.mapNotNull { candidate ->
             val start = nodes[candidate.widget.id] ?: return@mapNotNull null
 
-            if (candidate.widget.id !in actionTargets && candidate.widget.id !in parents.keys) {
-                return@mapNotNull Path(
-                    candidate = candidate,
-                    top = start,
-                    chain = listOf(start.widget.id),
-                    strong = true
-                )
+            val topPaths = findTopPaths(
+                startId = start.widget.id,
+                parents = parents,
+                rulesByTarget = rulesByTarget,
+                nodes = nodes
+            )
+
+            if (topPaths.isEmpty()) return@mapNotNull null
+
+            if (topPaths.size > 1) {
+                topPaths.mapNotNull { nodes[it.topId] }
+                    .forEach { node -> ambiguousControllers[node.widget.id] = node }
+                return@mapNotNull null
             }
 
-            val chain = mutableListOf(start.widget.id)
-            val visited = linkedSetOf<String>()
-            var current = start.widget.id
-
-            while (visited.add(current)) {
-                val controllerParents = parents[current]
-                    .orEmpty()
-                    .mapNotNull { id -> nodes[id]?.let { id to it } }
-                    .filter { (id, parent) ->
-                        isController(parent.widget, current, id, rulesByTarget)
-                    }
-                    .distinctBy { it.first }
-
-                if (controllerParents.size > 1) {
-                    controllerParents.forEach { (id, node) ->
-                        ambiguousControllers[id] = node
-                    }
-                    return@mapNotNull null
-                }
-
-                val next = controllerParents.singleOrNull()?.second ?: break
-                current = next.widget.id
-                chain += current
-            }
-
-            val top = nodes[current] ?: return@mapNotNull null
+            val topPath = topPaths.single()
+            val top = nodes[topPath.topId] ?: return@mapNotNull null
             Path(
                 candidate = candidate,
                 top = top,
-                chain = chain,
+                chain = topPath.chain,
                 strong = top.widget.id in actionTargets
             )
         }
@@ -201,6 +183,56 @@ class ScenarioGraphCommandResolver {
                 alternatives = tied
             )
         }
+    }
+
+    private data class TopPath(
+        val topId: String,
+        val chain: List<String>
+    )
+
+    private fun findTopPaths(
+        startId: String,
+        parents: Map<String, Set<String>>,
+        rulesByTarget: Map<String, List<DeviceScenarioRule>>,
+        nodes: Map<String, Node>
+    ): List<TopPath> {
+        fun visit(
+            currentId: String,
+            chain: List<String>,
+            visiting: Set<String>
+        ): List<TopPath> {
+            if (currentId !in nodes) return emptyList()
+            if (currentId in visiting) return emptyList()
+
+            val nextVisiting = visiting + currentId
+            val controllerParents = parents[currentId]
+                .orEmpty()
+                .mapNotNull { id -> nodes[id]?.let { id to it } }
+                .filter { (id, parent) ->
+                    isController(parent.widget, currentId, id, rulesByTarget)
+                }
+                .distinctBy { it.first }
+
+            if (controllerParents.isEmpty()) {
+                return listOf(TopPath(currentId, chain))
+            }
+
+            return controllerParents
+                .flatMap { (id, _) ->
+                    visit(
+                        currentId = id,
+                        chain = chain + id,
+                        visiting = nextVisiting
+                    )
+                }
+                .distinctBy { it.topId }
+        }
+
+        return visit(
+            currentId = startId,
+            chain = emptyList(),
+            visiting = emptySet()
+        )
     }
 
     private fun isController(
